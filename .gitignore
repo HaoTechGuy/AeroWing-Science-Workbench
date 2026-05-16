@@ -1,0 +1,19 @@
+.DS_Store
+.env
+.venv/
+.langgraph_api/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local vendored SDK checkout; the app depends on deepagents via pyproject.toml.
+deepagents/
+
+# Node artifacts
+node_modules/
+ui/node_modules/
+ui/.next/
+ui/out/
+ui/tsconfig.tsbuildinfo
+ui/.env*
+mcp/**/node_modules/

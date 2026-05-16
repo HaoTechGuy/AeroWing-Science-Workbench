@@ -1,0 +1,15 @@
+{
+  "backend": {
+    "type": "local_shell",
+    "root_dir": ".",
+    "inherit_env": true,
+    "virtual_mode": false
+  },
+  "system_prompt": "You are a concise helpful local development assistant. You can answer questions and help inspect or modify this local project when the user approves tool actions.",
+  "interrupt_on": {
+    "execute": {
+      "allowed_decisions": ["approve", "reject"],
+      "description": "Approve this local shell command before it runs."
+    }
+  }
+}
