@@ -673,8 +673,13 @@ def command_schema() -> dict[str, Any]:
         "commands": {
             "bootstrap": {
                 "description": "Attach a Git knowledge-base repository to the current project.",
-                "example": "kb attach --repo <git-url> --path .research-kb --clone --init-if-missing --json",
-                "next": ["kb config validate --json", "kb domain list --json"],
+                "example": "kb bootstrap --json",
+                "next": [
+                    "kb bootstrap --repo <git-url> --json",
+                    "kb attach --repo <git-url> --path .research-kb --clone --init-if-missing --json",
+                    "kb config validate --json",
+                    "kb domain list --json",
+                ],
             },
             "config.validate": {
                 "description": "Validate kb.yaml.",
@@ -1146,6 +1151,115 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if ok else EXIT_GENERIC
 
 
+def cmd_bootstrap(args: argparse.Namespace) -> int:
+    cwd = Path(args.cwd).resolve()
+    path_value = args.path
+    kb_path = Path(path_value)
+    resolved = kb_path if kb_path.is_absolute() else (cwd / kb_path).resolve()
+    attachment = read_attachment(cwd)
+
+    state = {
+        "cwd": str(cwd),
+        "path": path_value,
+        "kb_path": str(resolved),
+        "attachment_exists": attachment is not None,
+        "path_exists": resolved.exists(),
+        "config_exists": (resolved / "kb.yaml").exists(),
+        "repo_url_provided": bool(args.repo),
+    }
+    actions: list[dict[str, Any]] = []
+
+    if args.repo:
+        actions.append(
+            {
+                "id": "attach_kb_repo",
+                "actor": "agent",
+                "description": "Clone/attach the provided Git KB repo and initialize kb.yaml if missing.",
+                "command": f"kb attach --repo {args.repo} --path {path_value} --clone --init-if-missing --json",
+            }
+        )
+        actions.append(
+            {
+                "id": "validate_config",
+                "actor": "agent",
+                "description": "Validate the KB config after attach.",
+                "command": "kb config validate --json",
+            }
+        )
+        actions.append(
+            {
+                "id": "discover_domains",
+                "actor": "agent",
+                "description": "Show available configured domains.",
+                "command": "kb domain list --json",
+            }
+        )
+        status = "ready_to_attach"
+    elif attachment and state["config_exists"]:
+        actions.append({"id": "validate_config", "actor": "agent", "description": "Validate attached KB.", "command": "kb config validate --json"})
+        actions.append({"id": "discover_domains", "actor": "agent", "description": "Show available domains.", "command": "kb domain list --json"})
+        actions.append({"id": "sync_status", "actor": "agent", "description": "Inspect remote sync state if a remote exists.", "command": "kb sync status --fetch --json"})
+        status = "attached"
+    elif state["path_exists"] and state["config_exists"]:
+        actions.append({"id": "record_attachment", "actor": "agent", "description": "Record this KB path for the current project.", "command": f"kb attach --path {path_value} --json"})
+        actions.append({"id": "validate_config", "actor": "agent", "description": "Validate attached KB.", "command": "kb config validate --json"})
+        actions.append({"id": "discover_domains", "actor": "agent", "description": "Show available domains.", "command": "kb domain list --json"})
+        status = "local_kb_found"
+    else:
+        actions.append(
+            {
+                "id": "create_remote_repo",
+                "actor": "user",
+                "description": "Create an empty private Git repository for the KB, for example on GitHub/GitLab/Gitea.",
+                "required_input": "Git SSH or HTTPS URL for the new KB repository.",
+                "example": "git@github.com:<owner>/<kb-repo>.git",
+            }
+        )
+        actions.append(
+            {
+                "id": "rerun_bootstrap_with_repo",
+                "actor": "agent",
+                "description": "After the user provides the repo URL, rerun bootstrap with --repo.",
+                "command": f"kb bootstrap --repo <git-url> --path {path_value} --json",
+            }
+        )
+        actions.append(
+            {
+                "id": "fallback_local_init",
+                "actor": "agent",
+                "description": "If the user wants local-only testing without a remote, initialize a local KB.",
+                "command": f"kb init --path {path_value} --json && kb attach --path {path_value} --json",
+            }
+        )
+        status = "needs_repo_url"
+
+    data = {
+        "status": status,
+        "state": state,
+        "actions": actions,
+        "agent_message": bootstrap_agent_message(status, path_value),
+    }
+    print_result(args, "kb bootstrap", data)
+    return 0
+
+
+def bootstrap_agent_message(status: str, path_value: str) -> str:
+    if status == "needs_repo_url":
+        return (
+            "I can set up kb, but I need a Git repository URL for the knowledge base. "
+            "Please create an empty private repo, then give me its SSH/HTTPS URL. "
+            "If you only want local testing, I can initialize a local KB at "
+            f"{path_value}."
+        )
+    if status == "ready_to_attach":
+        return "I have a repo URL. Next I should attach it, validate kb.yaml, and list available domains."
+    if status == "local_kb_found":
+        return "I found a local KB path. Next I should record the attachment, validate config, and list domains."
+    if status == "attached":
+        return "kb is already attached. Next I should validate config, list domains, and check sync status."
+    return "I inspected kb bootstrap state and produced next actions."
+
+
 def cmd_tree(args: argparse.Namespace) -> int:
     ctx = load_context(args)
     domain_name = getattr(args, "domain", None)
@@ -1305,6 +1419,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_flags(doctor_p)
     doctor_p.add_argument("--skip-kb", action="store_true", help="only check local runtime dependencies")
     doctor_p.set_defaults(func=cmd_doctor)
+
+    bootstrap_p = sub.add_parser("bootstrap", help="tell an agent/user how to start using kb from current state")
+    add_common_flags(bootstrap_p)
+    bootstrap_p.add_argument("--repo", help="optional Git repository URL for the KB")
+    bootstrap_p.add_argument("--path", default=".research-kb", help="target KB attach path")
+    bootstrap_p.set_defaults(func=cmd_bootstrap)
 
     tree_p = sub.add_parser("tree", help="show a bounded KB tree")
     add_common_flags(tree_p)

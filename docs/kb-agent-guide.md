@@ -12,11 +12,27 @@ Use this guide when an AI agent needs to install, attach, inspect, write to, or 
 - Do not edit `kb.yaml` unless the user asks you to configure domains.
 - Run `kb sync status --fetch --json` before pull or push when a remote is configured.
 
-## Bootstrap From a Git URL
+## Bootstrap
+
+When the user says they want to use kb, start with:
+
+```bash
+kb bootstrap --json
+```
+
+Read `data.status`, `data.actions`, and `data.agent_message`. Use them to tell the user the next required step.
+
+Common states:
+
+- `needs_repo_url`: ask the user to create/provide a private Git repository URL, or offer local-only initialization.
+- `ready_to_attach`: run the attach command from `data.actions`.
+- `local_kb_found`: record attachment, validate config, and list domains.
+- `attached`: validate config, list domains, and inspect sync status.
 
 Given a private KB Git URL and a desired attach path:
 
 ```bash
+kb bootstrap --repo <PRIVATE_GIT_URL> --path .research-kb --json
 kb attach --repo <PRIVATE_GIT_URL> --path .research-kb --clone --init-if-missing --json
 kb config validate --json
 kb domain list --json

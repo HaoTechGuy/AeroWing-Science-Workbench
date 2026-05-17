@@ -194,9 +194,18 @@ kb schema --json
 kb doctor --skip-kb --json
 ```
 
+When the user says they want to use kb, start with:
+
+```bash
+kb bootstrap --json
+```
+
+If `kb bootstrap` returns `needs_repo_url`, ask the user to create/provide a private Git repository URL, or offer local-only initialization.
+
 Bootstrap a KB repo from a Git URL:
 
 ```bash
+kb bootstrap --repo <PRIVATE_GIT_URL> --path .research-kb --json
 kb attach --repo <PRIVATE_GIT_URL> --path .research-kb --clone --init-if-missing --json
 kb config validate --json
 kb domain list --json
@@ -363,6 +372,7 @@ Implemented:
 - `kb init`
 - `kb attach` with optional `--clone` and `--init-if-missing`
 - `kb status`
+- `kb bootstrap`
 - `kb schema`
 - `kb doctor`
 - `kb config get/validate`

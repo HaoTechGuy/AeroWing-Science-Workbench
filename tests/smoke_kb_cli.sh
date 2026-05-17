@@ -33,18 +33,27 @@ PY
 "$KB" schema commands --json > schema-commands.json
 "$KB" schema domain --json > schema-domain.json
 "$KB" doctor --skip-kb --json > doctor-runtime.json
+mkdir -p "$TMP/bootstrap-empty"
+(cd "$TMP/bootstrap-empty" && "$KB" bootstrap --json > "$TMP/bootstrap-no-repo.json")
+"$KB" bootstrap --repo "$TMP/bootstrap-url.git" --json > bootstrap-with-repo.json
 python3 - <<'PY'
 import json
 schema = json.load(open('schema.json'))
 commands = json.load(open('schema-commands.json'))
 domain = json.load(open('schema-domain.json'))
 doctor = json.load(open('doctor-runtime.json'))
+bootstrap_no_repo = json.load(open('bootstrap-no-repo.json'))
+bootstrap_with_repo = json.load(open('bootstrap-with-repo.json'))
 assert schema['ok'] is True
 assert 'commands' in schema['data']
 assert 'domain.append' in commands['data']['commands']
 assert 'root' in domain['data']['domain_schema']
 assert doctor['ok'] is True
 assert doctor['data']['ok'] is True
+assert bootstrap_no_repo['data']['status'] == 'needs_repo_url'
+assert any(action['actor'] == 'user' for action in bootstrap_no_repo['data']['actions'])
+assert bootstrap_with_repo['data']['status'] == 'ready_to_attach'
+assert any(action['id'] == 'attach_kb_repo' for action in bootstrap_with_repo['data']['actions'])
 PY
 
 "$KB" config validate --kb-path .research-kb --json > validate.json
