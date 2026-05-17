@@ -1,0 +1,25 @@
+{
+  "name": "@internagents/kb",
+  "version": "0.1.0",
+  "description": "Git-native, domain-driven research knowledge-base CLI prototype.",
+  "private": true,
+  "bin": {
+    "kb": "bin/kb"
+  },
+  "scripts": {
+    "check": "python3 scripts/check_kb_runtime.py",
+    "smoke": "bash tests/smoke_kb_cli.sh",
+    "postinstall": "python3 scripts/check_kb_runtime.py --postinstall"
+  },
+  "files": [
+    "bin/",
+    "tools/",
+    "scripts/",
+    "README.md",
+    "docs/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED"
+}

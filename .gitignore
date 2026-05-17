@@ -17,3 +17,14 @@ ui/out/
 ui/tsconfig.tsbuildinfo
 ui/.env*
 mcp/**/node_modules/
+
+# OMX/Codex local runtime artifacts
+.omx/
+.codex/*
+!.codex/agents/
+!.codex/agents/**
+!.codex/skills/
+!.codex/skills/**
+.codex/skills/.system/**
+!.codex/prompts/
+!.codex/prompts/**
