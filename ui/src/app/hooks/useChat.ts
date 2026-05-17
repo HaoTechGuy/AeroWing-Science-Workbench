@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import {
   type Message,
@@ -10,8 +10,10 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
 import type { TodoItem } from "@/app/types/types";
-import { useClient } from "@/providers/ClientProvider";
+import type { StreamConfig } from "@/lib/config";
+import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
+import { useStreamEventLayer } from "@/app/hooks/useStreamEventLayer";
 
 export type StateType = {
   messages: Message[];
@@ -27,15 +29,32 @@ export type StateType = {
 
 export function useChat({
   activeAssistant,
+  streamConfig,
   onHistoryRevalidate,
   thread,
 }: {
   activeAssistant: Assistant | null;
+  streamConfig: StreamConfig;
   onHistoryRevalidate?: () => void;
   thread?: UseStreamThread<StateType>;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
-  const client = useClient();
+  const remoteAgent = useRemoteAgent();
+  const client = remoteAgent.client;
+  const streamEventLayer = useStreamEventLayer(remoteAgent);
+
+  const streamSubmitOptions = useMemo(
+    () => remoteAgent.getStreamSubmitOptions(streamConfig),
+    [remoteAgent, streamConfig]
+  );
+
+  const withStreamSubmitOptions = useCallback(
+    <T extends object>(options: T) => ({
+      ...options,
+      ...streamSubmitOptions,
+    }),
+    [streamSubmitOptions]
+  );
 
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
@@ -56,19 +75,26 @@ export function useChat({
   const sendMessage = useCallback(
     (content: string) => {
       const newMessage: Message = { id: uuidv4(), type: "human", content };
+      streamEventLayer.clearStreamEvents();
       stream.submit(
         { messages: [newMessage] },
-        {
-          optimisticValues: (prev) => ({
+        withStreamSubmitOptions({
+          optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
           }),
           config: { ...(activeAssistant?.config ?? {}), recursion_limit: 100 },
-        }
+        })
       );
       // Update thread list immediately when sending a message
       onHistoryRevalidate?.();
     },
-    [stream, activeAssistant?.config, onHistoryRevalidate]
+    [
+      stream,
+      streamEventLayer,
+      withStreamSubmitOptions,
+      activeAssistant?.config,
+      onHistoryRevalidate,
+    ]
   );
 
   const runSingleStep = useCallback(
@@ -78,25 +104,32 @@ export function useChat({
       isRerunningSubagent?: boolean,
       optimisticMessages?: Message[]
     ) => {
+      streamEventLayer.clearStreamEvents();
       if (checkpoint) {
-        stream.submit(undefined, {
-          ...(optimisticMessages
-            ? { optimisticValues: { messages: optimisticMessages } }
-            : {}),
-          config: activeAssistant?.config,
-          checkpoint: checkpoint,
-          ...(isRerunningSubagent
-            ? { interruptAfter: ["tools"] }
-            : { interruptBefore: ["tools"] }),
-        });
+        stream.submit(
+          undefined,
+          withStreamSubmitOptions({
+            ...(optimisticMessages
+              ? { optimisticValues: { messages: optimisticMessages } }
+              : {}),
+            config: activeAssistant?.config,
+            checkpoint: checkpoint,
+            ...(isRerunningSubagent
+              ? { interruptAfter: ["tools"] }
+              : { interruptBefore: ["tools"] }),
+          })
+        );
       } else {
         stream.submit(
           { messages },
-          { config: activeAssistant?.config, interruptBefore: ["tools"] }
+          withStreamSubmitOptions({
+            config: activeAssistant?.config,
+            interruptBefore: ["tools"],
+          })
         );
       }
     },
-    [stream, activeAssistant?.config]
+    [stream, streamEventLayer, withStreamSubmitOptions, activeAssistant?.config]
   );
 
   const setFiles = useCallback(
@@ -104,26 +137,36 @@ export function useChat({
       if (!threadId) return;
       // TODO: missing a way how to revalidate the internal state
       // I think we do want to have the ability to externally manage the state
-      await client.threads.updateState(threadId, { values: { files } });
+      await remoteAgent.updateState(threadId, { files });
     },
-    [client, threadId]
+    [remoteAgent, threadId]
   );
 
   const continueStream = useCallback(
     (hasTaskToolCall?: boolean) => {
-      stream.submit(undefined, {
-        config: {
-          ...(activeAssistant?.config || {}),
-          recursion_limit: 100,
-        },
-        ...(hasTaskToolCall
-          ? { interruptAfter: ["tools"] }
-          : { interruptBefore: ["tools"] }),
-      });
+      streamEventLayer.clearStreamEvents();
+      stream.submit(
+        undefined,
+        withStreamSubmitOptions({
+          config: {
+            ...(activeAssistant?.config || {}),
+            recursion_limit: 100,
+          },
+          ...(hasTaskToolCall
+            ? { interruptAfter: ["tools"] }
+            : { interruptBefore: ["tools"] }),
+        })
+      );
       // Update thread list when continuing stream
       onHistoryRevalidate?.();
     },
-    [stream, activeAssistant?.config, onHistoryRevalidate]
+    [
+      stream,
+      streamEventLayer,
+      withStreamSubmitOptions,
+      activeAssistant?.config,
+      onHistoryRevalidate,
+    ]
   );
 
   const markCurrentThreadAsResolved = useCallback(() => {
@@ -134,11 +177,15 @@ export function useChat({
 
   const resumeInterrupt = useCallback(
     (value: any) => {
-      stream.submit(null, { command: { resume: value } });
+      streamEventLayer.clearStreamEvents();
+      stream.submit(
+        null,
+        withStreamSubmitOptions({ command: { resume: value } })
+      );
       // Update thread list when resuming from interrupt
       onHistoryRevalidate?.();
     },
-    [stream, onHistoryRevalidate]
+    [stream, streamEventLayer, withStreamSubmitOptions, onHistoryRevalidate]
   );
 
   const stopStream = useCallback(() => {
@@ -155,8 +202,11 @@ export function useChat({
     messages: stream.messages,
     isLoading: stream.isLoading,
     isThreadLoading: stream.isThreadLoading,
-    interrupt: stream.interrupt,
+    interrupt: stream.interrupt ?? streamEventLayer.interrupt,
     getMessagesMetadata: stream.getMessagesMetadata,
+    streamEvents: streamEventLayer.streamEvents,
+    clearStreamEvents: streamEventLayer.clearStreamEvents,
+    lastUpdateNamespace: streamEventLayer.lastUpdateNamespace,
     sendMessage,
     runSingleStep,
     continueStream,

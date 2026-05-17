@@ -18,6 +18,7 @@ import {
   FileIcon,
 } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
+import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
 import type {
   TodoItem,
   ToolCall,
@@ -110,6 +111,30 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     [handleSubmit, submitDisabled]
   );
 
+  const interruptValues = useMemo(() => {
+    if (!interrupt) return [];
+    const interrupts = Array.isArray(interrupt) ? interrupt : [interrupt];
+    return interrupts
+      .map((item: any) => item?.value)
+      .filter((value: unknown) => value && typeof value === "object");
+  }, [interrupt]);
+
+  const actionRequests = useMemo(() => {
+    return interruptValues.flatMap((value: any) =>
+      Array.isArray(value.action_requests) ? value.action_requests : []
+    ) as ActionRequest[];
+  }, [interruptValues]);
+
+  const reviewConfigs = useMemo(() => {
+    return interruptValues.flatMap((value: any) =>
+      Array.isArray(value.review_configs) ? value.review_configs : []
+    ) as ReviewConfig[];
+  }, [interruptValues]);
+
+  const interruptedToolNames = useMemo(() => {
+    return new Set(actionRequests.map((request) => request.name));
+  }, [actionRequests]);
+
   // TODO: can we make this part of the hook?
   const processedMessages = useMemo(() => {
     /*
@@ -149,14 +174,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
           toolCallsInMessage.push(...toolUseBlocks);
         }
         const toolCallsWithStatus = toolCallsInMessage.map(
-          (toolCall: {
-            id?: string;
-            function?: { name?: string; arguments?: unknown };
-            name?: string;
-            type?: string;
-            args?: unknown;
-            input?: unknown;
-          }) => {
+          (
+            toolCall: {
+              id?: string;
+              function?: { name?: string; arguments?: unknown };
+              name?: string;
+              type?: string;
+              args?: unknown;
+              input?: unknown;
+            },
+            toolCallIndex
+          ) => {
             const name =
               toolCall.function?.name ||
               toolCall.name ||
@@ -168,10 +196,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               toolCall.input ||
               {};
             return {
-              id: toolCall.id || `tool-${Math.random()}`,
+              id: toolCall.id || `${message.id}-tool-${toolCallIndex}`,
               name,
               args,
-              status: interrupt ? "interrupted" : ("pending" as const),
+              status: "pending" as const,
             } as ToolCall;
           }
         );
@@ -206,6 +234,30 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       }
     });
     const processedArray = Array.from(messageMap.values());
+
+    if (interrupt) {
+      const interruptTarget = [...processedArray]
+        .reverse()
+        .find((data) =>
+          data.toolCalls.some(
+            (toolCall) =>
+              toolCall.status === "pending" &&
+              (interruptedToolNames.size === 0 ||
+                interruptedToolNames.has(toolCall.name))
+          )
+        );
+
+      if (interruptTarget) {
+        interruptTarget.toolCalls = interruptTarget.toolCalls.map((toolCall) =>
+          toolCall.status === "pending" &&
+          (interruptedToolNames.size === 0 ||
+            interruptedToolNames.has(toolCall.name))
+            ? { ...toolCall, status: "interrupted" as const }
+            : toolCall
+        );
+      }
+    }
+
     return processedArray.map((data, index) => {
       const prevMessage = index > 0 ? processedArray[index - 1].message : null;
       return {
@@ -213,7 +265,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         showAvatar: data.message.type !== prevMessage?.type,
       };
     });
-  }, [messages, interrupt]);
+  }, [messages, interrupt, interruptedToolNames]);
 
   const groupedTodos = {
     in_progress: todos.filter((t) => t.status === "in_progress"),
@@ -226,20 +278,29 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
   // Parse out any action requests or review configs from the interrupt
   const actionRequestsMap: Map<string, ActionRequest> | null = useMemo(() => {
-    const actionRequests =
-      interrupt?.value && (interrupt.value as any)["action_requests"];
-    if (!actionRequests) return new Map<string, ActionRequest>();
     return new Map(actionRequests.map((ar: ActionRequest) => [ar.name, ar]));
-  }, [interrupt]);
+  }, [actionRequests]);
 
   const reviewConfigsMap: Map<string, ReviewConfig> | null = useMemo(() => {
-    const reviewConfigs =
-      interrupt?.value && (interrupt.value as any)["review_configs"];
-    if (!reviewConfigs) return new Map<string, ReviewConfig>();
     return new Map(
       reviewConfigs.map((rc: ReviewConfig) => [rc.actionName, rc])
     );
-  }, [interrupt]);
+  }, [reviewConfigs]);
+
+  const hasVisibleInterruptToolCall = useMemo(() => {
+    return processedMessages.some((data) =>
+      data.toolCalls.some(
+        (toolCall) =>
+          toolCall.status === "interrupted" &&
+          (interruptedToolNames.size === 0 ||
+            interruptedToolNames.has(toolCall.name))
+      )
+    );
+  }, [processedMessages, interruptedToolNames]);
+
+  const orphanActionRequests = useMemo(() => {
+    return hasVisibleInterruptToolCall ? [] : actionRequests;
+  }, [actionRequests, hasVisibleInterruptToolCall]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -281,6 +342,19 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   />
                 );
               })}
+              {orphanActionRequests.length > 0 && (
+                <div className="mt-4 flex w-full flex-col gap-3">
+                  {orphanActionRequests.map((actionRequest, index) => (
+                    <ToolApprovalInterrupt
+                      key={`${actionRequest.name}-${index}`}
+                      actionRequest={actionRequest}
+                      reviewConfig={reviewConfigsMap?.get(actionRequest.name)}
+                      onResume={resumeInterrupt}
+                      isLoading={isLoading}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>

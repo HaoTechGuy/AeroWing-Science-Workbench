@@ -5,7 +5,10 @@ import { useQueryState } from "nuqs";
 import { getConfig, StandaloneConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Assistant } from "@langchain/langgraph-sdk";
-import { ClientProvider, useClient } from "@/providers/ClientProvider";
+import {
+  RemoteAgentProvider,
+  useRemoteAgent,
+} from "@/providers/ClientProvider";
 import { MessagesSquare, SquarePen } from "lucide-react";
 import {
   ResizableHandle,
@@ -21,7 +24,7 @@ interface HomePageInnerProps {
 }
 
 function HomePageInner({ config }: HomePageInnerProps) {
-  const client = useClient();
+  const remoteAgent = useRemoteAgent();
   const [threadId, setThreadId] = useQueryState("threadId");
   const [sidebar, setSidebar] = useQueryState("sidebar");
 
@@ -30,64 +33,8 @@ function HomePageInner({ config }: HomePageInnerProps) {
   const [assistant, setAssistant] = useState<Assistant | null>(null);
 
   const fetchAssistant = useCallback(async () => {
-    const isUUID =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        config.assistantId
-      );
-
-    if (isUUID) {
-      // We should try to fetch the assistant directly with this UUID
-      try {
-        const data = await client.assistants.get(config.assistantId);
-        setAssistant(data);
-      } catch (error) {
-        console.error("Failed to fetch assistant:", error);
-        setAssistant({
-          assistant_id: config.assistantId,
-          graph_id: config.assistantId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          config: {},
-          metadata: {},
-          version: 1,
-          name: "Assistant",
-          context: {},
-        });
-      }
-    } else {
-      try {
-        // We should try to list out the assistants for this graph, and then use the default one.
-        // TODO: Paginate this search, but 100 should be enough for graph name
-        const assistants = await client.assistants.search({
-          graphId: config.assistantId,
-          limit: 100,
-        });
-        const defaultAssistant = assistants.find(
-          (assistant) => assistant.metadata?.["created_by"] === "system"
-        );
-        if (defaultAssistant === undefined) {
-          throw new Error("No default assistant found");
-        }
-        setAssistant(defaultAssistant);
-      } catch (error) {
-        console.error(
-          "Failed to find default assistant from graph_id: try setting the assistant_id directly:",
-          error
-        );
-        setAssistant({
-          assistant_id: config.assistantId,
-          graph_id: config.assistantId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          config: {},
-          metadata: {},
-          version: 1,
-          name: config.assistantId,
-          context: {},
-        });
-      }
-    }
-  }, [client, config.assistantId]);
+    setAssistant(await remoteAgent.resolveAssistant());
+  }, [remoteAgent]);
 
   useEffect(() => {
     fetchAssistant();
@@ -166,6 +113,7 @@ function HomePageInner({ config }: HomePageInnerProps) {
           >
             <ChatProvider
               activeAssistant={assistant}
+              streamConfig={config.stream}
               onHistoryRevalidate={() => mutateThreads?.()}
             >
               <ChatInterface assistant={assistant} />
@@ -212,12 +160,13 @@ function HomePageContent() {
   }
 
   return (
-    <ClientProvider
+    <RemoteAgentProvider
       deploymentUrl={config.deploymentUrl}
+      assistantId={config.assistantId}
       apiKey={langsmithApiKey}
     >
       <HomePageInner config={config} />
-    </ClientProvider>
+    </RemoteAgentProvider>
   );
 }
 

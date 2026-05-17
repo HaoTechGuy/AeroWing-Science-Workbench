@@ -1,5 +1,9 @@
 {
   "deploymentUrl": "http://127.0.0.1:2024",
   "assistantId": "agent",
-  "langsmithApiKey": ""
+  "langsmithApiKey": "",
+  "stream": {
+    "modes": ["messages-tuple", "updates", "values"],
+    "subgraphs": true
+  }
 }

@@ -1,7 +1,6 @@
 import useSWRInfinite from "swr/infinite";
 import type { Thread } from "@langchain/langgraph-sdk";
-import { Client } from "@langchain/langgraph-sdk";
-import { getConfig } from "@/lib/config";
+import { useRemoteAgent } from "@/providers/ClientProvider";
 
 export interface ThreadItem {
   id: string;
@@ -18,21 +17,11 @@ export function useThreads(props: {
   status?: Thread["status"];
   limit?: number;
 }) {
+  const remoteAgent = useRemoteAgent();
   const pageSize = props.limit || DEFAULT_PAGE_SIZE;
 
   return useSWRInfinite(
     (pageIndex: number, previousPageData: ThreadItem[] | null) => {
-      const config = getConfig();
-      const apiKey =
-        config?.langsmithApiKey ||
-        process.env.NEXT_PUBLIC_LANGSMITH_API_KEY ||
-        "";
-
-      if (!config) {
-        return null;
-      }
-
-      // If the previous page returned no items, we've reached the end
       if (previousPageData && previousPageData.length === 0) {
         return null;
       }
@@ -41,16 +30,13 @@ export function useThreads(props: {
         kind: "threads" as const,
         pageIndex,
         pageSize,
-        deploymentUrl: config.deploymentUrl,
-        assistantId: config.assistantId,
-        apiKey,
+        deploymentUrl: remoteAgent.url,
+        assistantId: remoteAgent.graphName,
         status: props?.status,
       };
     },
     async ({
-      deploymentUrl,
       assistantId,
-      apiKey,
       status,
       pageIndex,
       pageSize,
@@ -60,29 +46,12 @@ export function useThreads(props: {
       pageSize: number;
       deploymentUrl: string;
       assistantId: string;
-      apiKey: string;
       status?: Thread["status"];
     }) => {
-      const client = new Client({
-        apiUrl: deploymentUrl,
-        defaultHeaders: apiKey ? { "X-Api-Key": apiKey } : {},
-      });
-
-      // Check if assistantId is a UUID (deployed) or graph name (local)
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          assistantId
-        );
-
-      const threads = await client.threads.search({
+      const threads = await remoteAgent.searchThreads({
         limit: pageSize,
         offset: pageIndex * pageSize,
-        sortBy: "updated_at" as const,
-        sortOrder: "desc" as const,
         status,
-        // Only filter by assistant_id metadata for deployed graphs (UUIDs)
-        // Local dev graphs don't set this metadata
-        ...(isUUID ? { metadata: { assistant_id: assistantId } } : {}),
       });
 
       return threads.map((thread): ThreadItem => {
@@ -114,7 +83,6 @@ export function useThreads(props: {
             }
           }
         } catch {
-          // Fallback to thread ID
           title = `Thread ${thread.thread_id.slice(0, 8)}`;
         }
 
