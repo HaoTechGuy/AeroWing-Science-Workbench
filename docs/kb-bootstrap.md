@@ -1,5 +1,7 @@
 # KB Bootstrap Guide
 
+Alias: `docs/kb_bootstrap.md` is the short agent-facing entrypoint.
+
 This guide defines how a human or agent starts from a Git knowledge-base repository URL and reaches a configured local `.research-kb` attachment.
 
 ## Goal
