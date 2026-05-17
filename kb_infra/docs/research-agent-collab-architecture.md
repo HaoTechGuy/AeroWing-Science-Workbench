@@ -3,8 +3,8 @@
 > 版本：V1 技术选型草案  
 > 目标：为科研团队提供一个 Git-native、Agent-native、可追溯、可解耦的协作系统。  
 > 当前设计重点：**infra CLI / infra core** 与 **agent runtime backend** 的边界划分。
-> 执行拆分：MVP/PRD 见 `docs/research-agent-collab-prd.md`；CLI 合约见 `docs/kb-cli-spec.md`；Runtime 事件合约见 `docs/runtime-event-schema.md`。
-> 设计修正：`kb` client 不应写死 `experiment` / `proposal` 等领域命令；内容类型由 `kb.yaml` 的 `domains` 定义，CLI 提供通用 `domain` 与 `change` 原语。原文中的 `kb experiment ...` / `kb proposal ...` 示例应按 `docs/kb-cli-spec.md` 的 domain-driven 合约理解。
+> 执行拆分：MVP/PRD 见 `research-agent-collab-prd.md`；CLI 合约见 `kb-cli-spec.md`；Runtime 事件合约见 `runtime-event-schema.md`。
+> 设计修正：`kb` client 不应写死 `experiment` / `proposal` 等领域命令；内容类型由 `kb.yaml` 的 `domains` 定义，CLI 提供通用 `domain` 与 `change` 原语。原文中的 `kb experiment ...` / `kb proposal ...` 示例应按 `kb-cli-spec.md` 的 domain-driven 合约理解。
 
 ---
 

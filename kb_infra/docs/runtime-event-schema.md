@@ -2,7 +2,7 @@
 
 > Status: Draft 0.1  
 > Scope: V1 runtime integration after local `kb` CLI MVP.  
-> Parent architecture: `docs/research-agent-collab-architecture.md`
+> Parent architecture: `research-agent-collab-architecture.md`
 
 ## 1. Purpose
 

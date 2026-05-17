@@ -2,7 +2,7 @@
 
 > Status: Draft 0.2  
 > Scope: MVP local Git knowledge repository commands.  
-> Parent PRD: `docs/research-agent-collab-prd.md`
+> Parent PRD: `research-agent-collab-prd.md`
 
 ## 1. Contract Goals
 

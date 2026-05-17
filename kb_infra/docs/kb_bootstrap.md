@@ -5,7 +5,7 @@ This is the shortest agent-facing entrypoint for using `kb` from this repository
 The user should only need to say something like:
 
 ```text
-请查看 git@github.com:qzzqzzb/InternAgents.git 里的 docs/kb_bootstrap.md，按照里面的流程帮我配置 kb。
+请查看 git@github.com:qzzqzzb/InternAgents.git 里的 kb_infra/docs/kb_bootstrap.md，按照里面的流程帮我配置 kb。
 ```
 
 After receiving that instruction, do not ask the user for more details upfront. First execute the bootstrap discovery flow below, then ask only for the specific missing input reported by `kb bootstrap`.
@@ -16,7 +16,7 @@ If this repository is not already present locally:
 
 ```bash
 git clone git@github.com:qzzqzzb/InternAgents.git
-cd InternAgents
+cd InternAgents/kb_infra
 ```
 
 If it is already present, enter the existing checkout.

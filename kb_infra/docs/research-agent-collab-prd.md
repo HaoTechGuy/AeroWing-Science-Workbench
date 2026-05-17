@@ -1,7 +1,7 @@
 # Research Agent Collaboration PRD / MVP Scope
 
 > Status: Draft 0.2  
-> Parent architecture: `docs/research-agent-collab-architecture.md`  
+> Parent architecture: `research-agent-collab-architecture.md`  
 > Goal: define a configurable, domain-driven `kb` client for foundational knowledge operations and multi-end collaboration.
 
 ## 1. Product Thesis
