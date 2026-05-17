@@ -15,6 +15,7 @@ import { ToolCall, ActionRequest, ReviewConfig } from "@/app/types/types";
 import { cn } from "@/lib/utils";
 import { LoadExternalComponent } from "@langchain/langgraph-sdk/react-ui";
 import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
+import { getToolDisplayName } from "@/app/utils/toolDisplayNames";
 
 interface ToolCallBoxProps {
   toolCall: ToolCall;
@@ -45,9 +46,10 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
       {}
     );
 
-    const { name, args, result, status } = useMemo(() => {
+    const { displayName, args, result, status } = useMemo(() => {
+      const rawName = toolCall.name || "";
       return {
-        name: toolCall.name || "Unknown Tool",
+        displayName: getToolDisplayName(rawName),
         args: toolCall.args || {},
         result: toolCall.result,
         status: toolCall.status || "completed",
@@ -122,7 +124,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
             <div className="flex items-center gap-2">
               {statusIcon}
               <span className="text-[15px] font-medium tracking-[-0.6px] text-foreground">
-                {name}
+                {displayName}
               </span>
             </div>
             {hasContent &&

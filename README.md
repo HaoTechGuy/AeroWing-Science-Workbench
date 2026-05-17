@@ -156,6 +156,29 @@ The browser talks to the LangGraph API through the LangGraph JavaScript SDK. It
 does not call a Python `RemoteAgent`, and it does not require LangSmith for
 local development.
 
+### Tool Display Names
+
+Backend tool names stay unchanged because LangGraph still needs the original
+names for tool-call matching, interrupt review, and resume payloads. The Web UI
+maps common tool names to Chinese labels only at render time.
+
+The display mapping lives in:
+
+```text
+ui/src/app/utils/toolDisplayNames.ts
+```
+
+Current examples:
+
+```text
+general-purpose -> 通用科研助手
+execute -> 执行命令
+write_todos / writetodo / writeTodo -> 更新待办
+task -> 调用子助手
+read_file / write_file / edit_file -> 读取文件 / 写入文件 / 编辑文件
+ls / glob / grep -> 查看目录 / 搜索文件 / 搜索文本
+```
+
 ## Manual Backend Startup
 
 Use this fallback when debugging the LangGraph server directly:

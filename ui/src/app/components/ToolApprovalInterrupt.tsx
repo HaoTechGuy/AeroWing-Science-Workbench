@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle, Check, X, Pencil } from "lucide-react";
 import type { ActionRequest, ReviewConfig } from "@/app/types/types";
 import { cn } from "@/lib/utils";
+import { getToolDisplayName } from "@/app/utils/toolDisplayNames";
 
 interface ToolApprovalInterruptProps {
   actionRequest: ActionRequest;
@@ -24,6 +25,7 @@ export function ToolApprovalInterrupt({
   const [isEditing, setIsEditing] = useState(false);
   const [editedArgs, setEditedArgs] = useState<Record<string, unknown>>({});
   const [showRejectionInput, setShowRejectionInput] = useState(false);
+  const toolDisplayName = getToolDisplayName(actionRequest.name);
 
   const allowedDecisions = reviewConfig?.allowedDecisions ?? [
     "approve",
@@ -131,7 +133,7 @@ export function ToolApprovalInterrupt({
             Tool
           </span>
           <p className="mt-1 font-mono text-sm font-medium text-foreground">
-            {actionRequest.name}
+            {toolDisplayName}
           </p>
         </div>
 
