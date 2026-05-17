@@ -2,6 +2,7 @@
 .env
 .venv/
 .langgraph_api/
+.internagents/
 __pycache__/
 *.py[cod]
 *.egg-info/

@@ -35,6 +35,43 @@ DISCOVERYOS_ENV_FILE="/Users/qszhang/Documents/codex/DiscoveryOS/.env.local"
 If `DEEPAGENT_MODEL` is empty, the agent follows DiscoveryOS
 `LLM_PROVIDER=openrouter` and `LLM_MODEL`.
 
+## Recommended: One Command Local Dev
+
+From the repository root:
+
+```bash
+./scripts/dev.sh
+```
+
+The script:
+
+- creates `.venv` if needed
+- installs the Python project with `pip install -e .`
+- copies `.env.example` to `.env` if `.env` does not already exist
+- installs UI dependencies when `ui/node_modules` is missing
+- starts the LangGraph API on <http://127.0.0.1:2024>
+- starts the InternAgents UI on <http://127.0.0.1:3000>
+- opens <http://127.0.0.1:3000/?assistantId=agent>
+
+If a healthy backend or frontend is already running on those ports, the script
+reuses it instead of starting a duplicate. Press `Ctrl+C` to stop only the
+processes started by the script.
+
+Runtime logs are written to:
+
+```text
+.internagents/logs/backend.log
+.internagents/logs/ui.log
+```
+
+Useful overrides:
+
+```bash
+INTERNAGENTS_BACKEND_PORT=2025 INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
+INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
+INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
+```
+
 ## DeepAgent Config
 
 Runtime settings for `create_deep_agent(...)` live in:
@@ -67,7 +104,7 @@ and only interrupts before shell execution:
 will not show approval cards by default. The built-in DeepAgents middleware
 stack is still assembled by `create_deep_agent(...)`.
 
-## Terminal 1: Start the Local DeepAgent API
+## Manual Fallback: Start the Local DeepAgent API
 
 ```bash
 cd /Users/qszhang/Documents/codex/deepagent
@@ -84,7 +121,7 @@ The LangGraph API should be available at:
 - <http://127.0.0.1:2024/ok>
 - <http://127.0.0.1:2024/docs>
 
-## Terminal 2: Start InternAgents UI
+## Manual Fallback: Start InternAgents UI
 
 ```bash
 cd /Users/qszhang/Documents/codex/deepagent/ui
@@ -104,7 +141,11 @@ The default values are:
 {
   "deploymentUrl": "http://127.0.0.1:2024",
   "assistantId": "agent",
-  "langsmithApiKey": ""
+  "langsmithApiKey": "",
+  "stream": {
+    "modes": ["messages-tuple", "values", "updates"],
+    "subgraphs": true
+  }
 }
 ```
 
