@@ -3,21 +3,21 @@
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useQueryState } from "nuqs";
 import { getConfig, StandaloneConfig } from "@/lib/config";
-import { Button } from "@/components/ui/button";
 import { Assistant } from "@langchain/langgraph-sdk";
 import {
   RemoteAgentProvider,
   useRemoteAgent,
 } from "@/providers/ClientProvider";
-import { MessagesSquare, SquarePen } from "lucide-react";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { ThreadList } from "@/app/components/ThreadList";
 import { ChatProvider } from "@/providers/ChatProvider";
 import { ChatInterface } from "@/app/components/ChatInterface";
+import { WorkspacePanel } from "@/app/components/WorkspacePanel";
+import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
+import type { WorkspaceEntry } from "@/app/types/workspace";
 
 interface HomePageInnerProps {
   config: StandaloneConfig;
@@ -25,8 +25,8 @@ interface HomePageInnerProps {
 
 function HomePageInner({ config }: HomePageInnerProps) {
   const remoteAgent = useRemoteAgent();
-  const [threadId, setThreadId] = useQueryState("threadId");
-  const [sidebar, setSidebar] = useQueryState("sidebar");
+  const [, setThreadId] = useQueryState("threadId");
+  const [selectedFilePath, setSelectedFilePath] = useQueryState("file");
 
   const [mutateThreads, setMutateThreads] = useState<(() => void) | null>(null);
   const [interruptCount, setInterruptCount] = useState(0);
@@ -40,42 +40,25 @@ function HomePageInner({ config }: HomePageInnerProps) {
     fetchAssistant();
   }, [fetchAssistant]);
 
+  const handleFileSelect = useCallback(
+    async (entry: WorkspaceEntry) => {
+      if (entry.kind === "file") {
+        await setSelectedFilePath(entry.path);
+      }
+    },
+    [setSelectedFilePath]
+  );
+
   return (
     <div className="flex h-screen flex-col">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-semibold">InternAgents</h1>
-          {!sidebar && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSidebar("1")}
-              className="rounded-md border border-border bg-card p-3 text-foreground hover:bg-accent"
-            >
-              <MessagesSquare className="mr-2 h-4 w-4" />
-              Threads
-              {interruptCount > 0 && (
-                <span className="ml-2 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] text-destructive-foreground">
-                  {interruptCount}
-                </span>
-              )}
-            </Button>
+          {interruptCount > 0 && (
+            <div className="rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">
+              {interruptCount} interrupted
+            </div>
           )}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="text-sm text-muted-foreground">
-            <span className="font-medium">Assistant:</span> {config.assistantId}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setThreadId(null)}
-            disabled={!threadId}
-            className="border-[#2F6868] bg-[#2F6868] text-white hover:bg-[#2F6868]/80"
-          >
-            <SquarePen className="mr-2 h-4 w-4" />
-            New Thread
-          </Button>
         </div>
       </header>
 
@@ -84,32 +67,32 @@ function HomePageInner({ config }: HomePageInnerProps) {
           direction="horizontal"
           autoSaveId="standalone-chat"
         >
-          {sidebar && (
-            <>
-              <ResizablePanel
-                id="thread-history"
-                order={1}
-                defaultSize={25}
-                minSize={20}
-                className="relative min-w-[380px]"
-              >
-                <ThreadList
-                  onThreadSelect={async (id) => {
-                    await setThreadId(id);
-                  }}
-                  onMutateReady={(fn) => setMutateThreads(() => fn)}
-                  onClose={() => setSidebar(null)}
-                  onInterruptCountChange={setInterruptCount}
-                />
-              </ResizablePanel>
-              <ResizableHandle />
-            </>
-          )}
+          <ResizablePanel
+            id="workspace"
+            order={1}
+            defaultSize={24}
+            minSize={18}
+            className="relative min-w-[300px] border-r border-border"
+          >
+            <WorkspacePanel
+              selectedFilePath={selectedFilePath}
+              onFileSelect={handleFileSelect}
+              onThreadSelect={async (id) => {
+                await setThreadId(id);
+              }}
+              onNewThread={() => setThreadId(null)}
+              onMutateReady={(fn) => setMutateThreads(() => fn)}
+              onInterruptCountChange={setInterruptCount}
+            />
+          </ResizablePanel>
+          <ResizableHandle />
 
           <ResizablePanel
             id="chat"
-            className="relative flex flex-col"
+            className="relative flex min-w-[420px] flex-col"
             order={2}
+            defaultSize={45}
+            minSize={32}
           >
             <ChatProvider
               activeAssistant={assistant}
@@ -118,6 +101,16 @@ function HomePageInner({ config }: HomePageInnerProps) {
             >
               <ChatInterface assistant={assistant} />
             </ChatProvider>
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel
+            id="viewer"
+            order={3}
+            defaultSize={31}
+            minSize={22}
+            className="relative min-w-[320px] border-l border-border"
+          >
+            <WorkspaceViewer selectedPath={selectedFilePath} />
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>

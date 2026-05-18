@@ -30,6 +30,57 @@ export function extractStringFromMessageContent(message: Message): string {
     : "";
 }
 
+export function extractVisibleStringFromMessageContent(message: Message): string {
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+
+  if (!Array.isArray(message.content)) {
+    return "";
+  }
+
+  return message.content
+    .filter(
+      (c: unknown) =>
+        (typeof c === "object" &&
+          c !== null &&
+          "type" in c &&
+          (c as { type: string }).type === "text") ||
+        typeof c === "string"
+    )
+    .map((c: unknown) =>
+      typeof c === "string"
+        ? c
+        : typeof c === "object" && c !== null && "text" in c
+        ? (c as { text?: string }).text || ""
+        : ""
+    )
+    .filter((text) => !text.trimStart().startsWith("<attachment "))
+    .join("");
+}
+
+export function extractImageUrlsFromMessageContent(message: Message): string[] {
+  if (!Array.isArray(message.content)) {
+    return [];
+  }
+
+  return message.content
+    .filter(
+      (block: unknown) =>
+        typeof block === "object" &&
+        block !== null &&
+        "type" in block &&
+        (block as { type: string }).type === "image_url" &&
+        "image_url" in block
+    )
+    .map((block: unknown) => {
+      const imageUrl = (block as { image_url?: string | { url?: string } })
+        .image_url;
+      return typeof imageUrl === "string" ? imageUrl : imageUrl?.url || "";
+    })
+    .filter(Boolean);
+}
+
 export function extractSubAgentContent(data: unknown): string {
   if (typeof data === "string") {
     return data;

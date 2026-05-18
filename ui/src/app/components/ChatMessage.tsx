@@ -4,7 +4,9 @@ import React, { useMemo, useState, useCallback } from "react";
 import { SubAgentIndicator } from "@/app/components/SubAgentIndicator";
 import { ToolCallBox } from "@/app/components/ToolCallBox";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
+import { FileIcon } from "lucide-react";
 import type {
+  ChatAttachment,
   SubAgent,
   ToolCall,
   ActionRequest,
@@ -12,8 +14,10 @@ import type {
 } from "@/app/types/types";
 import { Message } from "@langchain/langgraph-sdk";
 import {
+  extractImageUrlsFromMessageContent,
   extractSubAgentContent,
   extractStringFromMessageContent,
+  extractVisibleStringFromMessageContent,
 } from "@/app/utils/utils";
 import { cn } from "@/lib/utils";
 
@@ -42,8 +46,25 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     graphId,
   }) => {
     const isUser = message.type === "human";
-    const messageContent = extractStringFromMessageContent(message);
+    const messageContent = isUser
+      ? extractVisibleStringFromMessageContent(message)
+      : extractStringFromMessageContent(message);
+    const imageUrls = useMemo(
+      () => (isUser ? extractImageUrlsFromMessageContent(message) : []),
+      [isUser, message]
+    );
+    const attachments = useMemo(() => {
+      const rawAttachments = message.additional_kwargs?.attachments;
+      return Array.isArray(rawAttachments)
+        ? (rawAttachments as ChatAttachment[])
+        : [];
+    }, [message.additional_kwargs]);
     const hasContent = messageContent && messageContent.trim() !== "";
+    const visibleFileAttachments = attachments.filter(
+      (attachment) => attachment.kind !== "image"
+    );
+    const hasUserAttachments =
+      isUser && (imageUrls.length > 0 || visibleFileAttachments.length > 0);
     const hasToolCalls = toolCalls.length > 0;
     const subAgents = useMemo(() => {
       return toolCalls
@@ -120,6 +141,27 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <MarkdownContent content={messageContent} />
                 ) : null}
               </div>
+            </div>
+          )}
+          {hasUserAttachments && (
+            <div className="mt-2 flex flex-wrap justify-end gap-2">
+              {imageUrls.map((imageUrl, index) => (
+                <img
+                  key={`${message.id}-image-${index}`}
+                  src={imageUrl}
+                  alt=""
+                  className="max-h-44 max-w-56 rounded-md border border-border object-contain"
+                />
+              ))}
+              {visibleFileAttachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="flex max-w-56 items-center gap-2 rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground"
+                >
+                  <FileIcon className="h-4 w-4 shrink-0" />
+                  <span className="min-w-0 truncate">{attachment.name}</span>
+                </div>
+              ))}
             </div>
           )}
           {hasToolCalls && (

@@ -9,7 +9,7 @@ import {
 } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
-import type { TodoItem } from "@/app/types/types";
+import type { ChatAttachment, TodoItem } from "@/app/types/types";
 import type { StreamConfig } from "@/lib/config";
 import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
@@ -26,6 +26,73 @@ export type StateType = {
   };
   ui?: any;
 };
+
+type LangGraphContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: string | { url: string; detail?: "auto" | "low" | "high" } };
+
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function attachmentMetadata(attachments: ChatAttachment[]) {
+  return attachments.map((attachment) => ({
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    kind: attachment.kind,
+    truncated: attachment.truncated,
+    error: attachment.error,
+  }));
+}
+
+function buildMessageContent(content: string, attachments: ChatAttachment[]) {
+  const validAttachments = attachments.filter((attachment) => !attachment.error);
+  if (validAttachments.length === 0) {
+    return content;
+  }
+
+  const blocks: LangGraphContentBlock[] = [
+    {
+      type: "text",
+      text: content.trim() || "请查看附件。",
+    },
+  ];
+
+  for (const attachment of validAttachments) {
+    if (attachment.kind === "image" && attachment.dataUrl) {
+      blocks.push({
+        type: "image_url",
+        image_url: { url: attachment.dataUrl },
+      });
+      continue;
+    }
+
+    if (attachment.kind === "text" && attachment.text !== undefined) {
+      blocks.push({
+        type: "text",
+        text: [
+          `<attachment name="${attachment.name}" mime_type="${attachment.mimeType}" size="${formatAttachmentSize(attachment.size)}">`,
+          attachment.truncated
+            ? `${attachment.text}\n\n[Attachment truncated before sending.]`
+            : attachment.text,
+          "</attachment>",
+        ].join("\n"),
+      });
+      continue;
+    }
+
+    blocks.push({
+      type: "text",
+      text: `[附件: ${attachment.name}, type=${attachment.mimeType || "unknown"}, size=${formatAttachmentSize(attachment.size)}. 二进制内容未内嵌。]`,
+    });
+  }
+
+  return blocks;
+}
 
 export function useChat({
   activeAssistant,
@@ -73,8 +140,16 @@ export function useChat({
   });
 
   const sendMessage = useCallback(
-    (content: string) => {
-      const newMessage: Message = { id: uuidv4(), type: "human", content };
+    (content: string, attachments: ChatAttachment[] = []) => {
+      const newMessage: Message = {
+        id: uuidv4(),
+        type: "human",
+        content: buildMessageContent(content, attachments) as Message["content"],
+        additional_kwargs:
+          attachments.length > 0
+            ? { attachments: attachmentMetadata(attachments) }
+            : undefined,
+      };
       streamEventLayer.clearStreamEvents();
       stream.submit(
         { messages: [newMessage] },

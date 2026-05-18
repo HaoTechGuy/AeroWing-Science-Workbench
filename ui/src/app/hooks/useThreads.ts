@@ -83,7 +83,7 @@ export function useThreads(props: {
             }
           }
         } catch {
-          title = `Thread ${thread.thread_id.slice(0, 8)}`;
+          title = `会话 ${thread.thread_id.slice(0, 8)}`;
         }
 
         return {

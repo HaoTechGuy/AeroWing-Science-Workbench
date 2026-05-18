@@ -16,6 +16,9 @@ import {
   Clock,
   Circle,
   FileIcon,
+  ImagePlus,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
@@ -24,6 +27,7 @@ import type {
   ToolCall,
   ActionRequest,
   ReviewConfig,
+  ChatAttachment,
 } from "@/app/types/types";
 import { Assistant, Message } from "@langchain/langgraph-sdk";
 import { extractStringFromMessageContent } from "@/app/utils/utils";
@@ -34,6 +38,96 @@ import { FilesPopover } from "@/app/components/TasksFilesSidebar";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
+}
+
+const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
+const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
+
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  "csv",
+  "css",
+  "html",
+  "js",
+  "json",
+  "jsx",
+  "md",
+  "mdx",
+  "py",
+  "sh",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "xml",
+  "yaml",
+  "yml",
+]);
+
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function createAttachmentId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function isTextAttachment(file: File): boolean {
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  return (
+    file.type.startsWith("text/") ||
+    TEXT_ATTACHMENT_EXTENSIONS.has(extension)
+  );
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function prepareAttachment(file: File): Promise<ChatAttachment> {
+  const baseAttachment = {
+    id: createAttachmentId(),
+    name: file.name,
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+  };
+
+  if (file.type.startsWith("image/")) {
+    if (file.size > MAX_IMAGE_ATTACHMENT_SIZE) {
+      return {
+        ...baseAttachment,
+        kind: "image",
+        error: "图片超过 8 MB",
+      };
+    }
+
+    return {
+      ...baseAttachment,
+      kind: "image",
+      dataUrl: await readAsDataUrl(file),
+    };
+  }
+
+  if (isTextAttachment(file)) {
+    const slice = file.slice(0, MAX_TEXT_ATTACHMENT_SIZE);
+    return {
+      ...baseAttachment,
+      kind: "text",
+      text: await slice.text(),
+      truncated: file.size > MAX_TEXT_ATTACHMENT_SIZE,
+    };
+  }
+
+  return {
+    ...baseAttachment,
+    kind: "file",
+  };
 }
 
 const getStatusIcon = (status: TodoItem["status"], className?: string) => {
@@ -66,8 +160,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const { scrollRef, contentRef } = useStickToBottom();
 
   const {
@@ -86,6 +183,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   } = useChatContext();
 
   const submitDisabled = isLoading || !assistant;
+  const hasSendableAttachments = attachments.some(
+    (attachment) => !attachment.error
+  );
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -93,12 +193,38 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         e.preventDefault();
       }
       const messageText = input.trim();
-      if (!messageText || isLoading || submitDisabled) return;
-      sendMessage(messageText);
+      const sendableAttachments = attachments.filter(
+        (attachment) => !attachment.error
+      );
+      if (
+        (!messageText && sendableAttachments.length === 0) ||
+        isLoading ||
+        submitDisabled
+      ) {
+        return;
+      }
+      sendMessage(messageText, sendableAttachments);
       setInput("");
+      setAttachments([]);
     },
-    [input, isLoading, sendMessage, setInput, submitDisabled]
+    [attachments, input, isLoading, sendMessage, setInput, submitDisabled]
   );
+
+  const handleAttachmentFiles = useCallback(async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []);
+    if (files.length === 0) return;
+
+    const preparedAttachments = await Promise.all(
+      files.map((file) => prepareAttachment(file))
+    );
+    setAttachments((current) => [...current, ...preparedAttachments]);
+  }, []);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id)
+    );
+  }, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -578,22 +704,109 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
             onSubmit={handleSubmit}
             className="flex flex-col"
           >
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                handleAttachmentFiles(event.currentTarget.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                handleAttachmentFiles(event.currentTarget.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 border-b border-border px-[18px] py-2">
+                {attachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className={cn(
+                      "flex min-w-0 max-w-full items-center gap-2 rounded-md border px-2 py-1.5 text-xs",
+                      attachment.error
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-border bg-muted text-foreground"
+                    )}
+                  >
+                    {attachment.kind === "image" && attachment.dataUrl ? (
+                      <img
+                        src={attachment.dataUrl}
+                        alt=""
+                        className="h-7 w-7 shrink-0 rounded object-cover"
+                      />
+                    ) : (
+                      <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="min-w-0 max-w-[180px] truncate">
+                      {attachment.name}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {attachment.error || formatAttachmentSize(attachment.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(attachment.id)}
+                      className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                      aria-label={`移除 ${attachment.name}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={isLoading ? "Running..." : "Write your message..."}
-              className="font-inherit field-sizing-content flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[14px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary"
-              rows={1}
+              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary"
+              rows={2}
             />
-            <div className="flex justify-between gap-2 p-3">
+            <div className="flex items-center justify-between gap-2 p-3">
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={submitDisabled}
+                  aria-label="添加图片"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={submitDisabled}
+                  aria-label="添加附件"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+              </div>
               <div className="flex justify-end gap-2">
                 <Button
                   type={isLoading ? "button" : "submit"}
                   variant={isLoading ? "destructive" : "default"}
                   onClick={isLoading ? stopStream : handleSubmit}
-                  disabled={!isLoading && (submitDisabled || !input.trim())}
+                  disabled={
+                    !isLoading &&
+                    (submitDisabled || (!input.trim() && !hasSendableAttachments))
+                  }
                 >
                   {isLoading ? (
                     <>

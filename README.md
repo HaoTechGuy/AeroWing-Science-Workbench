@@ -21,6 +21,19 @@ The repository includes:
 - `ui/`: InternAgents Next.js web UI
 - `scripts/dev.sh`: one-command local development launcher
 
+## Current UI Direction
+
+The web UI is moving toward a three-panel local research workspace:
+
+- left panel: `工作区` file tree on top and `会话` history below
+- middle panel: the existing agent chat experience
+- right panel: a file viewer that previews selected Markdown, text, and PDF
+  files from the local workspace
+
+The file tree and viewer are intentionally separate from the chat components so
+the agent interaction flow can keep evolving independently from workspace
+navigation.
+
 ## Quick Start
 
 From the repository root:
