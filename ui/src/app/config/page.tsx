@@ -454,7 +454,7 @@ export default function ConfigPage() {
               <div className="min-w-0">
                 <h2 className="text-base font-semibold">模型</h2>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  使用 OpenRouter 连接模型。模型和 key 会保存在本地配置中。
+                  默认使用上海人工智能实验室研发的集思系统，为每个问题自动选择最佳模型进行回答。
                 </div>
               </div>
             </div>
