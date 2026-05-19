@@ -26,11 +26,15 @@ import {
 } from "@/lib/theme";
 
 type AuthorizationMode = "auto" | "write" | "all";
+type ModelSelectionMode = "auto" | "manual";
 
 interface ConfigResponse {
   configPath: string;
   envPath: string;
   model: string;
+  modelSelectionMode: ModelSelectionMode;
+  effectiveModel?: string;
+  autoModel?: string;
   openrouterApiKeySet: boolean;
   openrouterApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
@@ -58,10 +62,32 @@ const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
   model: "deepseek/deepseek-v4-flash",
+  modelSelectionMode: "auto",
+  effectiveModel: "openrouter/auto",
+  autoModel: "openrouter/auto",
   openrouterApiKeySet: false,
   openrouterApiKeyPreview: "",
   authorizationMode: "auto",
 };
+
+const MODEL_SELECTION_OPTIONS: Array<{
+  id: ModelSelectionMode;
+  title: string;
+  badge?: string;
+  description: string;
+}> = [
+  {
+    id: "auto",
+    title: "自动模型选择",
+    badge: "推荐",
+    description: "由集思根据问题自动选择合适模型。",
+  },
+  {
+    id: "manual",
+    title: "手动指定模型",
+    description: "固定使用下方选择或填写的模型。",
+  },
+];
 
 const JISI_MODEL_OPTIONS: Array<{
   id: string;
@@ -189,6 +215,7 @@ export default function ConfigPage() {
   const hasChanges = useMemo(() => {
     return (
       config.model !== savedConfig.model ||
+      config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode ||
       apiKeyDraft.trim().length > 0
     );
@@ -196,15 +223,17 @@ export default function ConfigPage() {
     apiKeyDraft,
     config.authorizationMode,
     config.model,
+    config.modelSelectionMode,
     savedConfig.authorizationMode,
     savedConfig.model,
+    savedConfig.modelSelectionMode,
   ]);
   const selectedJisiModel = useMemo(
     () => JISI_MODEL_OPTIONS.find((option) => option.id === config.model),
     [config.model]
   );
   const canApplyWhenIdle = !isBusy;
-  const canApplyNow = !isBusy && !hasChanges;
+  const canApplyNow = !isBusy;
 
   async function loadConfig() {
     setLoading(true);
@@ -231,7 +260,10 @@ export default function ConfigPage() {
     }
   }
 
-  async function saveConfig(): Promise<boolean> {
+  async function saveConfig(
+    options: { scheduleIdle?: boolean } = {}
+  ): Promise<boolean> {
+    const scheduleIdle = options.scheduleIdle ?? true;
     setSaving(true);
     setError(null);
     try {
@@ -240,6 +272,7 @@ export default function ConfigPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: config.model,
+          modelSelectionMode: config.modelSelectionMode,
           openrouterApiKey: apiKeyDraft.trim(),
           authorizationMode: config.authorizationMode,
         }),
@@ -255,8 +288,10 @@ export default function ConfigPage() {
       setRequiresRestart(true);
       setBackendStatus(null);
       setRestartResult(null);
-      setAutoRestart(true);
-      toast.success(payload.message || "配置已保存，将在空闲时自动应用");
+      setAutoRestart(scheduleIdle);
+      toast.success(
+        scheduleIdle ? "配置已保存，将在空闲时自动应用" : "配置已保存"
+      );
       return true;
     } catch (saveError) {
       const message =
@@ -337,16 +372,14 @@ export default function ConfigPage() {
   }
 
   async function applyWhenIdle() {
-    if (hasChanges) {
-      await saveConfig();
-      return;
-    }
+    await saveConfig({ scheduleIdle: true });
+  }
 
-    setRequiresRestart(true);
-    setBackendStatus(null);
-    setRestartResult(null);
-    setAutoRestart(true);
-    toast.success("将在后台空闲时自动应用当前配置");
+  async function applyNow() {
+    const saved = await saveConfig({ scheduleIdle: false });
+    if (saved) {
+      await restartBackendNow({ manual: true });
+    }
   }
 
   function updateTheme(nextTheme: ThemeMode) {
@@ -433,13 +466,9 @@ export default function ConfigPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => restartBackendNow({ manual: true })}
+            onClick={() => void applyNow()}
             disabled={!canApplyNow}
-            title={
-              hasChanges
-                ? "请先保存当前配置，再立即应用。"
-                : "立即重启后台并加载当前配置。"
-            }
+            title="保存配置并立即应用。"
             className="h-9"
           >
             {restarting ? (
@@ -544,27 +573,16 @@ export default function ConfigPage() {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="flex flex-wrap items-end justify-between gap-2">
-                    <div>
-                      <Label>集思国产模型</Label>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        选择集思系统中可用的国产模型；也可以在下方手动填写模型 ID。
-                      </div>
+                  <div>
+                    <Label>模型选择方式</Label>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      推荐使用自动选择；需要固定模型时再切换到手动。
                     </div>
-                    {selectedJisiModel ? (
-                      <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
-                        当前：{selectedJisiModel.title}
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                        当前：自定义模型
-                      </span>
-                    )}
                   </div>
 
-                  <div className="grid gap-1.5 md:grid-cols-2">
-                    {JISI_MODEL_OPTIONS.map((option) => {
-                      const active = config.model === option.id;
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {MODEL_SELECTION_OPTIONS.map((option) => {
+                      const active = config.modelSelectionMode === option.id;
                       return (
                         <button
                           key={option.id}
@@ -572,24 +590,19 @@ export default function ConfigPage() {
                           onClick={() =>
                             setConfig((current) => ({
                               ...current,
-                              model: option.id,
+                              modelSelectionMode: option.id,
                             }))
                           }
                           className={cn(
-                            "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                            "rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
                             active
                               ? "border-primary ring-2 ring-primary/20"
                               : "border-border"
                           )}
                         >
-                          <div className="flex min-w-0 items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <div className="truncate text-[13px] font-semibold leading-5">
-                                {option.title}
-                              </div>
-                              <div className="shrink-0 text-[11px] text-muted-foreground">
-                                {option.vendor}
-                              </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold">
+                              {option.title}
                             </div>
                             {option.badge && (
                               <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
@@ -597,11 +610,8 @@ export default function ConfigPage() {
                               </span>
                             )}
                           </div>
-                          <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
+                          <div className="mt-1 text-xs leading-5 text-muted-foreground">
                             {option.description}
-                          </div>
-                          <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
-                            {option.id}
                           </div>
                         </button>
                       );
@@ -609,23 +619,97 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="openrouter-model">手动填写模型 ID</Label>
-                  <Input
-                    id="openrouter-model"
-                    value={config.model}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        model: event.target.value,
-                      }))
-                    }
-                    placeholder="deepseek/deepseek-v4-flash"
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    如果集思系统新增了模型，可以直接粘贴对应模型 ID。
+                {config.modelSelectionMode === "auto" ? (
+                  <div className="rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
+                    已启用自动模型选择。集思会根据问题自动匹配合适模型。
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-end justify-between gap-2">
+                        <div>
+                          <Label>集思国产模型</Label>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            选择集思系统中可用的国产模型；也可以在下方手动填写模型 ID。
+                          </div>
+                        </div>
+                        {selectedJisiModel ? (
+                          <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
+                            当前：{selectedJisiModel.title}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                            当前：自定义模型
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid gap-1.5 md:grid-cols-2">
+                        {JISI_MODEL_OPTIONS.map((option) => {
+                          const active = config.model === option.id;
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() =>
+                                setConfig((current) => ({
+                                  ...current,
+                                  model: option.id,
+                                }))
+                              }
+                              className={cn(
+                                "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                                active
+                                  ? "border-primary ring-2 ring-primary/20"
+                                  : "border-border"
+                              )}
+                            >
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <div className="truncate text-[13px] font-semibold leading-5">
+                                    {option.title}
+                                  </div>
+                                  <div className="shrink-0 text-[11px] text-muted-foreground">
+                                    {option.vendor}
+                                  </div>
+                                </div>
+                                {option.badge && (
+                                  <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
+                                    {option.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
+                                {option.description}
+                              </div>
+                              <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
+                                {option.id}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="openrouter-model">手动填写模型 ID</Label>
+                      <Input
+                        id="openrouter-model"
+                        value={config.model}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            model: event.target.value,
+                          }))
+                        }
+                        placeholder="deepseek/deepseek-v4-flash"
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        如果集思系统新增了模型，可以直接粘贴对应模型 ID。
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </section>

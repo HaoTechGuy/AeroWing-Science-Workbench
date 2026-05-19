@@ -6,20 +6,25 @@ import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
 export const runtime = "nodejs";
 
 type AuthorizationMode = "auto" | "write" | "all";
+type ModelSelectionMode = "auto" | "manual";
 
 interface AgentConfig {
   interrupt_on?: Record<string, unknown>;
   authorization_mode?: AuthorizationMode;
+  model_selection_mode?: ModelSelectionMode;
+  manual_model?: string;
   [key: string]: unknown;
 }
 
 interface UpdateConfigRequest {
   model?: unknown;
+  modelSelectionMode?: unknown;
   openrouterApiKey?: unknown;
   authorizationMode?: unknown;
 }
 
-const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash";
+const AUTO_MODEL = "openrouter/auto";
+const DEFAULT_MANUAL_MODEL = "deepseek/deepseek-v4-flash";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
@@ -138,14 +143,14 @@ async function writeEnvValues(updates: Record<string, string>) {
 
 function stripOpenRouterPrefix(model: string | undefined) {
   if (!model) {
-    return DEFAULT_OPENROUTER_MODEL;
+    return DEFAULT_MANUAL_MODEL;
   }
   return model.startsWith("openrouter:") ? model.slice("openrouter:".length) : model;
 }
 
 function normalizeModel(model: unknown) {
   if (typeof model !== "string") {
-    return DEFAULT_OPENROUTER_MODEL;
+    return DEFAULT_MANUAL_MODEL;
   }
 
   const trimmed = stripOpenRouterPrefix(model.trim());
@@ -164,6 +169,16 @@ function previewApiKey(apiKey: string | undefined) {
 
 function isAuthorizationMode(value: unknown): value is AuthorizationMode {
   return value === "auto" || value === "write" || value === "all";
+}
+
+function isModelSelectionMode(value: unknown): value is ModelSelectionMode {
+  return value === "auto" || value === "manual";
+}
+
+function inferModelSelectionMode(config: AgentConfig): ModelSelectionMode {
+  return isModelSelectionMode(config.model_selection_mode)
+    ? config.model_selection_mode
+    : "auto";
 }
 
 function inferAuthorizationMode(config: AgentConfig): AuthorizationMode {
@@ -214,15 +229,25 @@ function buildInterruptOn(mode: AuthorizationMode) {
 
 async function normalizedResponse(config: AgentConfig) {
   const env = await readEnvValues();
-  const model = normalizeModel(
-    env.DEEPAGENT_MODEL || env.LLM_MODEL || DEFAULT_OPENROUTER_MODEL
+  const envModel = normalizeModel(
+    env.DEEPAGENT_MODEL || env.LLM_MODEL || AUTO_MODEL
   );
+  const modelSelectionMode = inferModelSelectionMode(config);
+  const manualModel = normalizeModel(
+    config.manual_model ||
+      (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
+  );
+  const effectiveModel =
+    modelSelectionMode === "auto" ? AUTO_MODEL : manualModel;
   const apiKey = env.OPENROUTER_API_KEY;
 
   return {
     configPath: configPath(),
     envPath: envPath(),
-    model,
+    model: manualModel,
+    modelSelectionMode,
+    effectiveModel,
+    autoModel: AUTO_MODEL,
     openrouterApiKeySet: Boolean(apiKey),
     openrouterApiKeyPreview: previewApiKey(apiKey),
     authorizationMode: inferAuthorizationMode(config),
@@ -245,7 +270,19 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = (await request.json()) as UpdateConfigRequest;
-    const model = normalizeModel(body.model);
+    const modelSelectionMode = isModelSelectionMode(body.modelSelectionMode)
+      ? body.modelSelectionMode
+      : "auto";
+    const model =
+      modelSelectionMode === "manual"
+        ? normalizeModel(body.model)
+        : normalizeModel(
+            typeof body.model === "string" && body.model.trim()
+              ? body.model
+              : DEFAULT_MANUAL_MODEL
+          );
+    const effectiveModel =
+      modelSelectionMode === "auto" ? AUTO_MODEL : model;
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
@@ -258,6 +295,8 @@ export async function PUT(request: NextRequest) {
     const nextConfig: AgentConfig = {
       ...currentConfig,
       authorization_mode: authorizationMode,
+      model_selection_mode: modelSelectionMode,
+      manual_model: model,
     };
     const interruptOn = buildInterruptOn(authorizationMode);
     if (interruptOn) {
@@ -271,8 +310,8 @@ export async function PUT(request: NextRequest) {
     const envUpdates: Record<string, string> = {
       OPENROUTER_BASE_URL,
       LLM_PROVIDER: "openrouter",
-      LLM_MODEL: model,
-      DEEPAGENT_MODEL: `openrouter:${model}`,
+      LLM_MODEL: effectiveModel,
+      DEEPAGENT_MODEL: `openrouter:${effectiveModel}`,
     };
     if (apiKey) {
       envUpdates.OPENROUTER_API_KEY = apiKey;
