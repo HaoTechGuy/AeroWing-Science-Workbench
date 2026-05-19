@@ -246,6 +246,10 @@ export default function ConfigPage() {
   );
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
+  const backendStatusMessage = backendStatus?.message.trim();
+  const showBackendStatus =
+    Boolean(backendStatusMessage) &&
+    !(restartResult?.status === "restarted" && backendStatus?.status === "idle");
 
   async function loadConfig() {
     setLoading(true);
@@ -528,7 +532,7 @@ export default function ConfigPage() {
                 {restartResult.message}
               </span>
             )}
-            {backendStatus && (
+            {backendStatus && showBackendStatus && (
               <span
                 className={cn(
                   backendStatus.status === "idle"
