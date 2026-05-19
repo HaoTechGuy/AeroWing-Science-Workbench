@@ -20,9 +20,11 @@ export function useThreads(props: {
   limit?: number;
   resourceId?: string;
   assistantId?: string;
+  archived?: boolean;
 }) {
   const remoteAgent = useRemoteAgent();
   const pageSize = props.limit || DEFAULT_PAGE_SIZE;
+  const archived = props.archived ?? false;
 
   return useSWRInfinite(
     (pageIndex: number, previousPageData: ThreadItem[] | null) => {
@@ -38,6 +40,7 @@ export function useThreads(props: {
         assistantId: props.assistantId || remoteAgent.graphName,
         status: props?.status,
         resourceId: props.resourceId,
+        archived,
       };
     },
     async ({
@@ -46,6 +49,7 @@ export function useThreads(props: {
       resourceId,
       pageIndex,
       pageSize,
+      archived,
     }: {
       kind: "threads";
       pageIndex: number;
@@ -54,6 +58,7 @@ export function useThreads(props: {
       assistantId: string;
       status?: Thread["status"];
       resourceId?: string;
+      archived: boolean;
     }) => {
       const threads = await remoteAgent.searchThreads({
         limit: pageSize,
@@ -61,6 +66,7 @@ export function useThreads(props: {
         status,
         metadata: {
           ...(resourceId ? { resource_id: resourceId } : {}),
+          ...(archived ? { internagents_archived: true } : {}),
         },
       });
 
@@ -113,7 +119,7 @@ export function useThreads(props: {
             archived: metadata.internagents_archived === true,
           };
         })
-        .filter((thread) => !thread.archived);
+        .filter((thread) => (archived ? thread.archived : !thread.archived));
     },
     {
       revalidateFirstPage: true,

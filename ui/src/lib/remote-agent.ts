@@ -162,16 +162,20 @@ export class WebRemoteAgent {
     status?: Thread["status"];
     metadata?: Record<string, unknown>;
   }): Promise<Thread[]> {
+    const metadataFilter = {
+      ...(metadata ?? {}),
+      ...(isUuid(this.graphName) ? { assistant_id: this.graphName } : {}),
+    };
+
     return this.client.threads.search({
       limit,
       offset,
       sortBy: "updated_at" as const,
       sortOrder: "desc" as const,
       status,
-      metadata: {
-        ...(isUuid(this.graphName) ? { assistant_id: this.graphName } : {}),
-        ...(metadata ?? {}),
-      },
+      ...(Object.keys(metadataFilter).length > 0
+        ? { metadata: metadataFilter }
+        : {}),
     });
   }
 

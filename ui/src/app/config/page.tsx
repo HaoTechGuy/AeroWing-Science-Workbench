@@ -25,6 +25,7 @@ import {
   getStoredTheme,
   type ThemeMode,
 } from "@/lib/theme";
+import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
@@ -897,6 +898,8 @@ export default function ConfigPage() {
               })}
             </div>
           </section>
+
+          <ArchivedThreadsCard />
 
           <div className="flex justify-end text-xs text-muted-foreground">
             <div className="truncate">配置文件：{config.configPath || "-"}</div>
