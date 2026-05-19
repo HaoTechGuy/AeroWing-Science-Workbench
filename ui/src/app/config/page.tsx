@@ -562,7 +562,7 @@ export default function ConfigPage() {
                     )}
                   </div>
 
-                  <div className="grid gap-2 md:grid-cols-2">
+                  <div className="grid gap-1.5 md:grid-cols-2">
                     {JISI_MODEL_OPTIONS.map((option) => {
                       const active = config.model === option.id;
                       return (
@@ -576,31 +576,31 @@ export default function ConfigPage() {
                             }))
                           }
                           className={cn(
-                            "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/60 hover:bg-accent",
+                            "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
                             active
                               ? "border-primary ring-2 ring-primary/20"
                               : "border-border"
                           )}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold">
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <div className="truncate text-[13px] font-semibold leading-5">
                                 {option.title}
                               </div>
-                              <div className="mt-1 text-xs text-muted-foreground">
+                              <div className="shrink-0 text-[11px] text-muted-foreground">
                                 {option.vendor}
                               </div>
                             </div>
                             {option.badge && (
-                              <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                              <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
                                 {option.badge}
                               </span>
                             )}
                           </div>
-                          <div className="mt-3 text-xs leading-5 text-muted-foreground">
+                          <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
                             {option.description}
                           </div>
-                          <div className="mt-auto pt-3 font-mono text-[11px] text-muted-foreground">
+                          <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
                             {option.id}
                           </div>
                         </button>
