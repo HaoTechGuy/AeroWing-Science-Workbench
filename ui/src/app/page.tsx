@@ -1,9 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, Suspense } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import { useQueryState } from "nuqs";
-import { getConfig, StandaloneConfig } from "@/lib/config";
+import { getConfig, getResource, StandaloneConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Assistant } from "@langchain/langgraph-sdk";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import { MessagesSquare, SquarePen } from "lucide-react";
@@ -20,46 +27,66 @@ interface HomePageInnerProps {
   config: StandaloneConfig;
 }
 
+type AssistantStatus = "loading" | "ready" | "fallback";
+
+function createGraphAssistant(graphId: string): Assistant {
+  return {
+    assistant_id: graphId,
+    graph_id: graphId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    config: {},
+    metadata: {},
+    version: 1,
+    name: graphId,
+    context: {},
+  };
+}
+
 function HomePageInner({ config }: HomePageInnerProps) {
   const client = useClient();
-  const [threadId, setThreadId] = useQueryState("threadId");
+  const [, setThreadId] = useQueryState("threadId");
   const [sidebar, setSidebar] = useQueryState("sidebar");
+  const [resourceId, setResourceId] = useQueryState("resourceId");
+  const activeResource = getResource(config, resourceId);
+  const activeAssistantId = activeResource?.assistantId || config.assistantId;
 
   const [mutateThreads, setMutateThreads] = useState<(() => void) | null>(null);
   const [interruptCount, setInterruptCount] = useState(0);
   const [assistant, setAssistant] = useState<Assistant | null>(null);
+  const [assistantStatus, setAssistantStatus] =
+    useState<AssistantStatus>("loading");
 
-  const fetchAssistant = useCallback(async () => {
-    const isUUID =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        config.assistantId
+  useEffect(() => {
+    let cancelled = false;
+    const graphAssistant = createGraphAssistant(activeAssistantId);
+    setAssistantStatus("loading");
+    // Keep chat usable while the default assistant UUID is being resolved.
+    setAssistant(graphAssistant);
+
+    const loadAssistant = async () => {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        activeAssistantId
       );
 
-    if (isUUID) {
-      // We should try to fetch the assistant directly with this UUID
-      try {
-        const data = await client.assistants.get(config.assistantId);
-        setAssistant(data);
-      } catch (error) {
-        console.error("Failed to fetch assistant:", error);
-        setAssistant({
-          assistant_id: config.assistantId,
-          graph_id: config.assistantId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          config: {},
-          metadata: {},
-          version: 1,
-          name: "Assistant",
-          context: {},
-        });
+      if (isUUID) {
+        try {
+          const data = await client.assistants.get(activeAssistantId);
+          if (cancelled) return;
+          setAssistant(data);
+          setAssistantStatus("ready");
+        } catch (error) {
+          if (cancelled) return;
+          console.error("Failed to fetch assistant:", error);
+          setAssistant(graphAssistant);
+          setAssistantStatus("fallback");
+        }
+        return;
       }
-    } else {
+
       try {
-        // We should try to list out the assistants for this graph, and then use the default one.
-        // TODO: Paginate this search, but 100 should be enough for graph name
         const assistants = await client.assistants.search({
-          graphId: config.assistantId,
+          graphId: activeAssistantId,
           limit: 100,
         });
         const defaultAssistant = assistants.find(
@@ -68,30 +95,25 @@ function HomePageInner({ config }: HomePageInnerProps) {
         if (defaultAssistant === undefined) {
           throw new Error("No default assistant found");
         }
+        if (cancelled) return;
         setAssistant(defaultAssistant);
+        setAssistantStatus("ready");
       } catch (error) {
+        if (cancelled) return;
         console.error(
-          "Failed to find default assistant from graph_id: try setting the assistant_id directly:",
+          "Failed to find default assistant from graph_id; falling back to graph id:",
           error
         );
-        setAssistant({
-          assistant_id: config.assistantId,
-          graph_id: config.assistantId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          config: {},
-          metadata: {},
-          version: 1,
-          name: config.assistantId,
-          context: {},
-        });
+        setAssistant(graphAssistant);
+        setAssistantStatus("fallback");
       }
-    }
-  }, [client, config.assistantId]);
+    };
 
-  useEffect(() => {
-    fetchAssistant();
-  }, [fetchAssistant]);
+    loadAssistant();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, activeAssistantId]);
 
   return (
     <div className="flex h-screen flex-col">
@@ -116,14 +138,49 @@ function HomePageInner({ config }: HomePageInnerProps) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <Select
+            value={activeResource?.id || config.defaultResourceId}
+            onValueChange={async (value) => {
+              const nextResource =
+                config.resources.find((resource) => resource.id === value) ||
+                activeResource;
+              const nextAssistantId =
+                nextResource?.assistantId || config.assistantId;
+              setAssistantStatus("loading");
+              setAssistant(createGraphAssistant(nextAssistantId));
+              await setThreadId(null);
+              await setResourceId(value);
+              mutateThreads?.();
+            }}
+          >
+            <SelectTrigger className="w-[210px]">
+              <SelectValue placeholder="Select resource" />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {config.resources.map((resource) => (
+                <SelectItem
+                  key={resource.id}
+                  value={resource.id}
+                >
+                  {resource.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="text-sm text-muted-foreground">
-            <span className="font-medium">Assistant:</span> {config.assistantId}
+            <span className="font-medium">Assistant:</span> {activeAssistantId}
+            <span className="ml-2 text-xs">
+              {assistantStatus === "ready"
+                ? "ready"
+                : assistantStatus === "loading"
+                ? "loading..."
+                : "fallback"}
+            </span>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setThreadId(null)}
-            disabled={!threadId}
             className="border-[#2F6868] bg-[#2F6868] text-white hover:bg-[#2F6868]/80"
           >
             <SquarePen className="mr-2 h-4 w-4" />
@@ -153,6 +210,8 @@ function HomePageInner({ config }: HomePageInnerProps) {
                   onMutateReady={(fn) => setMutateThreads(() => fn)}
                   onClose={() => setSidebar(null)}
                   onInterruptCountChange={setInterruptCount}
+                  resourceId={activeResource?.id}
+                  assistantId={activeAssistantId}
                 />
               </ResizablePanel>
               <ResizableHandle />
@@ -165,10 +224,18 @@ function HomePageInner({ config }: HomePageInnerProps) {
             order={2}
           >
             <ChatProvider
+              key={`${activeResource?.id || "default"}:${activeAssistantId}`}
               activeAssistant={assistant}
               onHistoryRevalidate={() => mutateThreads?.()}
+              resourceId={activeResource?.id}
+              resourceLabel={activeResource?.label}
             >
-              <ChatInterface assistant={assistant} />
+              <ChatInterface
+                assistant={assistant}
+                assistantStatus={assistantStatus}
+                resourceLabel={activeResource?.label}
+                activeAssistantId={activeAssistantId}
+              />
             </ChatProvider>
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -180,23 +247,47 @@ function HomePageInner({ config }: HomePageInnerProps) {
 function HomePageContent() {
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
   const [assistantId, setAssistantId] = useQueryState("assistantId");
+  const [resourceId, setResourceId] = useQueryState("resourceId");
+  const [threadId, setThreadId] = useQueryState("threadId");
+  const previousResourceId = useRef<string | null>(null);
 
   // On mount, connect to the local LangGraph dev server by default.
   useEffect(() => {
     const initialConfig = getConfig();
     setConfig(initialConfig);
+    const initialResource = getResource(initialConfig, resourceId);
+    if (!resourceId && initialResource) {
+      setResourceId(initialResource.id);
+    }
     if (!assistantId) {
-      setAssistantId(initialConfig.assistantId);
+      setAssistantId(initialResource?.assistantId || initialConfig.assistantId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // If config changes, update the assistantId
   useEffect(() => {
-    if (config && !assistantId) {
-      setAssistantId(config.assistantId);
+    if (!config) return;
+    const selectedResource = getResource(config, resourceId);
+    if (selectedResource && assistantId !== selectedResource.assistantId) {
+      setAssistantId(selectedResource.assistantId);
     }
-  }, [config, assistantId, setAssistantId]);
+  }, [config, resourceId, assistantId, setAssistantId]);
+
+  useEffect(() => {
+    if (!config) return;
+    const selectedResource = getResource(config, resourceId);
+    const selectedResourceId = selectedResource?.id || null;
+    if (
+      previousResourceId.current &&
+      selectedResourceId &&
+      previousResourceId.current !== selectedResourceId &&
+      threadId
+    ) {
+      setThreadId(null);
+    }
+    previousResourceId.current = selectedResourceId;
+  }, [config, resourceId, threadId, setThreadId]);
 
   const langsmithApiKey =
     config?.langsmithApiKey || process.env.NEXT_PUBLIC_LANGSMITH_API_KEY || "";

@@ -17,6 +17,8 @@ const DEFAULT_PAGE_SIZE = 20;
 export function useThreads(props: {
   status?: Thread["status"];
   limit?: number;
+  resourceId?: string;
+  assistantId?: string;
 }) {
   const pageSize = props.limit || DEFAULT_PAGE_SIZE;
 
@@ -42,9 +44,10 @@ export function useThreads(props: {
         pageIndex,
         pageSize,
         deploymentUrl: config.deploymentUrl,
-        assistantId: config.assistantId,
+        assistantId: props?.assistantId || config.assistantId,
         apiKey,
         status: props?.status,
+        resourceId: props?.resourceId,
       };
     },
     async ({
@@ -52,6 +55,7 @@ export function useThreads(props: {
       assistantId,
       apiKey,
       status,
+      resourceId,
       pageIndex,
       pageSize,
     }: {
@@ -62,6 +66,7 @@ export function useThreads(props: {
       assistantId: string;
       apiKey: string;
       status?: Thread["status"];
+      resourceId?: string;
     }) => {
       const client = new Client({
         apiUrl: deploymentUrl,
@@ -82,7 +87,10 @@ export function useThreads(props: {
         status,
         // Only filter by assistant_id metadata for deployed graphs (UUIDs)
         // Local dev graphs don't set this metadata
-        ...(isUUID ? { metadata: { assistant_id: assistantId } } : {}),
+        metadata: {
+          ...(isUUID ? { assistant_id: assistantId } : {}),
+          ...(resourceId ? { resource_id: resourceId } : {}),
+        },
       });
 
       return threads.map((thread): ThreadItem => {

@@ -29,10 +29,14 @@ export function useChat({
   activeAssistant,
   onHistoryRevalidate,
   thread,
+  resourceId,
+  resourceLabel,
 }: {
   activeAssistant: Assistant | null;
   onHistoryRevalidate?: () => void;
   thread?: UseStreamThread<StateType>;
+  resourceId?: string;
+  resourceLabel?: string;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const client = useClient();
@@ -59,6 +63,10 @@ export function useChat({
       stream.submit(
         { messages: [newMessage] },
         {
+          metadata: {
+            ...(resourceId ? { resource_id: resourceId } : {}),
+            ...(resourceLabel ? { resource_label: resourceLabel } : {}),
+          },
           optimisticValues: (prev) => ({
             messages: [...(prev.messages ?? []), newMessage],
           }),
@@ -68,7 +76,7 @@ export function useChat({
       // Update thread list immediately when sending a message
       onHistoryRevalidate?.();
     },
-    [stream, activeAssistant?.config, onHistoryRevalidate]
+    [stream, activeAssistant?.config, onHistoryRevalidate, resourceId, resourceLabel]
   );
 
   const runSingleStep = useCallback(

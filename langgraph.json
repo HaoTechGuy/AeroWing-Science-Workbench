@@ -1,7 +1,12 @@
 {
-  "dependencies": ["."],
+  "dependencies": [
+    "."
+  ],
   "graphs": {
-    "agent": "./agent.py:agent"
+    "agent": "./agent.py:agent",
+    "agent_local": "./agent.py:agent_local",
+    "agent_h": "./agent.py:agent_h",
+    "agent_volcano": "./agent.py:agent_volcano"
   },
   "env": ".env"
 }

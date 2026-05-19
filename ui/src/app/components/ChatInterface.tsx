@@ -33,6 +33,9 @@ import { FilesPopover } from "@/app/components/TasksFilesSidebar";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
+  assistantStatus?: "loading" | "ready" | "fallback";
+  resourceLabel?: string;
+  activeAssistantId?: string;
 }
 
 const getStatusIcon = (status: TodoItem["status"], className?: string) => {
@@ -61,7 +64,12 @@ const getStatusIcon = (status: TodoItem["status"], className?: string) => {
   }
 };
 
-export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
+function ChatInterfaceComponent({
+  assistant,
+  assistantStatus,
+  resourceLabel,
+  activeAssistantId,
+}: ChatInterfaceProps) {
   const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -85,6 +93,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   } = useChatContext();
 
   const submitDisabled = isLoading || !assistant;
+  const sendDisabledReason = useMemo(() => {
+    if (isLoading) return "Agent is running.";
+    if (!assistant) return "Assistant is still connecting.";
+    if (!input.trim()) return "Type a message to send.";
+    return null;
+  }, [assistant, input, isLoading]);
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -510,16 +524,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={isLoading ? "Running..." : "Write your message..."}
+              data-testid="chat-input"
               className="font-inherit field-sizing-content flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[14px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary"
               rows={1}
             />
-            <div className="flex justify-between gap-2 p-3">
+            <div className="flex items-center justify-between gap-2 p-3">
+              <div className="min-w-0 truncate text-xs text-muted-foreground">
+                {resourceLabel || "Resource"} ·{" "}
+                {activeAssistantId || assistant?.graph_id || "assistant"} ·{" "}
+                {assistantStatus || (assistant ? "ready" : "loading")}
+                {sendDisabledReason ? ` · ${sendDisabledReason}` : ""}
+              </div>
               <div className="flex justify-end gap-2">
                 <Button
                   type={isLoading ? "button" : "submit"}
                   variant={isLoading ? "destructive" : "default"}
                   onClick={isLoading ? stopStream : handleSubmit}
                   disabled={!isLoading && (submitDisabled || !input.trim())}
+                  data-testid="send-button"
                 >
                   {isLoading ? (
                     <>
@@ -540,6 +562,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       </div>
     </div>
   );
-});
+}
 
+export const ChatInterface = React.memo(ChatInterfaceComponent);
 ChatInterface.displayName = "ChatInterface";

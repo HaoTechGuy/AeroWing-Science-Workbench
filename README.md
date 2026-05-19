@@ -139,3 +139,52 @@ This repository also contains a prototype Git-native research knowledge-base CLI
 - KB README: `kb_infra/README.md`
 - Agent bootstrap entrypoint: `kb_infra/docs/kb_bootstrap.md`
 - Local CLI install from `kb_infra/`: `npm install && npm link`
+
+## Multi-Resource InternAgents Sessions
+
+InternAgents can expose multiple resource-bound assistants from one LangGraph server.
+The default resource config is in:
+
+```text
+internagent.resources.json
+```
+
+Each enabled resource becomes a graph named `agent_<resource-id>`. The current
+config exposes:
+
+- `agent_local` for the current machine workspace
+- `agent_h` for the H cluster through SSH
+
+The web UI reads matching resource labels and assistant IDs from:
+
+```text
+ui/deepagent-ui.config.json
+```
+
+Run the server as usual:
+
+```bash
+source .venv/bin/activate
+python -m langgraph_cli dev \
+  --host 127.0.0.1 \
+  --port 2024 \
+  --no-browser \
+  --config langgraph.json
+```
+
+Then run the UI:
+
+```bash
+cd ui
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+In production on the Volcano host, update `internagent.resources.json` so each
+`ssh_command` is executable from the Volcano host. Do not change server network,
+firewall, SSH daemon, security-group, or routing settings for this setup; if SSH
+is not reachable with existing access, fix the resource config or credentials
+instead.
+
+If a resource sets `kb_path`, InternAgents will best-effort run `kb sync pull`
+before each agent run and `kb sync push` after the run using that resource's
+backend.
