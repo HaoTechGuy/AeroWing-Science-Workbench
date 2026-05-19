@@ -13,7 +13,14 @@ function isUserCancelled(error: unknown): boolean {
   }
 
   const message = error.message.toLowerCase();
-  return message.includes("user canceled") || message.includes("cancelled");
+  return (
+    message.includes("user canceled") ||
+    message.includes("cancelled") ||
+    message.includes("canceled") ||
+    message.includes("用户已取消") ||
+    message.includes("用户取消") ||
+    message.includes("(-128)")
+  );
 }
 
 async function chooseFolderOnMac(): Promise<string> {
@@ -96,10 +103,7 @@ export async function POST() {
 
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "无法打开本地文件夹选择器。",
+        error: "无法打开本地文件夹选择器，请手动粘贴本地技能路径。",
       },
       { status: 500 }
     );
