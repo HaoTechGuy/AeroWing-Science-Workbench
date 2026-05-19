@@ -549,29 +549,6 @@ export default function ConfigPage() {
               </div>
             ) : (
               <div className="space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="openrouter-key">OpenRouter API key</Label>
-                  <div className="relative">
-                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="openrouter-key"
-                      type="password"
-                      value={apiKeyDraft}
-                      onChange={(event) => setApiKeyDraft(event.target.value)}
-                      placeholder={
-                        config.openrouterApiKeySet
-                          ? config.openrouterApiKeyPreview
-                          : "粘贴 sk-or-v1-..."
-                      }
-                      autoComplete="off"
-                      className="pl-9"
-                    />
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    留空保存时会保留已有 key，不会覆盖。
-                  </div>
-                </div>
-
                 <div className="space-y-3">
                   <div>
                     <Label>模型选择方式</Label>
@@ -616,6 +593,29 @@ export default function ConfigPage() {
                         </button>
                       );
                     })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="openrouter-key">OpenRouter API key</Label>
+                  <div className="relative">
+                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="openrouter-key"
+                      type="password"
+                      value={apiKeyDraft}
+                      onChange={(event) => setApiKeyDraft(event.target.value)}
+                      placeholder={
+                        config.openrouterApiKeySet
+                          ? config.openrouterApiKeyPreview
+                          : "粘贴 sk-or-v1-..."
+                      }
+                      autoComplete="off"
+                      className="pl-9"
+                    />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    留空保存时会保留已有 key，不会覆盖。
                   </div>
                 </div>
 
