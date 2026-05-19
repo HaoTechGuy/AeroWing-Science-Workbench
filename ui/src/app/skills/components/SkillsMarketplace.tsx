@@ -434,7 +434,7 @@ export function SkillsMarketplace() {
           <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
               已选择 {selectedCount} 个技能。建议为保证性能请选择 20
-              个以内技能。
+              个以内技能。新选择的技能需要应用后生效。
             </span>
             {data.restart && (
               <span
