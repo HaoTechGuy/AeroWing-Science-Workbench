@@ -724,7 +724,7 @@ export default function ConfigPage() {
               <div>
                 <h2 className="text-base font-semibold">授权模式</h2>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  授权模式决定 agent 调用工具时是否需要你手动确认。
+                  授权模式决定 InternAgent 调用工具时是否需要你手动确认。
                 </div>
               </div>
             </div>
