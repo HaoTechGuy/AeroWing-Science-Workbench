@@ -421,7 +421,9 @@ async function cloneCloudSkill(
       error instanceof Error && error.message.trim()
         ? error.message
         : "云端技能下载失败。";
-    throw new Error(`云端技能下载失败，请检查地址或网络。${message}`);
+    throw new Error(`云端技能下载失败，请检查地址或网络。${message}`, {
+      cause: error,
+    });
   }
 }
 
@@ -651,7 +653,7 @@ export async function importSkills(
   source: string
 ): Promise<ImportSkillsResponse> {
   const root = getWorkspaceRoot();
-  let imported: string[] = [];
+  let imported: string[];
 
   if (type === "local") {
     const sourceAbsolute = resolveLocalSource(root, source);
