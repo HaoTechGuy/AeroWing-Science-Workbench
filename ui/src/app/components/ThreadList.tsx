@@ -15,6 +15,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useRemoteAgent } from "@/providers/ClientProvider";
 import type { ThreadItem } from "@/app/hooks/useThreads";
@@ -322,25 +327,36 @@ export function ThreadList({
                             </div>
                           </div>
                         </button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={(event) => archiveThread(thread, event)}
-                          disabled={archivingThreadId === thread.id}
-                          className={cn(
-                            "h-7 shrink-0 px-1.5 text-[11px] text-muted-foreground opacity-70 transition-opacity hover:text-[#2F6868] hover:opacity-100",
-                            currentThreadId === thread.id && "opacity-100"
-                          )}
-                          aria-label={`归档会话 ${thread.title}`}
-                        >
-                          {archivingThreadId === thread.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Archive className="h-3.5 w-3.5" />
-                          )}
-                          归档
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={(event) => archiveThread(thread, event)}
+                              disabled={archivingThreadId === thread.id}
+                              className={cn(
+                                "h-7 w-7 shrink-0 text-muted-foreground opacity-70 transition-opacity hover:text-[#2F6868] hover:opacity-100",
+                                currentThreadId === thread.id && "opacity-100"
+                              )}
+                              aria-label={`归档会话 ${thread.title}`}
+                            >
+                              {archivingThreadId === thread.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Archive className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="bottom"
+                            align="center"
+                            sideOffset={6}
+                            className="whitespace-nowrap px-2 py-1"
+                          >
+                            归档：隐藏，不删除
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
                     ))}
                   </div>
