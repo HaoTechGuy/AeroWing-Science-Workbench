@@ -634,8 +634,7 @@ export default function ConfigPage() {
             </div>
           </section>
 
-          <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <div>保存后会写入本地配置；应用时会重新加载后台。</div>
+          <div className="flex justify-end text-xs text-muted-foreground">
             <div className="truncate">配置文件：{config.configPath || "-"}</div>
           </div>
         </form>
