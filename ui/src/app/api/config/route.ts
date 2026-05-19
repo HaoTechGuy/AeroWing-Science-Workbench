@@ -19,7 +19,7 @@ interface UpdateConfigRequest {
   authorizationMode?: unknown;
 }
 
-const DEFAULT_OPENROUTER_MODEL = "anthropic/claude-sonnet-4";
+const DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4-flash";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
@@ -150,7 +150,7 @@ function normalizeModel(model: unknown) {
 
   const trimmed = stripOpenRouterPrefix(model.trim());
   if (!trimmed) {
-    throw new Error("请选择或填写 OpenRouter 模型。");
+    throw new Error("请选择或填写模型。");
   }
   return trimmed;
 }

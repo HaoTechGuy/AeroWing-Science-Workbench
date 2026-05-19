@@ -77,7 +77,7 @@ def _resolve_model() -> str:
     if provider == "openrouter" and model:
         return f"openrouter:{model}"
 
-    return "openrouter:anthropic/claude-sonnet-4"
+    return "openrouter:deepseek/deepseek-v4-flash"
 
 
 MODEL = _resolve_model()

@@ -57,18 +57,68 @@ interface BackendStatusResult {
 const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
-  model: "anthropic/claude-sonnet-4",
+  model: "deepseek/deepseek-v4-flash",
   openrouterApiKeySet: false,
   openrouterApiKeyPreview: "",
   authorizationMode: "auto",
 };
 
-const MODEL_PRESETS = [
-  "deepseek/deepseek-chat",
-  "deepseek/deepseek-r1",
-  "anthropic/claude-sonnet-4",
-  "google/gemini-2.5-pro",
-  "openai/gpt-4.1",
+const JISI_MODEL_OPTIONS: Array<{
+  id: string;
+  title: string;
+  vendor: string;
+  description: string;
+  badge?: string;
+}> = [
+  {
+    id: "deepseek/deepseek-v4-flash",
+    title: "DeepSeek V4 Flash",
+    vendor: "DeepSeek",
+    description: "默认推荐，速度优先，适合日常对话、代码协作和轻量分析。",
+    badge: "默认",
+  },
+  {
+    id: "deepseek/deepseek-r1",
+    title: "DeepSeek R1",
+    vendor: "DeepSeek",
+    description: "推理能力更强，适合复杂规划、数学推导和多步骤分析。",
+  },
+  {
+    id: "deepseek/deepseek-chat",
+    title: "DeepSeek Chat",
+    vendor: "DeepSeek",
+    description: "通用中文对话和代码任务，输出稳定，成本友好。",
+  },
+  {
+    id: "qwen/Qwen3-235B",
+    title: "通义千问 Qwen3 235B",
+    vendor: "Qwen",
+    description: "大参数通用模型，适合中文写作、知识问答和研究整理。",
+  },
+  {
+    id: "moonshot/kimi-k2.5",
+    title: "Kimi K2.5",
+    vendor: "Moonshot",
+    description: "长文本理解和中文材料处理友好，适合文档阅读场景。",
+  },
+  {
+    id: "shlab/intern-s1-pro",
+    title: "Intern S1 Pro",
+    vendor: "SH-Lab",
+    description: "上海人工智能实验室模型，适合科研分析和多模态工作流。",
+  },
+  {
+    id: "zhipu/glm-5",
+    title: "GLM-5",
+    vendor: "Zhipu",
+    description: "国产通用模型，适合中文知识问答和结构化生成。",
+  },
+  {
+    id: "minimax/minimax2.5",
+    title: "MiniMax 2.5",
+    vendor: "MiniMax",
+    description: "轻量通用模型，适合快速对话、摘要和改写任务。",
+  },
 ];
 
 const AUTHORIZATION_OPTIONS: Array<{
@@ -149,6 +199,10 @@ export default function ConfigPage() {
     savedConfig.authorizationMode,
     savedConfig.model,
   ]);
+  const selectedJisiModel = useMemo(
+    () => JISI_MODEL_OPTIONS.find((option) => option.id === config.model),
+    [config.model]
+  );
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy && !hasChanges;
 
@@ -465,9 +519,9 @@ export default function ConfigPage() {
                 正在读取配置...
               </div>
             ) : (
-              <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+              <div className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="openrouter-key">OpenRouter API Key</Label>
+                  <Label htmlFor="openrouter-key">集思 / OpenRouter API Key</Label>
                   <div className="relative">
                     <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -489,8 +543,74 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-end justify-between gap-2">
+                    <div>
+                      <Label>集思国产模型</Label>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        选择集思系统中可用的国产模型；也可以在下方手动填写模型 ID。
+                      </div>
+                    </div>
+                    {selectedJisiModel ? (
+                      <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
+                        当前：{selectedJisiModel.title}
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                        当前：自定义模型
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {JISI_MODEL_OPTIONS.map((option) => {
+                      const active = config.model === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() =>
+                            setConfig((current) => ({
+                              ...current,
+                              model: option.id,
+                            }))
+                          }
+                          className={cn(
+                            "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/60 hover:bg-accent",
+                            active
+                              ? "border-primary ring-2 ring-primary/20"
+                              : "border-border"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold">
+                                {option.title}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {option.vendor}
+                              </div>
+                            </div>
+                            {option.badge && (
+                              <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                                {option.badge}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-3 text-xs leading-5 text-muted-foreground">
+                            {option.description}
+                          </div>
+                          <div className="mt-auto pt-3 font-mono text-[11px] text-muted-foreground">
+                            {option.id}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="openrouter-model">模型</Label>
+                  <Label htmlFor="openrouter-model">手动填写模型 ID</Label>
                   <Input
                     id="openrouter-model"
                     value={config.model}
@@ -500,25 +620,10 @@ export default function ConfigPage() {
                         model: event.target.value,
                       }))
                     }
-                    placeholder="deepseek/deepseek-chat"
+                    placeholder="deepseek/deepseek-v4-flash"
                   />
-                  <div className="flex flex-wrap gap-2">
-                    {MODEL_PRESETS.map((model) => (
-                      <Button
-                        key={model}
-                        type="button"
-                        size="sm"
-                        variant={config.model === model ? "default" : "outline"}
-                        onClick={() =>
-                          setConfig((current) => ({
-                            ...current,
-                            model,
-                          }))
-                        }
-                      >
-                        {model}
-                      </Button>
-                    ))}
+                  <div className="text-xs text-muted-foreground">
+                    如果集思系统新增了模型，可以直接粘贴对应模型 ID。
                   </div>
                 </div>
               </div>
