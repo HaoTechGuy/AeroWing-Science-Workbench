@@ -596,6 +596,12 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
+                {config.modelSelectionMode === "auto" && (
+                  <div className="rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
+                    已启用自动模型选择。集思会根据问题自动匹配合适模型。
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="openrouter-key">OpenRouter API key</Label>
                   <div className="relative">
@@ -619,11 +625,7 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
-                {config.modelSelectionMode === "auto" ? (
-                  <div className="rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
-                    已启用自动模型选择。集思会根据问题自动匹配合适模型。
-                  </div>
-                ) : (
+                {config.modelSelectionMode !== "auto" && (
                   <>
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-end justify-between gap-2">
