@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -29,11 +29,11 @@ import type {
 
 function SkillSkeleton() {
   return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-3 md:grid-cols-2">
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="h-40 animate-pulse rounded-lg border border-border bg-muted/40"
+          className="h-32 animate-pulse rounded-lg border border-border bg-muted/40"
         />
       ))}
     </div>
@@ -48,6 +48,30 @@ function emptyResponse(): SkillsConfigResponse {
     selected: [],
     skills: [],
   };
+}
+
+function SectionHeader({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-4 flex items-start gap-3">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold">{title}</h2>
+        <div className="mt-1 text-sm text-muted-foreground">
+          {description}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function SkillsMarketplace() {
@@ -85,7 +109,7 @@ export function SkillsMarketplace() {
     return Array.from(selected).some((key) => !initial.has(key));
   }, [data.enabled, data.selected, draftEnabled, selected]);
   const canApplyWhenIdle = !isBusy;
-  const canApplyNow = !isBusy && !hasChanges;
+  const canApplyNow = !isBusy;
 
   async function loadSkills() {
     setLoading(true);
@@ -108,7 +132,10 @@ export function SkillsMarketplace() {
     }
   }
 
-  async function saveSkills() {
+  async function saveSkills(
+    options: { scheduleIdle?: boolean } = {}
+  ): Promise<boolean> {
+    const scheduleIdle = options.scheduleIdle ?? true;
     setSaving(true);
     setError(null);
     try {
@@ -131,13 +158,19 @@ export function SkillsMarketplace() {
       });
       setSelected(new Set(nextData.selected));
       setBackendStatus(null);
-      setAutoRestart(true);
-      toast.success(nextData.message || "技能配置已保存，将在空闲时自动应用");
+      setAutoRestart(scheduleIdle);
+      toast.success(
+        scheduleIdle
+          ? nextData.message || "技能配置已保存，将在空闲时自动应用"
+          : "技能配置已保存"
+      );
+      return true;
     } catch (saveError) {
       const message =
         saveError instanceof Error ? saveError.message : "技能配置保存失败";
       setError(message);
       toast.error(message);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -218,7 +251,7 @@ export function SkillsMarketplace() {
 
   async function applyWhenIdle() {
     if (hasChanges) {
-      await saveSkills();
+      await saveSkills({ scheduleIdle: true });
       return;
     }
 
@@ -229,6 +262,17 @@ export function SkillsMarketplace() {
     setBackendStatus(null);
     setAutoRestart(true);
     toast.success("将在后台空闲时自动应用当前技能配置");
+  }
+
+  async function applyNow() {
+    if (hasChanges) {
+      const saved = await saveSkills({ scheduleIdle: false });
+      if (!saved) {
+        return;
+      }
+    }
+
+    await restartBackendNow({ manual: true });
   }
 
   function toggleSkill(key: string, checked: boolean) {
@@ -393,7 +437,7 @@ export function SkillsMarketplace() {
                 ? "保存当前技能选择，并在后台空闲时自动应用。"
                 : "后台空闲时自动重启并加载当前技能配置。"
             }
-            className="bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+            className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
           >
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -405,13 +449,10 @@ export function SkillsMarketplace() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => restartBackendNow({ manual: true })}
+            onClick={() => void applyNow()}
             disabled={!canApplyNow}
-            title={
-              hasChanges
-                ? "请先保存当前技能选择，再立即应用。"
-                : "立即重启后台并加载当前技能配置。"
-            }
+            title="保存技能选择并立即应用。"
+            className="h-9"
           >
             {restarting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -423,15 +464,15 @@ export function SkillsMarketplace() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-5">
-        <section className="min-w-0">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
+        <section className="min-w-0 space-y-5">
           {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
               {error}
             </div>
           )}
 
-          <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
               已选择 {selectedCount} 个技能。建议为保证性能请选择 20
               个以内技能。新选择的技能需要应用后生效。
@@ -462,40 +503,41 @@ export function SkillsMarketplace() {
             )}
           </div>
 
-          {loading ? (
-            <SkillSkeleton />
-          ) : data.skills.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center">
-              <FolderCog className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-              <h2 className="text-base font-semibold">还没有可选技能</h2>
-              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-                在项目的 skills 目录下放置包含 SKILL.md 的技能文件夹后，这里会自动出现。
-              </p>
-            </div>
-          ) : (
-            <div>
-              <div className="mb-3 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-[#2F6868]" />
-                <h2 className="text-sm font-semibold">
-                  InternAgents 精选技能
-                </h2>
+          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+            <SectionHeader
+              icon={<Sparkles className="h-5 w-5" />}
+              title="InternAgents 精选技能"
+              description="从项目和已添加来源中选择技能，应用后会加载到本地 InternAgents。"
+            />
+
+            {loading ? (
+              <SkillSkeleton />
+            ) : data.skills.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-background px-6 py-10 text-center">
+                <FolderCog className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                <h3 className="text-base font-semibold">还没有可选技能</h3>
+                <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                  在项目的 skills 目录下放置包含 SKILL.md
+                  的技能文件夹后，这里会自动出现。
+                </p>
               </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
                 {data.skills.map((skill) => {
                   const checked = selected.has(skill.key);
                   return (
                     <article
                       key={skill.key}
                       className={cn(
-                        "flex min-h-40 flex-col justify-between rounded-lg border bg-card p-4 transition-colors",
+                        "flex min-h-32 flex-col justify-between rounded-lg border bg-background p-3 transition-colors",
                         checked
-                          ? "border-[#2F6868] bg-[#F1F7F6]"
+                          ? "border-[#2F6868] bg-[#F1F7F6] ring-2 ring-[#2F6868]/10 dark:bg-teal-950/20"
                           : "border-border hover:border-[#2F6868]/40"
                       )}
                     >
                       <div>
-                        <div className="mb-3 flex items-start justify-between gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background">
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card">
                             {checked ? (
                               <Check className="h-4 w-4 text-[#2F6868]" />
                             ) : (
@@ -512,30 +554,28 @@ export function SkillsMarketplace() {
                           />
                         </div>
                         <h3 className="text-sm font-semibold">{skill.name}</h3>
-                        <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
                           {skill.description}
                         </p>
                       </div>
-                      <div className="mt-4 truncate rounded-md bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                      <div className="mt-3 truncate rounded-md bg-muted/60 px-2 py-1 font-mono text-[11px] text-muted-foreground">
                         {skill.relativePath}
                       </div>
                     </article>
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
+          </section>
 
-          <div className="mt-6 border-t border-border pt-5">
-            <div className="mb-3 flex items-center gap-2">
-              <FolderPlus className="h-4 w-4 text-[#2F6868]" />
-              <h2 className="text-sm font-semibold">添加技能</h2>
-              <span className="text-xs text-muted-foreground">
-                添加后勾选并应用
-              </span>
-            </div>
+          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+            <SectionHeader
+              icon={<FolderPlus className="h-5 w-5" />}
+              title="添加技能"
+              description="填写本地路径或云端地址，添加后再勾选并应用。"
+            />
 
-            <div className="grid gap-3 xl:grid-cols-2">
+            <div className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
                 <Label
                   htmlFor="local-skill-source"
@@ -599,7 +639,7 @@ export function SkillsMarketplace() {
                 </Button>
               </div>
             </div>
-          </div>
+          </section>
         </section>
       </main>
     </div>
