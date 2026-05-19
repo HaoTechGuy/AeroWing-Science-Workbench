@@ -521,7 +521,7 @@ export default function ConfigPage() {
             ) : (
               <div className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="openrouter-key">集思 / OpenRouter API Key</Label>
+                  <Label htmlFor="openrouter-key">集思</Label>
                   <div className="relative">
                     <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
