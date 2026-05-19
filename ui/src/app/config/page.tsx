@@ -247,9 +247,7 @@ export default function ConfigPage() {
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
   const backendStatusMessage = backendStatus?.message.trim();
-  const showBackendStatus =
-    Boolean(backendStatusMessage) &&
-    !(restartResult?.status === "restarted" && backendStatus?.status === "idle");
+  const showBackendStatus = Boolean(backendStatusMessage) && !restartResult;
 
   async function loadConfig() {
     setLoading(true);
@@ -371,13 +369,7 @@ export default function ConfigPage() {
       }
 
       setAutoRestart(false);
-      setBackendStatus({
-        status: "idle",
-        message: "配置已应用。",
-        url: restart.url,
-        busyThreads: 0,
-        interruptedThreads: 0,
-      });
+      setBackendStatus(null);
       toast.success(restart.message || "配置已应用");
     } catch (restartError) {
       const message =
