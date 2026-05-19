@@ -1,4 +1,4 @@
-"""InternAgents LangGraph exports for local and SSH-backed resources."""
+"""InternAgents LangGraph exports for coordinator and runtime processes."""
 
 from __future__ import annotations
 
@@ -7,9 +7,11 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, NotRequired, TypedDict
 
 from dotenv import dotenv_values, load_dotenv
+from langchain_core.messages import AnyMessage
+from langchain_core.runnables import RunnableConfig
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_DISCOVERYOS_ENV_FILE = ROOT_DIR.parent / "DiscoveryOS" / ".env.local"
@@ -20,6 +22,9 @@ if BUNDLED_DEEPAGENTS.exists():
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.pregel.remote import RemoteGraph
 
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
@@ -33,6 +38,13 @@ def _env_value(name: str) -> str | None:
     if value and value.strip():
         return value.strip()
     return None
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = _env_value(name)
+    if value is None:
+        return default
+    return value.lower() not in {"0", "false", "no", "off"}
 
 
 def _load_discoveryos_env() -> dict[str, str | None]:
@@ -69,6 +81,14 @@ def _resolve_model() -> str:
 
 
 MODEL = _resolve_model()
+
+
+class InternAgentState(TypedDict):
+    messages: Annotated[list[AnyMessage], add_messages]
+    todos: NotRequired[list[Any]]
+    files: NotRequired[dict[str, str]]
+    email: NotRequired[dict[str, Any]]
+    ui: NotRequired[Any]
 
 
 def _load_agent_config() -> dict[str, Any]:
@@ -222,6 +242,19 @@ def _create_backend_for_resource(resource: ResourceConfig):  # noqa: ANN201
     raise ValueError(f"Unsupported backend type: {resource.backend}")
 
 
+def _create_runtime_backend(config: dict[str, Any]) -> LocalShellBackend:
+    backend_config = config.get("backend") or {}
+    backend_type = backend_config.get("type", "local_shell")
+    if backend_type != "local_shell":
+        raise ValueError(f"Runtime mode only supports local_shell backend, got {backend_type!r}")
+
+    return LocalShellBackend(
+        root_dir=_resolve_config_path(backend_config.get("root_dir"), ROOT_DIR),
+        inherit_env=backend_config.get("inherit_env", True),
+        virtual_mode=backend_config.get("virtual_mode", False),
+    )
+
+
 def _resource_system_prompt(base_prompt: str, resource: ResourceConfig) -> str:
     kb_line = (
         f"KB sync is enabled at {resource.kb_path}."
@@ -241,6 +274,32 @@ def _resource_system_prompt(base_prompt: str, resource: ResourceConfig) -> str:
 
 
 def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
+    if resource.remote_url:
+        remote = RemoteGraph(
+            resource.remote_assistant_id or "agent",
+            url=resource.remote_url,
+            name=resource.graph_name,
+        )
+
+        async def call_remote_runtime(
+            state: InternAgentState,
+            config: RunnableConfig,
+        ) -> dict[str, Any]:
+            return await remote.ainvoke(dict(state), config=config)
+
+        graph = StateGraph(InternAgentState)
+        graph.add_node("remote_runtime", call_remote_runtime)
+        graph.add_edge(START, "remote_runtime")
+        graph.add_edge("remote_runtime", END)
+        return graph.compile()
+
+    if not _env_flag("INTERNAGENT_ALLOW_EMBEDDED_RESOURCE"):
+        raise ValueError(
+            f"Resource {resource.id!r} is missing remote_url. "
+            "Coordinator mode only proxies to independent agent runtimes; "
+            "start a runtime for this resource and configure its remote_url."
+        )
+
     agent_config = _load_agent_config()
     base_prompt = agent_config.get(
         "system_prompt",
@@ -262,6 +321,54 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     )
 
 
+def create_runtime_agent():  # noqa: ANN201
+    agent_config = _load_agent_config()
+    runtime_id = _env_value("INTERNAGENT_RUNTIME_ID") or "runtime"
+    backend = _create_runtime_backend(agent_config)
+    runtime_resource = None
+    try:
+        _, resources = load_resource_config()
+        runtime_resource = resources.get(runtime_id)
+    except Exception:
+        runtime_resource = None
+    base_prompt = agent_config.get(
+        "system_prompt",
+        (
+            "你是一个简洁、可靠、严谨的科研助手，擅长协助用户进行论文阅读、文献调研、实验分析、"
+            "代码理解、研究方案设计和本地科研项目开发。请尽可能使用中文回答用户。"
+        ),
+    )
+    system_prompt = (
+        f"{base_prompt}\n\n"
+        "You are running inside an InternAgents agent runtime process.\n"
+        f"Runtime id: {runtime_id}\n"
+        "The main InternAgents server coordinates sessions and projects your state to the frontend. "
+        "Do not change server network settings, firewall settings, SSH daemon settings, or cloud security-group settings. "
+        "If such a change seems necessary, stop and ask the user."
+    )
+    if runtime_resource is not None:
+        system_prompt += (
+            f"\nConfigured resource id: {runtime_resource.id}\n"
+            f"Configured workspace: {runtime_resource.workspace}\n"
+            + (
+                f"KB sync is enabled at {runtime_resource.kb_path}."
+                if runtime_resource.kb_path
+                else "KB sync is not configured for this runtime."
+            )
+        )
+    middleware = list(agent_config.get("middleware") or [])
+    if runtime_resource is not None and runtime_resource.kb_path:
+        middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
+    return create_deep_agent(
+        model=MODEL,
+        backend=backend,
+        skills=_resolve_skills(agent_config),
+        system_prompt=system_prompt,
+        interrupt_on=agent_config.get("interrupt_on") or None,
+        middleware=middleware,
+    )
+
+
 def _build_resource_agents() -> tuple[str, dict[str, Any]]:
     default_resource, resources = load_resource_config()
     return default_resource, {
@@ -270,12 +377,18 @@ def _build_resource_agents() -> tuple[str, dict[str, Any]]:
     }
 
 
-_default_resource_id, _resource_agents = _build_resource_agents()
+if (_env_value("INTERNAGENT_PROCESS_ROLE") or "").lower() == "runtime":
+    agent = create_runtime_agent()
+    agent_local = agent
+    agent_h = agent
+    agent_volcano = agent
+else:
+    _default_resource_id, _resource_agents = _build_resource_agents()
 
-# Backward-compatible default graph.
-agent = _resource_agents[_default_resource_id]
+    # Backward-compatible default graph.
+    agent = _resource_agents[_default_resource_id]
 
-# Static exports used by langgraph.json and the UI resource selector.
-agent_local = _resource_agents.get("local", agent)
-agent_h = _resource_agents.get("h", agent)
-agent_volcano = _resource_agents.get("volcano", agent)
+    # Static exports used by langgraph.json and the UI resource selector.
+    agent_local = _resource_agents.get("local", agent)
+    agent_h = _resource_agents.get("h", agent)
+    agent_volcano = _resource_agents.get("volcano", agent)

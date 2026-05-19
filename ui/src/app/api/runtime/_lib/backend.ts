@@ -70,6 +70,10 @@ function backendPort(): number {
   }
 }
 
+function localRuntimePort(): number {
+  return Number(process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT || 22024);
+}
+
 function isExecutable(filePath: string): boolean {
   try {
     accessSync(filePath, constants.X_OK);
@@ -94,7 +98,9 @@ function runtimePaths(root: string) {
     logDir,
     pidDir,
     backendLog: path.join(logDir, "backend.log"),
+    localRuntimeLog: path.join(logDir, "local-runtime.log"),
     backendPidFile: path.join(pidDir, "backend.pid"),
+    localRuntimePidFile: path.join(pidDir, "local-runtime.pid"),
   };
 }
 
@@ -274,7 +280,7 @@ async function getProcessInfo(pid: number): Promise<ProcessInfo | null> {
   }
 }
 
-async function findBackendProcess(
+async function findLangGraphProcess(
   port: number,
   pidFile: string
 ): Promise<ProcessInfo | null> {
@@ -346,12 +352,28 @@ async function terminateBackend(info: ProcessInfo): Promise<void> {
   await waitForProcessExit(info.pid, 5000);
 }
 
-async function startBackend(root: string, host: string, port: number) {
+async function startLangGraphServer({
+  root,
+  host,
+  port,
+  configFile,
+  logPath,
+  pidFile,
+  env,
+}: {
+  root: string;
+  host: string;
+  port: number;
+  configFile: string;
+  logPath: string;
+  pidFile: string;
+  env?: NodeJS.ProcessEnv;
+}) {
   const paths = runtimePaths(root);
   mkdirSync(paths.logDir, { recursive: true });
   mkdirSync(paths.pidDir, { recursive: true });
 
-  const fd = openSync(paths.backendLog, "a");
+  const fd = openSync(logPath, "a");
   const child = spawn(
     pythonBinary(root),
     [
@@ -364,19 +386,19 @@ async function startBackend(root: string, host: string, port: number) {
       String(port),
       "--no-browser",
       "--config",
-      "langgraph.json",
+      configFile,
     ],
     {
       cwd: root,
       detached: true,
-      env: process.env,
+      env: env || process.env,
       stdio: ["ignore", fd, fd],
     }
   );
   child.unref();
   closeSync(fd);
 
-  await fs.writeFile(paths.backendPidFile, `${child.pid}\n`, "utf8");
+  await fs.writeFile(pidFile, `${child.pid}\n`, "utf8");
   return child.pid;
 }
 
@@ -384,17 +406,21 @@ export async function restartBackend(): Promise<BackendRestartResult> {
   const root = getWorkspaceRoot();
   const host = backendHost();
   const port = backendPort();
+  const runtimePort = localRuntimePort();
   const url = `http://${host}:${port}`;
+  const runtimeUrl = `http://${host}:${runtimePort}`;
   const paths = runtimePaths(root);
 
   try {
     mkdirSync(paths.logDir, { recursive: true });
     mkdirSync(paths.pidDir, { recursive: true });
 
-    const oldProcess = await findBackendProcess(port, paths.backendPidFile);
-    if (oldProcess) {
-      await terminateBackend(oldProcess);
-    } else if (await urlOk(`${url}/ok`)) {
+    const oldProcess = await findLangGraphProcess(port, paths.backendPidFile);
+    const oldRuntimeProcess = await findLangGraphProcess(
+      runtimePort,
+      paths.localRuntimePidFile
+    );
+    if (!oldProcess && (await urlOk(`${url}/ok`))) {
       return {
         status: "failed",
         message:
@@ -403,8 +429,57 @@ export async function restartBackend(): Promise<BackendRestartResult> {
         logPath: paths.backendLog,
       };
     }
+    if (!oldRuntimeProcess && (await urlOk(`${runtimeUrl}/ok`))) {
+      return {
+        status: "failed",
+        message:
+          "本机 runtime 端口已有健康服务，但无法确认它属于 InternAgents，已跳过自动应用。",
+        url,
+        logPath: paths.localRuntimeLog,
+      };
+    }
 
-    const pid = await startBackend(root, host, port);
+    if (oldProcess) {
+      await terminateBackend(oldProcess);
+    }
+    if (oldRuntimeProcess) {
+      await terminateBackend(oldRuntimeProcess);
+    }
+
+    const runtimePid = await startLangGraphServer({
+      root,
+      host,
+      port: runtimePort,
+      configFile: "langgraph.runtime.json",
+      logPath: paths.localRuntimeLog,
+      pidFile: paths.localRuntimePidFile,
+      env: {
+        ...process.env,
+        INTERNAGENT_PROCESS_ROLE: "runtime",
+        INTERNAGENT_RUNTIME_ID: "local",
+      },
+    });
+    const runtimeReady = await waitForBackend(runtimeUrl);
+
+    if (!runtimeReady) {
+      return {
+        status: "failed",
+        message: "本机 runtime 已启动，但健康检查超时。请查看 local-runtime.log。",
+        url,
+        pid: runtimePid,
+        oldPid: oldRuntimeProcess?.pid,
+        logPath: paths.localRuntimeLog,
+      };
+    }
+
+    const pid = await startLangGraphServer({
+      root,
+      host,
+      port,
+      configFile: "langgraph.json",
+      logPath: paths.backendLog,
+      pidFile: paths.backendPidFile,
+    });
     const ready = await waitForBackend(url);
 
     if (!ready) {
@@ -420,7 +495,7 @@ export async function restartBackend(): Promise<BackendRestartResult> {
 
     return {
       status: "restarted",
-      message: "技能配置已应用。",
+      message: "本机 runtime 和主后台已应用新配置。",
       url,
       pid,
       oldPid: oldProcess?.pid,

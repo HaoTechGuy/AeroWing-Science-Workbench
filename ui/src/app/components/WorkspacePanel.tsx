@@ -45,6 +45,7 @@ export function WorkspacePanel({
         >
           <WorkspaceExplorer
             selectedPath={selectedFilePath}
+            resourceId={resourceId}
             onFileSelect={onFileSelect}
           />
         </ResizablePanel>

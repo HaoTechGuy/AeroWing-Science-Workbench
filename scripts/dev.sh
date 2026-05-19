@@ -7,27 +7,33 @@ cd "$ROOT_DIR"
 
 HOST="127.0.0.1"
 BACKEND_PORT="${INTERNAGENTS_BACKEND_PORT:-2024}"
+LOCAL_RUNTIME_PORT="${INTERNAGENTS_LOCAL_RUNTIME_PORT:-22024}"
 UI_PORT="${INTERNAGENTS_UI_PORT:-3000}"
 OPEN_BROWSER="${INTERNAGENTS_OPEN_BROWSER:-1}"
 SKIP_INSTALL="${INTERNAGENTS_SKIP_INSTALL:-0}"
-ASSISTANT_ID="agent"
+ASSISTANT_ID="${INTERNAGENTS_ASSISTANT_ID:-agent_local}"
 
 RUNTIME_DIR="$ROOT_DIR/.internagents"
 LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
 BACKEND_LOG="$LOG_DIR/backend.log"
+LOCAL_RUNTIME_LOG="$LOG_DIR/local-runtime.log"
 UI_LOG="$LOG_DIR/ui.log"
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
+LOCAL_RUNTIME_PID_FILE="$PID_DIR/local-runtime.pid"
 UI_PID_FILE="$PID_DIR/ui.pid"
 
 PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
 BACKEND_URL="http://$HOST:$BACKEND_PORT"
+LOCAL_RUNTIME_URL="http://$HOST:$LOCAL_RUNTIME_PORT"
 UI_URL="http://$HOST:$UI_PORT"
 APP_URL="$UI_URL/?assistantId=$ASSISTANT_ID"
 
 BACKEND_OWNED=0
+LOCAL_RUNTIME_OWNED=0
 UI_OWNED=0
 BACKEND_PID=""
+LOCAL_RUNTIME_PID=""
 UI_PID=""
 
 log() {
@@ -134,6 +140,10 @@ cleanup() {
     terminate_pid "backend" "$BACKEND_PID"
     rm -f "$BACKEND_PID_FILE"
   fi
+  if [ "$LOCAL_RUNTIME_OWNED" = "1" ]; then
+    terminate_pid "local runtime" "$LOCAL_RUNTIME_PID"
+    rm -f "$LOCAL_RUNTIME_PID_FILE"
+  fi
 
   exit "$exit_code"
 }
@@ -189,6 +199,36 @@ prepare_environment() {
 
   require_command curl
   require_command npm
+}
+
+start_local_runtime() {
+  if url_ok "$LOCAL_RUNTIME_URL/ok"; then
+    log "Reusing existing local runtime: $LOCAL_RUNTIME_URL"
+    rm -f "$LOCAL_RUNTIME_PID_FILE"
+    return 0
+  fi
+
+  if port_open "$LOCAL_RUNTIME_PORT"; then
+    die "Port $LOCAL_RUNTIME_PORT is in use, but $LOCAL_RUNTIME_URL/ok is not healthy."
+  fi
+
+  : > "$LOCAL_RUNTIME_LOG"
+  log "Starting local agent runtime on $LOCAL_RUNTIME_URL..."
+  (
+    cd "$ROOT_DIR"
+    INTERNAGENT_PROCESS_ROLE=runtime \
+    INTERNAGENT_RUNTIME_ID=local \
+      "$PYTHON_BIN" -m langgraph_cli dev \
+        --host "$HOST" \
+        --port "$LOCAL_RUNTIME_PORT" \
+        --no-browser \
+        --config langgraph.runtime.json
+  ) >>"$LOCAL_RUNTIME_LOG" 2>&1 &
+
+  LOCAL_RUNTIME_PID="$!"
+  LOCAL_RUNTIME_OWNED=1
+  printf '%s\n' "$LOCAL_RUNTIME_PID" > "$LOCAL_RUNTIME_PID_FILE"
+  wait_for_url "Local runtime" "$LOCAL_RUNTIME_URL/ok" "$LOCAL_RUNTIME_LOG" "$LOCAL_RUNTIME_PID"
 }
 
 start_backend() {
@@ -250,10 +290,15 @@ monitor_processes() {
   log "InternAgents is running."
   log "UI:      $APP_URL"
   log "Backend: $BACKEND_URL"
+  log "Runtime: $LOCAL_RUNTIME_URL"
   log "Logs:    $LOG_DIR"
   log "Press Ctrl+C to stop services started by this script."
 
   while true; do
+    if [ "$LOCAL_RUNTIME_OWNED" = "1" ] && ! kill -0 "$LOCAL_RUNTIME_PID" >/dev/null 2>&1; then
+      print_log_tail "local runtime" "$LOCAL_RUNTIME_LOG"
+      die "Local runtime process exited."
+    fi
     if [ "$BACKEND_OWNED" = "1" ] && ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
       print_log_tail "backend" "$BACKEND_LOG"
       die "Backend process exited."
@@ -267,6 +312,7 @@ monitor_processes() {
 }
 
 prepare_environment
+start_local_runtime
 start_backend
 start_frontend
 open_browser

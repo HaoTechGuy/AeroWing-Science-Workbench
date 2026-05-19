@@ -24,6 +24,8 @@ class ResourceConfig:
     ssh_command: str | None = None
     kb_path: str | None = None
     kb_command: str = "kb"
+    remote_url: str | None = None
+    remote_assistant_id: str | None = None
     timeout: int = 120
     max_output_bytes: int = 100_000
 
@@ -84,6 +86,12 @@ def load_resource_config() -> tuple[str, dict[str, ResourceConfig]]:
             ssh_command=(str(item.get("ssh_command")).strip() if item.get("ssh_command") else None),
             kb_path=(str(item.get("kb_path")).strip() if item.get("kb_path") else None),
             kb_command=str(item.get("kb_command") or "kb"),
+            remote_url=(str(item.get("remote_url")).strip() if item.get("remote_url") else None),
+            remote_assistant_id=(
+                str(item.get("remote_assistant_id")).strip()
+                if item.get("remote_assistant_id")
+                else None
+            ),
             timeout=int(item.get("timeout") or 120),
             max_output_bytes=int(item.get("max_output_bytes") or 100_000),
         )

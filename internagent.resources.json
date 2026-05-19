@@ -6,6 +6,8 @@
       "label": "Current Machine",
       "backend": "local_shell",
       "workspace": ".",
+      "remote_url": "http://127.0.0.1:22024",
+      "remote_assistant_id": "agent",
       "kb_path": "",
       "enabled": true
     },
@@ -14,7 +16,9 @@
       "label": "H Cluster",
       "backend": "ssh_shell",
       "ssh_command": "ssh -o UpdateHostKeys=no -CAY zhf.zhanghangfan.ailab-agentsft.ws@h.pjlab.org.cn",
-      "workspace": ".",
+      "workspace": "/home/zhanghangfan/InternAgents",
+      "remote_url": "http://127.0.0.1:22025",
+      "remote_assistant_id": "agent",
       "kb_path": "",
       "enabled": true
     },
@@ -24,6 +28,8 @@
       "backend": "ssh_shell",
       "ssh_command": "ssh -p 8880 root@101.126.156.90",
       "workspace": "/root/InternAgents",
+      "remote_url": "http://127.0.0.1:22026",
+      "remote_assistant_id": "agent",
       "kb_path": "",
       "enabled": true
     }

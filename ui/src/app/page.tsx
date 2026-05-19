@@ -221,7 +221,10 @@ function HomePageInner({
             minSize={22}
             className="relative min-w-[320px] border-l border-border"
           >
-            <WorkspaceViewer selectedPath={selectedFilePath} />
+            <WorkspaceViewer
+              selectedPath={selectedFilePath}
+              resourceId={activeResource.id}
+            />
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
