@@ -110,6 +110,10 @@ export function SkillsMarketplace() {
   }, [data.enabled, data.selected, draftEnabled, selected]);
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
+  const restartMessage = data.restart?.message.trim();
+  const backendStatusMessage = backendStatus?.message.trim();
+  const showBackendStatus =
+    Boolean(backendStatusMessage) && backendStatusMessage !== restartMessage;
 
   async function loadSkills() {
     setLoading(true);
@@ -488,7 +492,7 @@ export function SkillsMarketplace() {
                 {data.restart.message}
               </span>
             )}
-            {backendStatus && (
+            {backendStatus && showBackendStatus && (
               <span
                 className={cn(
                   backendStatus.status === "idle"
