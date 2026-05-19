@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   Loader2,
   Moon,
   Save,
+  ServerCog,
   Shield,
   ShieldCheck,
   Sun,
@@ -34,6 +35,23 @@ interface ConfigResponse {
   openrouterApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
   message?: string;
+}
+
+interface BackendRestartResult {
+  status: "restarted" | "failed";
+  message: string;
+  url: string;
+  pid?: number;
+  oldPid?: number;
+  logPath: string;
+}
+
+interface BackendStatusResult {
+  status: "idle" | "busy" | "unavailable";
+  message: string;
+  url: string;
+  busyThreads: number;
+  interruptedThreads: number;
 }
 
 const DEFAULT_CONFIG: ConfigResponse = {
@@ -100,11 +118,39 @@ const THEME_OPTIONS: Array<{
 
 export default function ConfigPage() {
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
+  const [savedConfig, setSavedConfig] =
+    useState<ConfigResponse>(DEFAULT_CONFIG);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [autoRestart, setAutoRestart] = useState(false);
+  const [requiresRestart, setRequiresRestart] = useState(false);
+  const [backendStatus, setBackendStatus] =
+    useState<BackendStatusResult | null>(null);
+  const [restartResult, setRestartResult] =
+    useState<BackendRestartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const actionBusy = loading || saving || restarting;
+  const isBusy = actionBusy || checkingStatus;
+  const hasChanges = useMemo(() => {
+    return (
+      config.model !== savedConfig.model ||
+      config.authorizationMode !== savedConfig.authorizationMode ||
+      apiKeyDraft.trim().length > 0
+    );
+  }, [
+    apiKeyDraft,
+    config.authorizationMode,
+    config.model,
+    savedConfig.authorizationMode,
+    savedConfig.model,
+  ]);
+  const canApplyWhenIdle = !isBusy;
+  const canApplyNow = !isBusy && !hasChanges;
 
   async function loadConfig() {
     setLoading(true);
@@ -115,7 +161,12 @@ export default function ConfigPage() {
       if (!response.ok) {
         throw new Error(payload.error || "配置读取失败");
       }
-      setConfig(payload as ConfigResponse);
+      const nextConfig = payload as ConfigResponse;
+      setConfig(nextConfig);
+      setSavedConfig(nextConfig);
+      setRequiresRestart(false);
+      setRestartResult(null);
+      setBackendStatus(null);
     } catch (loadError) {
       const message =
         loadError instanceof Error ? loadError.message : "配置读取失败";
@@ -126,8 +177,7 @@ export default function ConfigPage() {
     }
   }
 
-  async function saveConfig(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function saveConfig(): Promise<boolean> {
     setSaving(true);
     setError(null);
     try {
@@ -144,17 +194,105 @@ export default function ConfigPage() {
       if (!response.ok) {
         throw new Error(payload.error || "配置保存失败");
       }
-      setConfig(payload as ConfigResponse);
+      const nextConfig = payload as ConfigResponse;
+      setConfig(nextConfig);
+      setSavedConfig(nextConfig);
       setApiKeyDraft("");
-      toast.success(payload.message || "配置已保存");
+      setRequiresRestart(true);
+      setBackendStatus(null);
+      setRestartResult(null);
+      setAutoRestart(true);
+      toast.success(payload.message || "配置已保存，将在空闲时自动应用");
+      return true;
     } catch (saveError) {
       const message =
         saveError instanceof Error ? saveError.message : "配置保存失败";
       setError(message);
       toast.error(message);
+      return false;
     } finally {
       setSaving(false);
     }
+  }
+
+  async function checkBackendStatus(): Promise<BackendStatusResult> {
+    setCheckingStatus(true);
+    try {
+      const response = await fetch("/api/runtime/backend/status", {
+        cache: "no-store",
+      });
+      const status = (await response.json()) as BackendStatusResult;
+      setBackendStatus(status);
+      return status;
+    } finally {
+      setCheckingStatus(false);
+    }
+  }
+
+  async function restartBackendNow({ manual }: { manual: boolean }) {
+    let status: BackendStatusResult | null = null;
+    if (manual) {
+      status = await checkBackendStatus();
+      const confirmed = window.confirm(
+        [
+          "立即应用会重新加载配置。",
+          "",
+          "风险：正在运行或等待审批的任务可能中断。历史会话会保留，但当前未完成的步骤可能需要重新发送。",
+          "",
+          status.status === "idle"
+            ? "当前检测结果：后台空闲。确认立即应用？"
+            : `当前检测结果：${status.message} 确认仍然立即应用？`,
+        ].join("\n")
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setRestarting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/runtime/backend/restart", {
+        method: "POST",
+      });
+      const restart = (await response.json()) as BackendRestartResult;
+      setRestartResult(restart);
+      setRequiresRestart(restart.status !== "restarted");
+
+      if (!response.ok || restart.status !== "restarted") {
+        throw new Error(restart.message || "配置应用失败");
+      }
+
+      setAutoRestart(false);
+      setBackendStatus({
+        status: "idle",
+        message: "配置已应用。",
+        url: restart.url,
+        busyThreads: 0,
+        interruptedThreads: 0,
+      });
+      toast.success(restart.message || "配置已应用");
+    } catch (restartError) {
+      const message =
+        restartError instanceof Error ? restartError.message : "配置应用失败";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setRestarting(false);
+    }
+  }
+
+  async function applyWhenIdle() {
+    if (hasChanges) {
+      await saveConfig();
+      return;
+    }
+
+    setRequiresRestart(true);
+    setBackendStatus(null);
+    setRestartResult(null);
+    setAutoRestart(true);
+    toast.success("将在后台空闲时自动应用当前配置");
   }
 
   function updateTheme(nextTheme: ThemeMode) {
@@ -168,6 +306,33 @@ export default function ConfigPage() {
     applyTheme(storedTheme);
     void loadConfig();
   }, []);
+
+  useEffect(() => {
+    if (!autoRestart || !requiresRestart || hasChanges || actionBusy) {
+      return;
+    }
+
+    let cancelled = false;
+    const checkAndRestart = async () => {
+      try {
+        const status = await checkBackendStatus();
+        if (!cancelled && status.status === "idle") {
+          await restartBackendNow({ manual: false });
+        }
+      } catch {
+        // Keep polling; the visible status text updates on the next successful check.
+      }
+    };
+
+    void checkAndRestart();
+    const interval = window.setInterval(checkAndRestart, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRestart, requiresRestart, hasChanges, actionBusy]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -192,19 +357,45 @@ export default function ConfigPage() {
           </div>
         </div>
 
-        <Button
-          form="internagents-config-form"
-          type="submit"
-          disabled={loading || saving}
-          className="h-9"
-        >
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          保存配置
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={applyWhenIdle}
+            disabled={!canApplyWhenIdle}
+            title={
+              hasChanges
+                ? "保存当前配置，并在后台空闲时自动应用。"
+                : "后台空闲时自动重启并加载当前配置。"
+            }
+            className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            空闲时应用
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => restartBackendNow({ manual: true })}
+            disabled={!canApplyNow}
+            title={
+              hasChanges
+                ? "请先保存当前配置，再立即应用。"
+                : "立即重启后台并加载当前配置。"
+            }
+            className="h-9"
+          >
+            {restarting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ServerCog className="h-4 w-4" />
+            )}
+            立即应用
+          </Button>
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-5xl px-6 py-6">
@@ -216,9 +407,45 @@ export default function ConfigPage() {
 
         <form
           id="internagents-config-form"
-          onSubmit={saveConfig}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void applyWhenIdle();
+          }}
           className="space-y-5"
         >
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              模型和授权模式需要应用后生效；界面风格会立即生效。
+            </span>
+            {requiresRestart && !hasChanges && (
+              <span className="text-amber-700">有配置等待应用。</span>
+            )}
+            {restartResult && (
+              <span
+                className={cn(
+                  restartResult.status === "restarted"
+                    ? "text-green-700"
+                    : "text-red-700"
+                )}
+              >
+                {restartResult.message}
+              </span>
+            )}
+            {backendStatus && (
+              <span
+                className={cn(
+                  backendStatus.status === "idle"
+                    ? "text-green-700"
+                    : backendStatus.status === "busy"
+                    ? "text-amber-700"
+                    : "text-red-700"
+                )}
+              >
+                {backendStatus.message}
+              </span>
+            )}
+          </div>
+
           <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
             <div className="mb-5 flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
@@ -408,7 +635,7 @@ export default function ConfigPage() {
           </section>
 
           <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-            <div>模型和授权模式会在后台重启后生效。</div>
+            <div>保存后会写入本地配置；应用时会重新加载后台。</div>
             <div className="truncate">配置文件：{config.configPath || "-"}</div>
           </div>
         </form>
