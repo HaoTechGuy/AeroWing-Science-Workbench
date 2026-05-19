@@ -1,35 +1,35 @@
-import { promises as fs } from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import {
   assertReadableFilePath,
   getMimeType,
-  resolveWorkspacePath,
+  readWorkspaceRawFile,
 } from "../../_lib/workspace";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const requestedPath = request.nextUrl.searchParams.get("path") || "";
+  const resourceId = request.nextUrl.searchParams.get("resourceId");
 
   try {
     assertReadableFilePath(requestedPath);
-    const resolved = await resolveWorkspacePath(requestedPath);
-    const stats = await fs.stat(resolved.absolutePath);
+    const fileData = await readWorkspaceRawFile(requestedPath, resourceId);
 
-    if (!stats.isFile()) {
+    if (!fileData.isFile) {
       return NextResponse.json(
         { error: "Selected workspace path is not a file." },
         { status: 400 }
       );
     }
 
-    const data = await fs.readFile(resolved.absolutePath);
-    return new NextResponse(data, {
+    const body = new Uint8Array(fileData.data);
+
+    return new NextResponse(body, {
       headers: {
-        "Content-Type": getMimeType(resolved.relativePath),
+        "Content-Type": getMimeType(fileData.path),
         "Content-Disposition": `inline; filename="${path.basename(
-          resolved.relativePath
+          fileData.path
         )}"`,
         "Cache-Control": "no-store",
       },

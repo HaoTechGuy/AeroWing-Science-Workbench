@@ -6,10 +6,18 @@ export interface StreamConfig {
   subgraphs: boolean;
 }
 
+export interface ResourceConfig {
+  id: string;
+  label: string;
+  assistantId: string;
+}
+
 export interface StandaloneConfig {
   deploymentUrl: string;
   assistantId: string;
   langsmithApiKey?: string;
+  defaultResourceId: string;
+  resources: ResourceConfig[];
   stream: StreamConfig;
 }
 
@@ -25,6 +33,28 @@ const DEFAULT_STREAM_CONFIG: StreamConfig = {
 
 const rawConfig = uiConfig as Partial<StandaloneConfig>;
 const CONNECTION_STORAGE_KEY = "internagents.connection";
+
+const configuredResources = (
+  rawConfig.resources?.length
+    ? rawConfig.resources
+    : [
+        {
+          id: "local",
+          label: "Current Machine",
+          assistantId: rawConfig.assistantId || "agent",
+        },
+      ]
+) as ResourceConfig[];
+
+const defaultResourceId =
+  process.env.NEXT_PUBLIC_INTERNAGENT_RESOURCE_ID ||
+  rawConfig.defaultResourceId ||
+  configuredResources[0]?.id ||
+  "local";
+
+const selectedDefaultResource =
+  configuredResources.find((resource) => resource.id === defaultResourceId) ||
+  configuredResources[0];
 
 function normalizeStreamConfig(stream?: Partial<StreamConfig>): StreamConfig {
   return {
@@ -46,12 +76,15 @@ const DEFAULT_CONFIG: StandaloneConfig = {
     "http://127.0.0.1:2024",
   assistantId:
     process.env.NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID ||
+    selectedDefaultResource?.assistantId ||
     rawConfig.assistantId ||
     "agent",
   langsmithApiKey:
     process.env.NEXT_PUBLIC_LANGSMITH_API_KEY ||
     rawConfig.langsmithApiKey ||
     undefined,
+  defaultResourceId,
+  resources: configuredResources,
   stream: normalizeStreamConfig(rawConfig.stream),
 };
 
@@ -95,8 +128,23 @@ export function getConfig(): StandaloneConfig {
   return {
     ...DEFAULT_CONFIG,
     ...stored,
+    defaultResourceId: DEFAULT_CONFIG.defaultResourceId,
+    resources: DEFAULT_CONFIG.resources,
     stream: DEFAULT_CONFIG.stream,
   };
+}
+
+export function getResource(
+  config: StandaloneConfig,
+  resourceId?: string | null
+) {
+  return (
+    config.resources.find((resource) => resource.id === resourceId) ||
+    config.resources.find(
+      (resource) => resource.id === config.defaultResourceId
+    ) ||
+    config.resources[0]
+  );
 }
 
 export function saveConnectionConfig(config: ConnectionConfig): void {

@@ -23,6 +23,7 @@ import type { WorkspaceEntry } from "@/app/types/workspace";
 
 interface WorkspaceExplorerProps {
   selectedPath?: string | null;
+  resourceId?: string;
   onFileSelect: (entry: WorkspaceEntry) => void;
 }
 
@@ -51,9 +52,7 @@ function FileIcon({ entry }: { entry: WorkspaceEntry }) {
   }
 
   if (
-    [".js", ".jsx", ".py", ".ts", ".tsx", ".sh"].includes(
-      entry.extension || ""
-    )
+    [".js", ".jsx", ".py", ".ts", ".tsx", ".sh"].includes(entry.extension || "")
   ) {
     return <FileCode2 className="h-4 w-4 text-[#3B6FA8]" />;
   }
@@ -68,6 +67,7 @@ function matchesFilter(entry: WorkspaceEntry, filter: string): boolean {
 
 export function WorkspaceExplorer({
   selectedPath,
+  resourceId,
   onFileSelect,
 }: WorkspaceExplorerProps) {
   const {
@@ -77,7 +77,7 @@ export function WorkspaceExplorer({
     error,
     toggleDirectory,
     refresh,
-  } = useWorkspaceFiles();
+  } = useWorkspaceFiles(resourceId);
   const [filter, setFilter] = useState("");
 
   const rootEntries = useMemo(() => directories[""] ?? [], [directories]);
@@ -110,7 +110,7 @@ export function WorkspaceExplorer({
             className={cn(
               "grid h-8 w-full grid-cols-[20px_20px_minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 text-left text-sm transition-colors",
               "hover:bg-accent",
-              isSelected && "bg-primary/10 text-primary hover:bg-primary/10"
+              isSelected && "bg-primary/10 hover:bg-primary/10 text-primary"
             )}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             aria-expanded={isDirectory ? isExpanded : undefined}
@@ -185,7 +185,7 @@ export function WorkspaceExplorer({
               工作区
             </h2>
             <p className="truncate text-xs text-muted-foreground">
-              当前项目文件
+              当前资源文件
             </p>
           </div>
           <Button

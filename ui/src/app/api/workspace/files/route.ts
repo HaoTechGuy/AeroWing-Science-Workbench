@@ -7,10 +7,11 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const requestedPath = searchParams.get("path") || "";
+  const resourceId = searchParams.get("resourceId");
 
   try {
-    const resolved = await resolveWorkspacePath(requestedPath);
-    const entries = await listWorkspaceEntries(resolved.relativePath);
+    const resolved = await resolveWorkspacePath(requestedPath, resourceId);
+    const entries = await listWorkspaceEntries(resolved.relativePath, resourceId);
     const payload: WorkspaceListResponse = {
       path: resolved.relativePath,
       entries,

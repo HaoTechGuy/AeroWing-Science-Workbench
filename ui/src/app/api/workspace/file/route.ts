@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import {
   MAX_TEXT_FILE_SIZE,
@@ -7,7 +5,7 @@ import {
   getFileExtension,
   getMimeType,
   getPreviewKind,
-  resolveWorkspacePath,
+  readWorkspaceFileData,
 } from "../_lib/workspace";
 import type { WorkspaceFileResponse } from "@/app/types/workspace";
 
@@ -15,41 +13,41 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   const requestedPath = request.nextUrl.searchParams.get("path") || "";
+  const resourceId = request.nextUrl.searchParams.get("resourceId");
 
   try {
     assertReadableFilePath(requestedPath);
-    const resolved = await resolveWorkspacePath(requestedPath);
-    const stats = await fs.stat(resolved.absolutePath);
+    const fileData = await readWorkspaceFileData(requestedPath, resourceId);
 
-    if (!stats.isFile()) {
+    if (!fileData.isFile) {
       return NextResponse.json(
         { error: "Selected workspace path is not a file." },
         { status: 400 }
       );
     }
 
-    const previewKind = getPreviewKind(resolved.relativePath);
-    const rawUrl = `/api/workspace/file/raw?path=${encodeURIComponent(
-      resolved.relativePath
-    )}`;
+    const previewKind = getPreviewKind(fileData.path);
+    const rawParams = new URLSearchParams({ path: fileData.path });
+    if (resourceId) {
+      rawParams.set("resourceId", resourceId);
+    }
     const payload: WorkspaceFileResponse = {
-      name: path.basename(resolved.relativePath),
-      path: resolved.relativePath,
-      extension: getFileExtension(resolved.relativePath) || undefined,
-      size: stats.size,
-      modifiedAt: stats.mtime.toISOString(),
+      name: fileData.name,
+      path: fileData.path,
+      extension: getFileExtension(fileData.path) || undefined,
+      size: fileData.size,
+      modifiedAt: fileData.modifiedAt,
       previewKind,
-      mimeType: getMimeType(resolved.relativePath),
-      rawUrl,
+      mimeType: getMimeType(fileData.path),
+      rawUrl: `/api/workspace/file/raw?${rawParams.toString()}`,
     };
 
-    if (
-      (previewKind === "markdown" || previewKind === "text") &&
-      stats.size <= MAX_TEXT_FILE_SIZE
-    ) {
-      payload.content = await fs.readFile(resolved.absolutePath, "utf8");
-    } else if (previewKind === "markdown" || previewKind === "text") {
-      payload.tooLarge = true;
+    if (previewKind === "markdown" || previewKind === "text") {
+      if (fileData.size <= MAX_TEXT_FILE_SIZE && fileData.content !== undefined) {
+        payload.content = fileData.content;
+      } else {
+        payload.tooLarge = true;
+      }
     }
 
     return NextResponse.json(payload);

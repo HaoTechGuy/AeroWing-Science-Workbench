@@ -203,6 +203,9 @@ python -m langgraph_cli dev \
   --port 2024 \
   --no-browser \
   --config langgraph.json
+
+cd ui
+npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 Health and API docs:
@@ -255,3 +258,66 @@ under `kb_infra/`.
 - KB README: `kb_infra/README.md`
 - Agent bootstrap entrypoint: `kb_infra/docs/kb_bootstrap.md`
 - Local CLI install from `kb_infra/`: `npm install && npm link`
+
+## Multi-Resource InternAgents Sessions
+
+InternAgents exposes one coordinator LangGraph server plus one agent runtime per
+resource. The coordinator is the frontend-facing projection layer; agent work is
+executed by the selected runtime over the LangGraph API. SSH is used only for
+deployment, tunnels, and workspace projection.
+The default resource config is in:
+
+```text
+internagent.resources.json
+```
+
+Each enabled resource becomes a graph named `agent_<resource-id>`. The current
+config exposes:
+
+- `agent_local` through the local runtime at `http://127.0.0.1:22024`
+- `agent_h` through the H runtime tunnel at `http://127.0.0.1:22025`
+- `agent_volcano` through the Volcano runtime tunnel at `http://127.0.0.1:22026`
+
+The web UI reads matching resource labels and assistant IDs from:
+
+```text
+ui/deepagent-ui.config.json
+```
+
+For local development, `scripts/dev.sh` starts the local runtime, the
+coordinator, and the UI:
+
+```bash
+./scripts/dev.sh
+```
+
+The equivalent manual commands are:
+
+```bash
+source .venv/bin/activate
+
+INTERNAGENT_PROCESS_ROLE=runtime \
+INTERNAGENT_RUNTIME_ID=local \
+python -m langgraph_cli dev \
+  --host 127.0.0.1 \
+  --port 22024 \
+  --no-browser \
+  --config langgraph.runtime.json
+
+python -m langgraph_cli dev \
+  --host 127.0.0.1 \
+  --port 2024 \
+  --no-browser \
+  --config langgraph.json
+```
+
+Remote resources follow the same runtime pattern: start `langgraph.runtime.json`
+on the remote machine with `INTERNAGENT_PROCESS_ROLE=runtime` and the matching
+`INTERNAGENT_RUNTIME_ID`, then expose it to the coordinator through an existing
+SSH tunnel. Do not change server network, firewall, SSH daemon, security-group,
+or routing settings for this setup; if a runtime is not reachable with existing
+access, fix the resource config, credentials, process, or tunnel instead.
+
+If a resource sets `kb_path`, InternAgents will best-effort run `kb sync pull`
+before each agent run and `kb sync push` after the run using that resource's
+backend.

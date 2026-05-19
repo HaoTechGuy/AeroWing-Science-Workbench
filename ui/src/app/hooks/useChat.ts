@@ -29,7 +29,10 @@ export type StateType = {
 
 type LangGraphContentBlock =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: string | { url: string; detail?: "auto" | "low" | "high" } };
+  | {
+      type: "image_url";
+      image_url: string | { url: string; detail?: "auto" | "low" | "high" };
+    };
 
 function formatAttachmentSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -50,7 +53,9 @@ function attachmentMetadata(attachments: ChatAttachment[]) {
 }
 
 function buildMessageContent(content: string, attachments: ChatAttachment[]) {
-  const validAttachments = attachments.filter((attachment) => !attachment.error);
+  const validAttachments = attachments.filter(
+    (attachment) => !attachment.error
+  );
   if (validAttachments.length === 0) {
     return content;
   }
@@ -75,7 +80,9 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
       blocks.push({
         type: "text",
         text: [
-          `<attachment name="${attachment.name}" mime_type="${attachment.mimeType}" size="${formatAttachmentSize(attachment.size)}">`,
+          `<attachment name="${attachment.name}" mime_type="${
+            attachment.mimeType
+          }" size="${formatAttachmentSize(attachment.size)}">`,
           attachment.truncated
             ? `${attachment.text}\n\n[Attachment truncated before sending.]`
             : attachment.text,
@@ -87,7 +94,9 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
 
     blocks.push({
       type: "text",
-      text: `[附件: ${attachment.name}, type=${attachment.mimeType || "unknown"}, size=${formatAttachmentSize(attachment.size)}. 二进制内容未内嵌。]`,
+      text: `[附件: ${attachment.name}, type=${
+        attachment.mimeType || "unknown"
+      }, size=${formatAttachmentSize(attachment.size)}. 二进制内容未内嵌。]`,
     });
   }
 
@@ -99,11 +108,15 @@ export function useChat({
   streamConfig,
   onHistoryRevalidate,
   thread,
+  resourceId,
+  resourceLabel,
 }: {
   activeAssistant: Assistant | null;
   streamConfig: StreamConfig;
   onHistoryRevalidate?: () => void;
   thread?: UseStreamThread<StateType>;
+  resourceId?: string;
+  resourceLabel?: string;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const remoteAgent = useRemoteAgent();
@@ -144,7 +157,10 @@ export function useChat({
       const newMessage: Message = {
         id: uuidv4(),
         type: "human",
-        content: buildMessageContent(content, attachments) as Message["content"],
+        content: buildMessageContent(
+          content,
+          attachments
+        ) as Message["content"],
         additional_kwargs:
           attachments.length > 0
             ? { attachments: attachmentMetadata(attachments) }
@@ -154,6 +170,10 @@ export function useChat({
       stream.submit(
         { messages: [newMessage] },
         withStreamSubmitOptions({
+          metadata: {
+            ...(resourceId ? { resource_id: resourceId } : {}),
+            ...(resourceLabel ? { resource_label: resourceLabel } : {}),
+          },
           optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
           }),
@@ -169,6 +189,8 @@ export function useChat({
       withStreamSubmitOptions,
       activeAssistant?.config,
       onHistoryRevalidate,
+      resourceId,
+      resourceLabel,
     ]
   );
 

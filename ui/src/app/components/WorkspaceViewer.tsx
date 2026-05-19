@@ -17,6 +17,7 @@ import type { WorkspaceFileResponse } from "@/app/types/workspace";
 
 interface WorkspaceViewerProps {
   selectedPath?: string | null;
+  resourceId?: string;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -41,10 +42,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function fetchWorkspaceFile(path: string): Promise<WorkspaceFileResponse> {
-  const response = await fetch(
-    `/api/workspace/file?path=${encodeURIComponent(path)}`
-  );
+async function fetchWorkspaceFile(
+  path: string,
+  resourceId?: string
+): Promise<WorkspaceFileResponse> {
+  const params = new URLSearchParams({ path });
+  if (resourceId) {
+    params.set("resourceId", resourceId);
+  }
+  const response = await fetch(`/api/workspace/file?${params.toString()}`);
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
@@ -70,7 +76,10 @@ function EmptyViewer() {
   );
 }
 
-export function WorkspaceViewer({ selectedPath }: WorkspaceViewerProps) {
+export function WorkspaceViewer({
+  selectedPath,
+  resourceId,
+}: WorkspaceViewerProps) {
   const [file, setFile] = useState<WorkspaceFileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -87,7 +96,7 @@ export function WorkspaceViewer({ selectedPath }: WorkspaceViewerProps) {
     setIsLoading(true);
     setError(null);
 
-    fetchWorkspaceFile(selectedPath)
+    fetchWorkspaceFile(selectedPath, resourceId)
       .then((payload) => {
         if (!isCancelled) {
           setFile(payload);
@@ -108,7 +117,7 @@ export function WorkspaceViewer({ selectedPath }: WorkspaceViewerProps) {
     return () => {
       isCancelled = true;
     };
-  }, [selectedPath]);
+  }, [resourceId, selectedPath]);
 
   const language = useMemo(() => {
     return file?.extension ? LANGUAGE_MAP[file.extension] || "text" : "text";

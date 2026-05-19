@@ -155,10 +155,12 @@ export class WebRemoteAgent {
     limit,
     offset,
     status,
+    metadata,
   }: {
     limit: number;
     offset: number;
     status?: Thread["status"];
+    metadata?: Record<string, unknown>;
   }): Promise<Thread[]> {
     return this.client.threads.search({
       limit,
@@ -166,9 +168,10 @@ export class WebRemoteAgent {
       sortBy: "updated_at" as const,
       sortOrder: "desc" as const,
       status,
-      ...(isUuid(this.graphName)
-        ? { metadata: { assistant_id: this.graphName } }
-        : {}),
+      metadata: {
+        ...(isUuid(this.graphName) ? { assistant_id: this.graphName } : {}),
+        ...(metadata ?? {}),
+      },
     });
   }
 

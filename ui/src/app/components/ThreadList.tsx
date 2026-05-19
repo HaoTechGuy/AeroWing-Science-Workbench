@@ -86,6 +86,8 @@ interface ThreadListProps {
   onMutateReady?: (mutate: () => void) => void;
   onClose?: () => void;
   onInterruptCountChange?: (count: number) => void;
+  resourceId?: string;
+  assistantId?: string;
 }
 
 export function ThreadList({
@@ -94,6 +96,8 @@ export function ThreadList({
   onMutateReady,
   onClose,
   onInterruptCountChange,
+  resourceId,
+  assistantId,
 }: ThreadListProps) {
   const remoteAgent = useRemoteAgent();
   const [currentThreadId, setCurrentThreadId] = useQueryState("threadId");
@@ -103,6 +107,8 @@ export function ThreadList({
 
   const threads = useThreads({
     limit: 20,
+    resourceId,
+    assistantId,
   });
 
   const flattened = useMemo(() => {

@@ -16,6 +16,8 @@ interface WorkspacePanelProps {
   onNewThread?: () => void;
   onMutateReady?: (mutate: () => void) => void;
   onInterruptCountChange?: (count: number) => void;
+  resourceId?: string;
+  assistantId?: string;
 }
 
 export function WorkspacePanel({
@@ -25,6 +27,8 @@ export function WorkspacePanel({
   onNewThread,
   onMutateReady,
   onInterruptCountChange,
+  resourceId,
+  assistantId,
 }: WorkspacePanelProps) {
   return (
     <div className="h-full bg-background">
@@ -41,6 +45,7 @@ export function WorkspacePanel({
         >
           <WorkspaceExplorer
             selectedPath={selectedFilePath}
+            resourceId={resourceId}
             onFileSelect={onFileSelect}
           />
         </ResizablePanel>
@@ -57,6 +62,8 @@ export function WorkspacePanel({
             onNewThread={onNewThread}
             onMutateReady={onMutateReady}
             onInterruptCountChange={onInterruptCountChange}
+            resourceId={resourceId}
+            assistantId={assistantId}
           />
         </ResizablePanel>
       </ResizablePanelGroup>

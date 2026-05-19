@@ -156,6 +156,99 @@ const getStatusIcon = (status: TodoItem["status"], className?: string) => {
   }
 };
 
+function isRecord(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeToolArgs(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) return value;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function toolCallsFromMessage(message: Record<string, any>): ToolCall[] {
+  const toolCalls = Array.isArray(message.tool_calls)
+    ? message.tool_calls
+    : [];
+
+  return toolCalls
+    .filter((toolCall) => isRecord(toolCall) && toolCall.name)
+    .map((toolCall, index) => ({
+      id: String(toolCall.id || `${message.id}-remote-tool-${index}`),
+      name: String(toolCall.name),
+      args: normalizeToolArgs(toolCall.args),
+      status: "pending" as const,
+    }));
+}
+
+function buildRemoteRuntimeToolMessages(
+  streamEvents: Array<{
+    mode: string;
+    namespace?: string[];
+    data: unknown;
+  }>,
+  topLevelToolCallIds: Set<string>
+): Array<{ message: Message; toolCalls: ToolCall[] }> {
+  const remoteMessages = new Map<string, { message: Message; toolCalls: ToolCall[] }>();
+
+  for (const event of streamEvents) {
+    if (
+      event.mode !== "updates" ||
+      !event.namespace?.some((part) => part.startsWith("remote_runtime"))
+    ) {
+      continue;
+    }
+
+    const data = isRecord(event.data) ? event.data : {};
+    const modelMessages = isRecord(data.model) && Array.isArray(data.model.messages)
+      ? data.model.messages
+      : [];
+    const toolMessages = isRecord(data.tools) && Array.isArray(data.tools.messages)
+      ? data.tools.messages
+      : [];
+
+    for (const rawMessage of modelMessages) {
+      if (!isRecord(rawMessage) || rawMessage.type !== "ai" || !rawMessage.id) {
+        continue;
+      }
+      const toolCalls = toolCallsFromMessage(rawMessage).filter(
+        (toolCall) => !topLevelToolCallIds.has(toolCall.id)
+      );
+      if (toolCalls.length === 0) continue;
+      remoteMessages.set(String(rawMessage.id), {
+        message: rawMessage as Message,
+        toolCalls,
+      });
+    }
+
+    for (const rawMessage of toolMessages) {
+      if (!isRecord(rawMessage) || rawMessage.type !== "tool") continue;
+      const toolCallId = rawMessage.tool_call_id;
+      if (!toolCallId || topLevelToolCallIds.has(String(toolCallId))) continue;
+
+      for (const entry of remoteMessages.values()) {
+        const toolCallIndex = entry.toolCalls.findIndex(
+          (toolCall) => toolCall.id === toolCallId
+        );
+        if (toolCallIndex === -1) continue;
+        entry.toolCalls[toolCallIndex] = {
+          ...entry.toolCalls[toolCallIndex],
+          status: rawMessage.status === "error" ? "error" : "completed",
+          result: extractStringFromMessageContent(rawMessage as Message),
+        };
+        break;
+      }
+    }
+  }
+
+  return Array.from(remoteMessages.values());
+}
+
 export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
@@ -170,6 +263,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const {
     stream,
     messages,
+    streamEvents,
     todos,
     files,
     ui,
@@ -360,6 +454,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       }
     });
     const processedArray = Array.from(messageMap.values());
+    const topLevelToolCallIds = new Set(
+      processedArray.flatMap((data) => data.toolCalls.map((toolCall) => toolCall.id))
+    );
+
+    // Remote runtimes currently arrive as namespaced subgraph stream events.
+    // Surface their tool activity while the parent graph is still waiting for
+    // the final RemoteGraph state update.
+    for (const remoteToolMessage of buildRemoteRuntimeToolMessages(
+      streamEvents,
+      topLevelToolCallIds
+    )) {
+      if (!messageMap.has(remoteToolMessage.message.id!)) {
+        processedArray.push(remoteToolMessage);
+      }
+    }
 
     if (interrupt) {
       const interruptTarget = [...processedArray]
@@ -391,7 +500,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         showAvatar: data.message.type !== prevMessage?.type,
       };
     });
-  }, [messages, interrupt, interruptedToolNames]);
+  }, [messages, streamEvents, interrupt, interruptedToolNames]);
 
   const groupedTodos = {
     in_progress: todos.filter((t) => t.status === "in_progress"),

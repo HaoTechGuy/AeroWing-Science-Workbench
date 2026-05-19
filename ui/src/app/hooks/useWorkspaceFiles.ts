@@ -1,14 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { WorkspaceEntry, WorkspaceListResponse } from "@/app/types/workspace";
+import type {
+  WorkspaceEntry,
+  WorkspaceListResponse,
+} from "@/app/types/workspace";
 
 type DirectoryEntries = Record<string, WorkspaceEntry[]>;
 
-async function fetchDirectory(path: string): Promise<WorkspaceListResponse> {
-  const response = await fetch(
-    `/api/workspace/files?path=${encodeURIComponent(path)}`
-  );
+async function fetchDirectory(
+  path: string,
+  resourceId?: string
+): Promise<WorkspaceListResponse> {
+  const params = new URLSearchParams({ path });
+  if (resourceId) {
+    params.set("resourceId", resourceId);
+  }
+  const response = await fetch(`/api/workspace/files?${params.toString()}`);
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
@@ -18,7 +26,7 @@ async function fetchDirectory(path: string): Promise<WorkspaceListResponse> {
   return response.json();
 }
 
-export function useWorkspaceFiles() {
+export function useWorkspaceFiles(resourceId?: string) {
   const [directories, setDirectories] = useState<DirectoryEntries>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set([""])
@@ -50,22 +58,20 @@ export function useWorkspaceFiles() {
       setError(null);
 
       try {
-        const payload = await fetchDirectory(path);
+        const payload = await fetchDirectory(path, resourceId);
         setDirectories((current) => ({
           ...current,
           [payload.path]: payload.entries,
         }));
         return payload.entries;
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "工作区文件加载失败。"
-        );
+        setError(err instanceof Error ? err.message : "工作区文件加载失败。");
         return [];
       } finally {
         setPathLoading(path, false);
       }
     },
-    [directories, setPathLoading]
+    [directories, resourceId, setPathLoading]
   );
 
   const toggleDirectory = useCallback(
@@ -95,10 +101,34 @@ export function useWorkspaceFiles() {
   }, [loadDirectory]);
 
   useEffect(() => {
-    loadDirectory("");
-    // Load the root directory once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let isCancelled = false;
+
+    setDirectories({});
+    setExpandedPaths(new Set([""]));
+    setPathLoading("", true);
+    setError(null);
+
+    fetchDirectory("", resourceId)
+      .then((payload) => {
+        if (!isCancelled) {
+          setDirectories({ [payload.path]: payload.entries });
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          setError(err instanceof Error ? err.message : "工作区文件加载失败。");
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setPathLoading("", false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [resourceId, setPathLoading]);
 
   return useMemo(
     () => ({

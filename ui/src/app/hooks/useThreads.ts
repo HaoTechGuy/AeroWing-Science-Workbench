@@ -18,6 +18,8 @@ const DEFAULT_PAGE_SIZE = 20;
 export function useThreads(props: {
   status?: Thread["status"];
   limit?: number;
+  resourceId?: string;
+  assistantId?: string;
 }) {
   const remoteAgent = useRemoteAgent();
   const pageSize = props.limit || DEFAULT_PAGE_SIZE;
@@ -33,13 +35,15 @@ export function useThreads(props: {
         pageIndex,
         pageSize,
         deploymentUrl: remoteAgent.url,
-        assistantId: remoteAgent.graphName,
+        assistantId: props.assistantId || remoteAgent.graphName,
         status: props?.status,
+        resourceId: props.resourceId,
       };
     },
     async ({
       assistantId,
       status,
+      resourceId,
       pageIndex,
       pageSize,
     }: {
@@ -49,11 +53,15 @@ export function useThreads(props: {
       deploymentUrl: string;
       assistantId: string;
       status?: Thread["status"];
+      resourceId?: string;
     }) => {
       const threads = await remoteAgent.searchThreads({
         limit: pageSize,
         offset: pageIndex * pageSize,
         status,
+        metadata: {
+          ...(resourceId ? { resource_id: resourceId } : {}),
+        },
       });
 
       return threads

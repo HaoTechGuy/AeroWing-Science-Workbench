@@ -1,7 +1,25 @@
 {
   "deploymentUrl": "http://127.0.0.1:2024",
-  "assistantId": "agent",
+  "assistantId": "agent_local",
   "langsmithApiKey": "",
+  "defaultResourceId": "local",
+  "resources": [
+    {
+      "id": "local",
+      "label": "Current Machine",
+      "assistantId": "agent_local"
+    },
+    {
+      "id": "h",
+      "label": "H Cluster",
+      "assistantId": "agent_h"
+    },
+    {
+      "id": "volcano",
+      "label": "Volcano Cloud",
+      "assistantId": "agent_volcano"
+    }
+  ],
   "stream": {
     "modes": ["messages-tuple", "updates", "values"],
     "subgraphs": true

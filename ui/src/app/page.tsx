@@ -1,15 +1,33 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, Suspense } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  Suspense,
+} from "react";
 import Link from "next/link";
 import { BookOpenText, Settings, Server, Sparkles } from "lucide-react";
 import { useQueryState } from "nuqs";
-import { getConfig, StandaloneConfig } from "@/lib/config";
+import {
+  getConfig,
+  getResource,
+  type ResourceConfig,
+  type StandaloneConfig,
+} from "@/lib/config";
 import { Assistant } from "@langchain/langgraph-sdk";
 import {
   RemoteAgentProvider,
   useRemoteAgent,
 } from "@/providers/ClientProvider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -24,9 +42,17 @@ import type { WorkspaceEntry } from "@/app/types/workspace";
 
 interface HomePageInnerProps {
   config: StandaloneConfig;
+  activeResource: ResourceConfig;
+  activeAssistantId: string;
+  onResourceChange: (resourceId: string) => Promise<void>;
 }
 
-function HomePageInner({ config }: HomePageInnerProps) {
+function HomePageInner({
+  config,
+  activeResource,
+  activeAssistantId,
+  onResourceChange,
+}: HomePageInnerProps) {
   const remoteAgent = useRemoteAgent();
   const [, setThreadId] = useQueryState("threadId");
   const [selectedFilePath, setSelectedFilePath] = useQueryState("file");
@@ -52,11 +78,42 @@ function HomePageInner({ config }: HomePageInnerProps) {
     [setSelectedFilePath]
   );
 
+  const handleResourceChange = useCallback(
+    async (resourceId: string) => {
+      await setThreadId(null);
+      await setSelectedFilePath(null);
+      await onResourceChange(resourceId);
+      mutateThreads?.();
+    },
+    [mutateThreads, onResourceChange, setSelectedFilePath, setThreadId]
+  );
+
   return (
     <div className="flex h-screen flex-col">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-4">
           <h1 className="text-xl font-semibold">InternAgents</h1>
+          <Select
+            value={activeResource.id}
+            onValueChange={handleResourceChange}
+          >
+            <SelectTrigger className="w-[210px]">
+              <SelectValue placeholder="选择资源" />
+            </SelectTrigger>
+            <SelectContent align="start">
+              {config.resources.map((resource) => (
+                <SelectItem
+                  key={resource.id}
+                  value={resource.id}
+                >
+                  {resource.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="hidden truncate text-xs text-muted-foreground md:block">
+            Assistant: {activeAssistantId}
+          </div>
           {interruptCount > 0 && (
             <div className="rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">
               {interruptCount} interrupted
@@ -132,6 +189,8 @@ function HomePageInner({ config }: HomePageInnerProps) {
               onNewThread={() => setThreadId(null)}
               onMutateReady={(fn) => setMutateThreads(() => fn)}
               onInterruptCountChange={setInterruptCount}
+              resourceId={activeResource.id}
+              assistantId={activeAssistantId}
             />
           </ResizablePanel>
           <ResizableHandle />
@@ -144,9 +203,12 @@ function HomePageInner({ config }: HomePageInnerProps) {
             minSize={32}
           >
             <ChatProvider
+              key={`${activeResource.id}:${activeAssistantId}`}
               activeAssistant={assistant}
               streamConfig={config.stream}
               onHistoryRevalidate={() => mutateThreads?.()}
+              resourceId={activeResource.id}
+              resourceLabel={activeResource.label}
             >
               <ChatInterface assistant={assistant} />
             </ChatProvider>
@@ -159,7 +221,10 @@ function HomePageInner({ config }: HomePageInnerProps) {
             minSize={22}
             className="relative min-w-[320px] border-l border-border"
           >
-            <WorkspaceViewer selectedPath={selectedFilePath} />
+            <WorkspaceViewer
+              selectedPath={selectedFilePath}
+              resourceId={activeResource.id}
+            />
           </ResizablePanel>
         </ResizablePanelGroup>
       </div>
@@ -170,23 +235,45 @@ function HomePageInner({ config }: HomePageInnerProps) {
 function HomePageContent() {
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
   const [assistantId, setAssistantId] = useQueryState("assistantId");
+  const [resourceId, setResourceId] = useQueryState("resourceId");
+  const [threadId, setThreadId] = useQueryState("threadId");
+  const previousResourceId = useRef<string | null>(null);
 
-  // On mount, connect to the local LangGraph dev server by default.
   useEffect(() => {
     const initialConfig = getConfig();
     setConfig(initialConfig);
+    const initialResource = getResource(initialConfig, resourceId);
+    if (!resourceId && initialResource) {
+      setResourceId(initialResource.id);
+    }
     if (!assistantId) {
-      setAssistantId(initialConfig.assistantId);
+      setAssistantId(initialResource?.assistantId || initialConfig.assistantId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If config changes, update the assistantId
   useEffect(() => {
-    if (config && !assistantId) {
-      setAssistantId(config.assistantId);
+    if (!config) return;
+    const selectedResource = getResource(config, resourceId);
+    if (selectedResource && assistantId !== selectedResource.assistantId) {
+      setAssistantId(selectedResource.assistantId);
     }
-  }, [config, assistantId, setAssistantId]);
+  }, [config, resourceId, assistantId, setAssistantId]);
+
+  useEffect(() => {
+    if (!config) return;
+    const selectedResource = getResource(config, resourceId);
+    const selectedResourceId = selectedResource?.id || null;
+    if (
+      previousResourceId.current &&
+      selectedResourceId &&
+      previousResourceId.current !== selectedResourceId &&
+      threadId
+    ) {
+      setThreadId(null);
+    }
+    previousResourceId.current = selectedResourceId;
+  }, [config, resourceId, threadId, setThreadId]);
 
   const langsmithApiKey =
     config?.langsmithApiKey || process.env.NEXT_PUBLIC_LANGSMITH_API_KEY || "";
@@ -201,13 +288,24 @@ function HomePageContent() {
     );
   }
 
+  const activeResource = getResource(config, resourceId);
+  const activeAssistantId = activeResource?.assistantId || config.assistantId;
+
   return (
     <RemoteAgentProvider
+      key={`${config.deploymentUrl}:${activeAssistantId}`}
       deploymentUrl={config.deploymentUrl}
-      assistantId={config.assistantId}
+      assistantId={activeAssistantId}
       apiKey={langsmithApiKey}
     >
-      <HomePageInner config={config} />
+      <HomePageInner
+        config={config}
+        activeResource={activeResource}
+        activeAssistantId={activeAssistantId}
+        onResourceChange={async (nextResourceId) => {
+          await setResourceId(nextResourceId);
+        }}
+      />
     </RemoteAgentProvider>
   );
 }
