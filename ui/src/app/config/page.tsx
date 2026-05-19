@@ -551,7 +551,7 @@ export default function ConfigPage() {
               <div className="space-y-5">
                 <div className="space-y-3">
                   <div>
-                    <Label>模型选择方式</Label>
+                    <Label>集思模型选择方式</Label>
                     <div className="mt-1 text-xs text-muted-foreground">
                       推荐使用自动选择；需要固定模型时再切换到手动。
                     </div>
