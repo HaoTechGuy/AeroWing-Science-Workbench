@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   applyTheme,
@@ -33,6 +34,8 @@ interface ConfigResponse {
   envPath: string;
   model: string;
   modelSelectionMode: ModelSelectionMode;
+  openrouterDirectEnabled: boolean;
+  openrouterModel: string;
   effectiveModel?: string;
   autoModel?: string;
   openrouterApiKeySet: boolean;
@@ -63,6 +66,8 @@ const DEFAULT_CONFIG: ConfigResponse = {
   envPath: "",
   model: "deepseek/deepseek-v4-flash",
   modelSelectionMode: "auto",
+  openrouterDirectEnabled: false,
+  openrouterModel: "deepseek/deepseek-v4-flash",
   effectiveModel: "openrouter/auto",
   autoModel: "openrouter/auto",
   openrouterApiKeySet: false,
@@ -216,6 +221,8 @@ export default function ConfigPage() {
     return (
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
+      config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
+      config.openrouterModel !== savedConfig.openrouterModel ||
       config.authorizationMode !== savedConfig.authorizationMode ||
       apiKeyDraft.trim().length > 0
     );
@@ -224,9 +231,13 @@ export default function ConfigPage() {
     config.authorizationMode,
     config.model,
     config.modelSelectionMode,
+    config.openrouterDirectEnabled,
+    config.openrouterModel,
     savedConfig.authorizationMode,
     savedConfig.model,
     savedConfig.modelSelectionMode,
+    savedConfig.openrouterDirectEnabled,
+    savedConfig.openrouterModel,
   ]);
   const selectedJisiModel = useMemo(
     () => JISI_MODEL_OPTIONS.find((option) => option.id === config.model),
@@ -244,7 +255,7 @@ export default function ConfigPage() {
       if (!response.ok) {
         throw new Error(payload.error || "配置读取失败");
       }
-      const nextConfig = payload as ConfigResponse;
+      const nextConfig = { ...DEFAULT_CONFIG, ...payload } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
       setRequiresRestart(false);
@@ -273,6 +284,8 @@ export default function ConfigPage() {
         body: JSON.stringify({
           model: config.model,
           modelSelectionMode: config.modelSelectionMode,
+          openrouterDirectEnabled: config.openrouterDirectEnabled,
+          openrouterModel: config.openrouterModel,
           openrouterApiKey: apiKeyDraft.trim(),
           authorizationMode: config.authorizationMode,
         }),
@@ -564,6 +577,7 @@ export default function ConfigPage() {
                         <button
                           key={option.id}
                           type="button"
+                          disabled={config.openrouterDirectEnabled}
                           onClick={() =>
                             setConfig((current) => ({
                               ...current,
@@ -572,6 +586,8 @@ export default function ConfigPage() {
                           }
                           className={cn(
                             "rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                            config.openrouterDirectEnabled &&
+                              "cursor-not-allowed opacity-60 hover:border-border hover:bg-background",
                             active
                               ? "border-primary ring-2 ring-primary/20"
                               : "border-border"
@@ -596,124 +612,179 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
-                {config.modelSelectionMode === "auto" && (
+                {config.openrouterDirectEnabled ? (
+                  <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                    已启用 OpenRouter 直连。集思模型选择暂不生效。
+                  </div>
+                ) : config.modelSelectionMode === "auto" ? (
                   <div className="rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
                     已启用自动模型选择。集思会根据问题自动匹配合适模型。
                   </div>
-                )}
+                ) : null}
 
-                <div className="space-y-2">
-                  <Label htmlFor="openrouter-key">OpenRouter API key</Label>
-                  <div className="relative">
-                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="openrouter-key"
-                      type="password"
-                      value={apiKeyDraft}
-                      onChange={(event) => setApiKeyDraft(event.target.value)}
-                      placeholder={
-                        config.openrouterApiKeySet
-                          ? config.openrouterApiKeyPreview
-                          : "粘贴 sk-or-v1-..."
+                <div className="space-y-3 rounded-md bg-muted/40 px-3 py-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <Label htmlFor="openrouter-direct">
+                        OpenRouter 直连
+                      </Label>
+                      <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                        开启后将直接使用 OpenRouter API key 和模型 ID，不走集思。
+                      </div>
+                    </div>
+                    <Switch
+                      id="openrouter-direct"
+                      checked={config.openrouterDirectEnabled}
+                      onCheckedChange={(checked) =>
+                        setConfig((current) => ({
+                          ...current,
+                          openrouterDirectEnabled: checked,
+                        }))
                       }
-                      autoComplete="off"
-                      className="pl-9"
+                      aria-label="启用 OpenRouter 直连"
                     />
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    留空保存时会保留已有 key，不会覆盖。
-                  </div>
+
+                  {config.openrouterDirectEnabled && (
+                    <div className="space-y-4 pt-1">
+                      <div className="space-y-2">
+                        <Label htmlFor="openrouter-key">
+                          OpenRouter API key
+                        </Label>
+                        <div className="relative">
+                          <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <Input
+                            id="openrouter-key"
+                            type="password"
+                            value={apiKeyDraft}
+                            onChange={(event) =>
+                              setApiKeyDraft(event.target.value)
+                            }
+                            placeholder={
+                              config.openrouterApiKeySet
+                                ? config.openrouterApiKeyPreview
+                                : "粘贴 sk-or-v1-..."
+                            }
+                            autoComplete="off"
+                            className="pl-9"
+                          />
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          留空保存时会保留已有 key，不会覆盖。
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="openrouter-model">
+                          填写 OpenRouter 模型 ID
+                        </Label>
+                        <Input
+                          id="openrouter-model"
+                          value={config.openrouterModel}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              openrouterModel: event.target.value,
+                            }))
+                          }
+                          placeholder="deepseek/deepseek-v4-flash"
+                        />
+                        <div className="text-xs text-muted-foreground">
+                          开启直连后会使用这个模型 ID。
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {config.modelSelectionMode !== "auto" && (
-                  <>
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-end justify-between gap-2">
-                        <div>
-                          <Label>集思国产模型</Label>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            选择集思系统中可用的国产模型；也可以在下方填写 OpenRouter 模型 ID。
+                {!config.openrouterDirectEnabled &&
+                  config.modelSelectionMode !== "auto" && (
+                    <>
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-end justify-between gap-2">
+                          <div>
+                            <Label>集思国产模型</Label>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              选择集思系统中可用的国产模型；也可以在下方填写模型 ID。
+                            </div>
                           </div>
+                          {selectedJisiModel ? (
+                            <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
+                              当前：{selectedJisiModel.title}
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                              当前：自定义模型
+                            </span>
+                          )}
                         </div>
-                        {selectedJisiModel ? (
-                          <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
-                            当前：{selectedJisiModel.title}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                            当前：自定义模型
-                          </span>
-                        )}
-                      </div>
 
-                      <div className="grid gap-1.5 md:grid-cols-2">
-                        {JISI_MODEL_OPTIONS.map((option) => {
-                          const active = config.model === option.id;
-                          return (
-                            <button
-                              key={option.id}
-                              type="button"
-                              onClick={() =>
-                                setConfig((current) => ({
-                                  ...current,
-                                  model: option.id,
-                                }))
-                              }
-                              className={cn(
-                                "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
-                                active
-                                  ? "border-primary ring-2 ring-primary/20"
-                                  : "border-border"
-                              )}
-                            >
-                              <div className="flex min-w-0 items-center justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <div className="truncate text-[13px] font-semibold leading-5">
-                                    {option.title}
-                                  </div>
-                                  <div className="shrink-0 text-[11px] text-muted-foreground">
-                                    {option.vendor}
-                                  </div>
-                                </div>
-                                {option.badge && (
-                                  <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
-                                    {option.badge}
-                                  </span>
+                        <div className="grid gap-1.5 md:grid-cols-2">
+                          {JISI_MODEL_OPTIONS.map((option) => {
+                            const active = config.model === option.id;
+                            return (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() =>
+                                  setConfig((current) => ({
+                                    ...current,
+                                    model: option.id,
+                                  }))
+                                }
+                                className={cn(
+                                  "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                                  active
+                                    ? "border-primary ring-2 ring-primary/20"
+                                    : "border-border"
                                 )}
-                              </div>
-                              <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
-                                {option.description}
-                              </div>
-                              <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
-                                {option.id}
-                              </div>
-                            </button>
-                          );
-                        })}
+                              >
+                                <div className="flex min-w-0 items-center justify-between gap-2">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <div className="truncate text-[13px] font-semibold leading-5">
+                                      {option.title}
+                                    </div>
+                                    <div className="shrink-0 text-[11px] text-muted-foreground">
+                                      {option.vendor}
+                                    </div>
+                                  </div>
+                                  {option.badge && (
+                                    <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
+                                      {option.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
+                                  {option.description}
+                                </div>
+                                <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
+                                  {option.id}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="openrouter-model">
-                        填写 OpenRouter 模型 ID
-                      </Label>
-                      <Input
-                        id="openrouter-model"
-                        value={config.model}
-                        onChange={(event) =>
-                          setConfig((current) => ({
-                            ...current,
-                            model: event.target.value,
-                          }))
-                        }
-                        placeholder="deepseek/deepseek-v4-flash"
-                      />
-                      <div className="text-xs text-muted-foreground">
-                        可以直接粘贴对应的 OpenRouter 模型 ID。
+                      <div className="space-y-2">
+                        <Label htmlFor="jisi-model">填写模型 ID</Label>
+                        <Input
+                          id="jisi-model"
+                          value={config.model}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              model: event.target.value,
+                            }))
+                          }
+                          placeholder="deepseek/deepseek-v4-flash"
+                        />
+                        <div className="text-xs text-muted-foreground">
+                          可以直接粘贴集思支持的模型 ID。
+                        </div>
                       </div>
-                    </div>
-                  </>
-                )}
+                    </>
+                  )}
               </div>
             )}
           </section>

@@ -13,12 +13,16 @@ interface AgentConfig {
   authorization_mode?: AuthorizationMode;
   model_selection_mode?: ModelSelectionMode;
   manual_model?: string;
+  openrouter_direct_enabled?: boolean;
+  openrouter_model?: string;
   [key: string]: unknown;
 }
 
 interface UpdateConfigRequest {
   model?: unknown;
   modelSelectionMode?: unknown;
+  openrouterDirectEnabled?: unknown;
+  openrouterModel?: unknown;
   openrouterApiKey?: unknown;
   authorizationMode?: unknown;
 }
@@ -181,6 +185,10 @@ function inferModelSelectionMode(config: AgentConfig): ModelSelectionMode {
     : "auto";
 }
 
+function inferOpenRouterDirectEnabled(config: AgentConfig) {
+  return config.openrouter_direct_enabled === true;
+}
+
 function inferAuthorizationMode(config: AgentConfig): AuthorizationMode {
   if (isAuthorizationMode(config.authorization_mode)) {
     return config.authorization_mode;
@@ -233,12 +241,21 @@ async function normalizedResponse(config: AgentConfig) {
     env.DEEPAGENT_MODEL || env.LLM_MODEL || AUTO_MODEL
   );
   const modelSelectionMode = inferModelSelectionMode(config);
+  const openrouterDirectEnabled = inferOpenRouterDirectEnabled(config);
   const manualModel = normalizeModel(
     config.manual_model ||
       (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
   );
+  const openrouterModel = normalizeModel(
+    config.openrouter_model ||
+      (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
+  );
   const effectiveModel =
-    modelSelectionMode === "auto" ? AUTO_MODEL : manualModel;
+    openrouterDirectEnabled
+      ? openrouterModel
+      : modelSelectionMode === "auto"
+      ? AUTO_MODEL
+      : manualModel;
   const apiKey = env.OPENROUTER_API_KEY;
 
   return {
@@ -246,6 +263,8 @@ async function normalizedResponse(config: AgentConfig) {
     envPath: envPath(),
     model: manualModel,
     modelSelectionMode,
+    openrouterDirectEnabled,
+    openrouterModel,
     effectiveModel,
     autoModel: AUTO_MODEL,
     openrouterApiKeySet: Boolean(apiKey),
@@ -270,6 +289,8 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = (await request.json()) as UpdateConfigRequest;
+    const currentConfig = await readConfig();
+    const openrouterDirectEnabled = body.openrouterDirectEnabled === true;
     const modelSelectionMode = isModelSelectionMode(body.modelSelectionMode)
       ? body.modelSelectionMode
       : "auto";
@@ -281,8 +302,17 @@ export async function PUT(request: NextRequest) {
               ? body.model
               : DEFAULT_MANUAL_MODEL
           );
+    const openrouterModel = normalizeModel(
+      typeof body.openrouterModel === "string" && body.openrouterModel.trim()
+        ? body.openrouterModel
+        : currentConfig.openrouter_model || DEFAULT_MANUAL_MODEL
+    );
     const effectiveModel =
-      modelSelectionMode === "auto" ? AUTO_MODEL : model;
+      openrouterDirectEnabled
+        ? openrouterModel
+        : modelSelectionMode === "auto"
+        ? AUTO_MODEL
+        : model;
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
@@ -291,12 +321,13 @@ export async function PUT(request: NextRequest) {
         ? body.openrouterApiKey.trim()
         : "";
 
-    const currentConfig = await readConfig();
     const nextConfig: AgentConfig = {
       ...currentConfig,
       authorization_mode: authorizationMode,
       model_selection_mode: modelSelectionMode,
       manual_model: model,
+      openrouter_direct_enabled: openrouterDirectEnabled,
+      openrouter_model: openrouterModel,
     };
     const interruptOn = buildInterruptOn(authorizationMode);
     if (interruptOn) {
