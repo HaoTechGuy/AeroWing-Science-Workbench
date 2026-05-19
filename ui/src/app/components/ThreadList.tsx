@@ -229,7 +229,7 @@ export function ThreadList({
             会话
           </h2>
           <p className="truncate text-xs text-muted-foreground">
-            历史对话记录
+            项目对话记录
           </p>
         </div>
         <div className="ml-auto flex items-center justify-end gap-2">
