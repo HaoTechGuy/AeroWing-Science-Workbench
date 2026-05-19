@@ -60,6 +60,7 @@ export function SkillsMarketplace() {
   const [importingSkill, setImportingSkill] = useState<SkillImportType | null>(
     null
   );
+  const [pickingLocalFolder, setPickingLocalFolder] = useState(false);
   const [localSource, setLocalSource] = useState("");
   const [cloudSource, setCloudSource] = useState("");
   const [autoRestart, setAutoRestart] = useState(false);
@@ -69,7 +70,12 @@ export function SkillsMarketplace() {
 
   const selectedCount = selected.size;
   const draftEnabled = selectedCount > 0;
-  const actionBusy = loading || saving || restarting || importingSkill !== null;
+  const actionBusy =
+    loading ||
+    saving ||
+    restarting ||
+    pickingLocalFolder ||
+    importingSkill !== null;
   const isBusy = actionBusy || checkingStatus;
   const hasChanges = useMemo(() => {
     const initial = new Set(data.selected);
@@ -235,8 +241,10 @@ export function SkillsMarketplace() {
     setSelected(next);
   }
 
-  async function importSkill(type: SkillImportType) {
-    const source = type === "local" ? localSource.trim() : cloudSource.trim();
+  async function importSkill(type: SkillImportType, sourceOverride?: string) {
+    const source =
+      sourceOverride?.trim() ||
+      (type === "local" ? localSource.trim() : cloudSource.trim());
     if (!source) {
       toast.error(type === "local" ? "请输入本地技能路径" : "请输入云端技能地址");
       return;
@@ -276,6 +284,49 @@ export function SkillsMarketplace() {
       toast.error(message);
     } finally {
       setImportingSkill(null);
+    }
+  }
+
+  async function pickAndImportLocalSkill() {
+    const typedSource = localSource.trim();
+    if (typedSource) {
+      await importSkill("local", typedSource);
+      return;
+    }
+
+    setPickingLocalFolder(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/skills/local-picker", {
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        path?: string;
+        cancelled?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "无法打开本地文件夹选择器");
+      }
+      if (payload.cancelled) {
+        return;
+      }
+      if (!payload.path) {
+        throw new Error("没有选择本地技能文件夹。");
+      }
+
+      setLocalSource(payload.path);
+      await importSkill("local", payload.path);
+    } catch (pickError) {
+      const message =
+        pickError instanceof Error
+          ? pickError.message
+          : "无法打开本地文件夹选择器";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setPickingLocalFolder(false);
     }
   }
 
@@ -502,10 +553,15 @@ export function SkillsMarketplace() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => importSkill("local")}
-                  disabled={isBusy || !localSource.trim()}
+                  onClick={pickAndImportLocalSkill}
+                  disabled={isBusy}
+                  title={
+                    localSource.trim()
+                      ? "添加输入框中的本地技能路径"
+                      : "打开本地文件夹选择器并添加技能"
+                  }
                 >
-                  {importingSkill === "local" ? (
+                  {pickingLocalFolder || importingSkill === "local" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <FolderPlus className="h-4 w-4" />
