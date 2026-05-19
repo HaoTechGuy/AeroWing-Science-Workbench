@@ -550,7 +550,7 @@ export default function ConfigPage() {
             ) : (
               <div className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="openrouter-key">集思</Label>
+                  <Label htmlFor="openrouter-key">OpenRouter API key</Label>
                   <div className="relative">
                     <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -630,7 +630,7 @@ export default function ConfigPage() {
                         <div>
                           <Label>集思国产模型</Label>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            选择集思系统中可用的国产模型；也可以在下方手动填写模型 ID。
+                            选择集思系统中可用的国产模型；也可以在下方填写 OpenRouter 模型 ID。
                           </div>
                         </div>
                         {selectedJisiModel ? (
@@ -692,7 +692,9 @@ export default function ConfigPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="openrouter-model">手动填写模型 ID</Label>
+                      <Label htmlFor="openrouter-model">
+                        填写 OpenRouter 模型 ID
+                      </Label>
                       <Input
                         id="openrouter-model"
                         value={config.model}
@@ -705,7 +707,7 @@ export default function ConfigPage() {
                         placeholder="deepseek/deepseek-v4-flash"
                       />
                       <div className="text-xs text-muted-foreground">
-                        如果集思系统新增了模型，可以直接粘贴对应模型 ID。
+                        可以直接粘贴对应的 OpenRouter 模型 ID。
                       </div>
                     </div>
                   </>
