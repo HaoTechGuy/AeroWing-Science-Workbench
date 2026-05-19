@@ -234,15 +234,27 @@ export function ThreadList({
         </div>
         <div className="ml-auto flex items-center justify-end gap-2">
           {onNewThread && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onNewThread}
-              className="h-7 gap-1 border-[#2F6868] bg-[#2F6868] px-2 text-xs text-white hover:bg-[#2F6868]/80"
-            >
-              <SquarePen className="h-3.5 w-3.5" />
-              新建
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onNewThread}
+                  className="h-8 w-8 shrink-0 hover:text-[#2F6868]"
+                  aria-label="新建会话"
+                >
+                  <SquarePen className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="center"
+                sideOffset={6}
+                className="whitespace-nowrap px-2 py-1"
+              >
+                新建会话
+              </TooltipContent>
+            </Tooltip>
           )}
           {onClose && (
             <Button
