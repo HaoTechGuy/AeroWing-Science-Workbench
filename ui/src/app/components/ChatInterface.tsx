@@ -769,8 +769,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isLoading ? "Running..." : "Write your message..."}
-              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary"
+              placeholder={isLoading ? "正在运行..." : "你希望我做些什么？"}
+              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary/60"
               rows={2}
             />
             <div className="flex items-center justify-between gap-2 p-3">
@@ -811,12 +811,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   {isLoading ? (
                     <>
                       <Square size={14} />
-                      <span>Stop</span>
+                      <span>停止</span>
                     </>
                   ) : (
                     <>
                       <ArrowUp size={18} />
-                      <span>Send</span>
+                      <span>发送</span>
                     </>
                   )}
                 </Button>

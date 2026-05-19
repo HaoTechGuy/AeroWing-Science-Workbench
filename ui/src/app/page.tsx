@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, Suspense } from "react";
+import Link from "next/link";
+import { BookOpenText, Settings, Server, Sparkles } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { getConfig, StandaloneConfig } from "@/lib/config";
 import { Assistant } from "@langchain/langgraph-sdk";
@@ -14,6 +16,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ChatProvider } from "@/providers/ChatProvider";
+import { Button } from "@/components/ui/button";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
@@ -59,6 +62,52 @@ function HomePageInner({ config }: HomePageInnerProps) {
               {interruptCount} interrupted
             </div>
           )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-8"
+          >
+            <Link href="/connect">
+              <Server className="h-4 w-4" />
+              连接服务器
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-8"
+          >
+            <Link href="/knowledge">
+              <BookOpenText className="h-4 w-4" />
+              团队知识库
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-8"
+          >
+            <Link href="/skills">
+              <Sparkles className="h-4 w-4" />
+              技能广场
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-8"
+          >
+            <Link href="/config">
+              <Settings className="h-4 w-4" />
+              配置
+            </Link>
+          </Button>
         </div>
       </header>
 

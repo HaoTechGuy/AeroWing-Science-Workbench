@@ -4,6 +4,18 @@ import { Toaster } from "sonner";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
+const themeBootstrapScript = `
+(() => {
+  try {
+    const theme = localStorage.getItem("internagents.theme") === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.setAttribute("data-joy-color-scheme", theme);
+  } catch {
+    document.documentElement.dataset.theme = "light";
+  }
+})();
+`;
 
 export const metadata = {
   title: "InternAgents",
@@ -24,6 +36,7 @@ export default function RootLayout({
         className={inter.className}
         suppressHydrationWarning
       >
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <NuqsAdapter>{children}</NuqsAdapter>
         <Toaster />
       </body>

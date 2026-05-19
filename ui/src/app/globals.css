@@ -187,6 +187,88 @@
       --chart-5: 340 75% 55%;
     }
   }
+
+  html[data-theme="light"] {
+    --color-primary: #1c3c3c;
+    --color-user-message: #076699;
+    --color-user-message-bg: #e8f4f8;
+    --color-avatar-bg: #e8ebeb;
+    --color-secondary: #1c3c3c;
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+    --color-background: #f9f9f9;
+    --color-subagent-hover: #bbc4c4;
+    --color-surface: #f9fafb;
+    --color-border: #e5e7eb;
+    --color-border-light: #f3f4f6;
+    --color-text-primary: #111827;
+    --color-text-secondary: #6b7280;
+    --color-text-tertiary: #9ca3af;
+    --color-file-button: #ffffff;
+    --color-file-button-hover: #e5e7eb;
+    --background: 0 0% 98%;
+    --foreground: 220 13% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 13% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 13% 13%;
+    --primary: 180 35% 17%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 13% 91%;
+    --secondary-foreground: 220 13% 13%;
+    --muted: 220 13% 95%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 13% 95%;
+    --accent-foreground: 220 13% 13%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 180 35% 17%;
+    --sidebar: 220 13% 95%;
+  }
+
+  html[data-theme="dark"] {
+    --color-primary: #2dd4bf;
+    --color-user-message: #065a8a;
+    --color-user-message-bg: #2d2d2d;
+    --color-avatar-bg: #1c3c3c;
+    --color-secondary: #bbc4c4;
+    --color-success: #34d399;
+    --color-warning: #fbbf24;
+    --color-error: #f87171;
+    --color-background: #202020;
+    --color-subagent-hover: #1e3f3f;
+    --color-surface: #2a2a2a;
+    --color-border: #404040;
+    --color-border-light: #353535;
+    --color-text-primary: #f3f4f6;
+    --color-text-secondary: #9ca3af;
+    --color-text-tertiary: #6b7280;
+    --color-file-button: #2a2a2a;
+    --color-file-button-hover: #353535;
+    --background: 0 0% 13%;
+    --foreground: 220 13% 95%;
+    --card: 0 0% 18%;
+    --card-foreground: 220 13% 95%;
+    --popover: 0 0% 18%;
+    --popover-foreground: 220 13% 95%;
+    --primary: 174 72% 56%;
+    --primary-foreground: 0 0% 13%;
+    --secondary: 0 0% 25%;
+    --secondary-foreground: 220 13% 95%;
+    --muted: 0 0% 22%;
+    --muted-foreground: 220 9% 70%;
+    --accent: 0 0% 22%;
+    --accent-foreground: 220 13% 95%;
+    --destructive: 0 63% 71%;
+    --destructive-foreground: 0 0% 13%;
+    --border: 0 0% 28%;
+    --input: 0 0% 28%;
+    --ring: 174 72% 56%;
+    --sidebar: 0 0% 18%;
+  }
 }
 
 * {

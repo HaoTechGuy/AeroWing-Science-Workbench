@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -112,9 +113,120 @@ system_prompt = agent_config.get(
 )
 interrupt_on = agent_config.get("interrupt_on") or None
 
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _clear_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def _normalize_skill_sources(raw_sources: Any) -> list[Any]:
+    if not isinstance(raw_sources, list):
+        return []
+
+    sources: list[Any] = []
+    for source in raw_sources:
+        if isinstance(source, str) and source.strip():
+            sources.append(source.strip())
+        elif isinstance(source, dict):
+            path = source.get("path")
+            label = source.get("label")
+            enabled = source.get("enabled", True)
+            if isinstance(path, str) and path.strip() and enabled:
+                if isinstance(label, str) and label.strip():
+                    sources.append((path.strip(), label.strip()))
+                else:
+                    sources.append(path.strip())
+    return sources
+
+
+def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
+    if not skills_config.get("enabled", False):
+        return None
+
+    direct_sources = _normalize_skill_sources(skills_config.get("sources"))
+    if direct_sources:
+        return direct_sources
+
+    selected = skills_config.get("selected")
+    if not isinstance(selected, list) or not selected:
+        return None
+
+    catalog_paths = skills_config.get("catalog_paths") or skills_config.get("catalogPaths") or ["skills"]
+    if not isinstance(catalog_paths, list):
+        catalog_paths = ["skills"]
+
+    catalog_roots = [
+        _resolve_config_path(path, ROOT_DIR).resolve()
+        for path in catalog_paths
+        if isinstance(path, str) and path.strip()
+    ]
+
+    active_path = _resolve_config_path(
+        skills_config.get("active_path") or skills_config.get("activePath") or ".internagents/active-skills",
+        ROOT_DIR,
+    ).resolve()
+    internagents_dir = (ROOT_DIR / ".internagents").resolve()
+    if not _is_relative_to(active_path, internagents_dir):
+        raise ValueError("skills.active_path must stay inside .internagents/")
+
+    _clear_directory(active_path)
+
+    enabled_count = 0
+    for selected_key in selected:
+        if not isinstance(selected_key, str) or not selected_key.strip():
+            continue
+
+        skill_path = _resolve_config_path(selected_key, ROOT_DIR).resolve()
+        if not skill_path.is_dir() or not (skill_path / "SKILL.md").is_file():
+            continue
+        if catalog_roots and not any(_is_relative_to(skill_path, root) for root in catalog_roots):
+            continue
+
+        destination = active_path / skill_path.name
+        if destination.exists() or destination.is_symlink():
+            continue
+        try:
+            destination.symlink_to(skill_path, target_is_directory=True)
+        except OSError:
+            shutil.copytree(skill_path, destination)
+        enabled_count += 1
+
+    if enabled_count == 0:
+        return None
+
+    label = skills_config.get("label")
+    source_label = label.strip() if isinstance(label, str) and label.strip() else "InternAgents"
+    return [(str(active_path), source_label)]
+
+
+def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
+    skills_config = config.get("skills")
+    if isinstance(skills_config, list):
+        sources = _normalize_skill_sources(skills_config)
+        return sources or None
+    if isinstance(skills_config, dict):
+        return _sync_selected_skills(skills_config)
+    return None
+
+
+skills = _resolve_skills(agent_config)
+
 agent = create_deep_agent(
     model=MODEL,
     backend=backend,
+    skills=skills,
     system_prompt=system_prompt,
     interrupt_on=interrupt_on,
 )

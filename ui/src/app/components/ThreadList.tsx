@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  MouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { format } from "date-fns";
-import { Loader2, MessageSquare, SquarePen, X } from "lucide-react";
+import { Archive, Loader2, MessageSquare, SquarePen, X } from "lucide-react";
 import { useQueryState } from "nuqs";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useRemoteAgent } from "@/providers/ClientProvider";
 import type { ThreadItem } from "@/app/hooks/useThreads";
 import { useThreads } from "@/app/hooks/useThreads";
 
@@ -86,7 +95,11 @@ export function ThreadList({
   onClose,
   onInterruptCountChange,
 }: ThreadListProps) {
-  const [currentThreadId] = useQueryState("threadId");
+  const remoteAgent = useRemoteAgent();
+  const [currentThreadId, setCurrentThreadId] = useQueryState("threadId");
+  const [archivingThreadId, setArchivingThreadId] = useState<string | null>(
+    null
+  );
 
   const threads = useThreads({
     limit: 20,
@@ -167,6 +180,35 @@ export function ThreadList({
     onInterruptCountChange?.(interruptedCount);
   }, [interruptedCount, onInterruptCountChange]);
 
+  const archiveThread = useCallback(
+    async (thread: ThreadItem, event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+
+      setArchivingThreadId(thread.id);
+      try {
+        await remoteAgent.client.threads.update(thread.id, {
+          metadata: {
+            ...thread.metadata,
+            internagents_archived: true,
+            internagents_archived_at: new Date().toISOString(),
+          },
+        });
+        if (currentThreadId === thread.id) {
+          await setCurrentThreadId(null);
+        }
+        await threads.mutate();
+        toast.success("会话已归档");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "会话归档失败";
+        toast.error(message);
+      } finally {
+        setArchivingThreadId(null);
+      }
+    },
+    [currentThreadId, remoteAgent.client.threads, setCurrentThreadId, threads]
+  );
+
   return (
     <div className="absolute inset-0 flex flex-col">
       {/* Header with title and actions */}
@@ -215,7 +257,7 @@ export function ThreadList({
         {!threads.error && !threads.isLoading && isEmpty && <EmptyState />}
 
         {!threads.error && !isEmpty && (
-          <div className="box-border w-full max-w-full overflow-hidden px-2 py-1.5">
+          <div className="box-border w-full max-w-full overflow-hidden px-4 py-1.5">
             {(
               Object.keys(GROUP_LABELS) as Array<keyof typeof GROUP_LABELS>
             ).map((group) => {
@@ -232,45 +274,68 @@ export function ThreadList({
                   </h4>
                   <div className="flex flex-col gap-0.5">
                     {groupThreads.map((thread) => (
-                      <button
+                      <div
                         key={thread.id}
-                        type="button"
-                        onClick={() => onThreadSelect(thread.id)}
                         className={cn(
-                          "grid w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors duration-200",
+                          "group/thread flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-md pr-1 transition-colors duration-200",
                           "hover:bg-accent",
                           currentThreadId === thread.id
                             ? "border border-primary bg-accent hover:bg-accent"
                             : "border border-transparent bg-transparent"
                         )}
-                        aria-current={currentThreadId === thread.id}
                       >
-                        <div className="min-w-0 flex-1">
-                          {/* Title + Timestamp Row */}
-                          <div className="mb-0.5 flex items-center justify-between">
-                            <h3 className="truncate text-[13px] font-semibold leading-5">
-                              {thread.title}
-                            </h3>
-                            <span className="ml-2 flex-shrink-0 text-[11px] text-muted-foreground">
-                              {formatTime(thread.updatedAt)}
-                            </span>
-                          </div>
-                          {/* Description + Status Row */}
-                          <div className="flex items-center justify-between">
-                            <p className="flex-1 truncate text-xs leading-4 text-muted-foreground">
-                              {thread.description}
-                            </p>
-                            <div className="ml-2 flex-shrink-0">
-                              <div
-                                className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
-                                  getThreadColor(thread.status)
-                                )}
-                              />
+                        <button
+                          type="button"
+                          onClick={() => onThreadSelect(thread.id)}
+                          className="w-0 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-md px-2.5 py-2 text-left"
+                          aria-current={currentThreadId === thread.id}
+                        >
+                          <div className="w-full min-w-0 overflow-hidden">
+                            {/* Title + Timestamp Row */}
+                            <div className="mb-0.5 flex min-w-0 items-center justify-between gap-2">
+                              <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+                                {thread.title}
+                              </h3>
+                              <span className="shrink-0 text-[11px] text-muted-foreground">
+                                {formatTime(thread.updatedAt)}
+                              </span>
+                            </div>
+                            {/* Description + Status Row */}
+                            <div className="flex min-w-0 items-center justify-between gap-2">
+                              <p className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground">
+                                {thread.description}
+                              </p>
+                              <div className="shrink-0">
+                                <div
+                                  className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    getThreadColor(thread.status)
+                                  )}
+                                />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </button>
+                        </button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => archiveThread(thread, event)}
+                          disabled={archivingThreadId === thread.id}
+                          className={cn(
+                            "h-7 shrink-0 px-1.5 text-[11px] text-muted-foreground opacity-70 transition-opacity hover:text-[#2F6868] hover:opacity-100",
+                            currentThreadId === thread.id && "opacity-100"
+                          )}
+                          aria-label={`归档会话 ${thread.title}`}
+                        >
+                          {archivingThreadId === thread.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Archive className="h-3.5 w-3.5" />
+                          )}
+                          归档
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 </div>
