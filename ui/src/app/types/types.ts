@@ -27,6 +27,18 @@ export interface TodoItem {
   updatedAt?: Date;
 }
 
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "text" | "file";
+  dataUrl?: string;
+  text?: string;
+  truncated?: boolean;
+  error?: string;
+}
+
 export interface Thread {
   id: string;
   title: string;

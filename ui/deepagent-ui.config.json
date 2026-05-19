@@ -19,5 +19,9 @@
       "label": "Volcano Cloud",
       "assistantId": "agent_volcano"
     }
-  ]
+  ],
+  "stream": {
+    "modes": ["messages-tuple", "updates", "values"],
+    "subgraphs": true
+  }
 }

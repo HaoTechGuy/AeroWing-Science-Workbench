@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -95,6 +96,113 @@ def _resolve_workspace(value: str | None) -> Path:
     return _resolve_config_path(value, ROOT_DIR)
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _clear_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def _normalize_skill_sources(raw_sources: Any) -> list[Any]:
+    if not isinstance(raw_sources, list):
+        return []
+
+    sources: list[Any] = []
+    for source in raw_sources:
+        if isinstance(source, str) and source.strip():
+            sources.append(source.strip())
+        elif isinstance(source, dict):
+            path = source.get("path")
+            label = source.get("label")
+            enabled = source.get("enabled", True)
+            if isinstance(path, str) and path.strip() and enabled:
+                if isinstance(label, str) and label.strip():
+                    sources.append((path.strip(), label.strip()))
+                else:
+                    sources.append(path.strip())
+    return sources
+
+
+def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
+    if not skills_config.get("enabled", False):
+        return None
+
+    direct_sources = _normalize_skill_sources(skills_config.get("sources"))
+    if direct_sources:
+        return direct_sources
+
+    selected = skills_config.get("selected")
+    if not isinstance(selected, list) or not selected:
+        return None
+
+    catalog_paths = skills_config.get("catalog_paths") or skills_config.get("catalogPaths") or ["skills"]
+    if not isinstance(catalog_paths, list):
+        catalog_paths = ["skills"]
+
+    catalog_roots = [
+        _resolve_config_path(path, ROOT_DIR).resolve()
+        for path in catalog_paths
+        if isinstance(path, str) and path.strip()
+    ]
+
+    active_path = _resolve_config_path(
+        skills_config.get("active_path") or skills_config.get("activePath") or ".internagents/active-skills",
+        ROOT_DIR,
+    ).resolve()
+    internagents_dir = (ROOT_DIR / ".internagents").resolve()
+    if not _is_relative_to(active_path, internagents_dir):
+        raise ValueError("skills.active_path must stay inside .internagents/")
+
+    _clear_directory(active_path)
+
+    enabled_count = 0
+    for selected_key in selected:
+        if not isinstance(selected_key, str) or not selected_key.strip():
+            continue
+
+        skill_path = _resolve_config_path(selected_key, ROOT_DIR).resolve()
+        if not skill_path.is_dir() or not (skill_path / "SKILL.md").is_file():
+            continue
+        if catalog_roots and not any(_is_relative_to(skill_path, root) for root in catalog_roots):
+            continue
+
+        destination = active_path / skill_path.name
+        if destination.exists() or destination.is_symlink():
+            continue
+        try:
+            destination.symlink_to(skill_path, target_is_directory=True)
+        except OSError:
+            shutil.copytree(skill_path, destination)
+        enabled_count += 1
+
+    if enabled_count == 0:
+        return None
+
+    label = skills_config.get("label")
+    source_label = label.strip() if isinstance(label, str) and label.strip() else "InternAgents"
+    return [(str(active_path), source_label)]
+
+
+def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
+    skills_config = config.get("skills")
+    if isinstance(skills_config, list):
+        sources = _normalize_skill_sources(skills_config)
+        return sources or None
+    if isinstance(skills_config, dict):
+        return _sync_selected_skills(skills_config)
+    return None
+
+
 def _create_backend_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.backend == "local_shell":
         return LocalShellBackend(
@@ -137,9 +245,8 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     base_prompt = agent_config.get(
         "system_prompt",
         (
-            "You are a concise helpful local development assistant. "
-            "You can answer questions and help inspect or modify this local "
-            "project when the user approves tool actions."
+            "你是一个简洁、可靠、严谨的科研助手，擅长协助用户进行论文阅读、文献调研、实验分析、"
+            "代码理解、研究方案设计和本地科研项目开发。请尽可能使用中文回答用户。"
         ),
     )
     backend = _create_backend_for_resource(resource)
@@ -148,6 +255,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     return create_deep_agent(
         model=MODEL,
         backend=backend,
+        skills=_resolve_skills(agent_config),
         system_prompt=_resource_system_prompt(base_prompt, resource),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
@@ -156,7 +264,10 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
 
 def _build_resource_agents() -> tuple[str, dict[str, Any]]:
     default_resource, resources = load_resource_config()
-    return default_resource, {resource_id: create_agent_for_resource(resource) for resource_id, resource in resources.items()}
+    return default_resource, {
+        resource_id: create_agent_for_resource(resource)
+        for resource_id, resource in resources.items()
+    }
 
 
 _default_resource_id, _resource_agents = _build_resource_agents()

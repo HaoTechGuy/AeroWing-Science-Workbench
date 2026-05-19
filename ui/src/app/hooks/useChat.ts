@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import {
   type Message,
@@ -9,9 +9,11 @@ import {
 } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
-import type { TodoItem } from "@/app/types/types";
-import { useClient } from "@/providers/ClientProvider";
+import type { ChatAttachment, TodoItem } from "@/app/types/types";
+import type { StreamConfig } from "@/lib/config";
+import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
+import { useStreamEventLayer } from "@/app/hooks/useStreamEventLayer";
 
 export type StateType = {
   messages: Message[];
@@ -25,21 +27,114 @@ export type StateType = {
   ui?: any;
 };
 
+type LangGraphContentBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "image_url";
+      image_url: string | { url: string; detail?: "auto" | "low" | "high" };
+    };
+
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function attachmentMetadata(attachments: ChatAttachment[]) {
+  return attachments.map((attachment) => ({
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    kind: attachment.kind,
+    truncated: attachment.truncated,
+    error: attachment.error,
+  }));
+}
+
+function buildMessageContent(content: string, attachments: ChatAttachment[]) {
+  const validAttachments = attachments.filter(
+    (attachment) => !attachment.error
+  );
+  if (validAttachments.length === 0) {
+    return content;
+  }
+
+  const blocks: LangGraphContentBlock[] = [
+    {
+      type: "text",
+      text: content.trim() || "请查看附件。",
+    },
+  ];
+
+  for (const attachment of validAttachments) {
+    if (attachment.kind === "image" && attachment.dataUrl) {
+      blocks.push({
+        type: "image_url",
+        image_url: { url: attachment.dataUrl },
+      });
+      continue;
+    }
+
+    if (attachment.kind === "text" && attachment.text !== undefined) {
+      blocks.push({
+        type: "text",
+        text: [
+          `<attachment name="${attachment.name}" mime_type="${
+            attachment.mimeType
+          }" size="${formatAttachmentSize(attachment.size)}">`,
+          attachment.truncated
+            ? `${attachment.text}\n\n[Attachment truncated before sending.]`
+            : attachment.text,
+          "</attachment>",
+        ].join("\n"),
+      });
+      continue;
+    }
+
+    blocks.push({
+      type: "text",
+      text: `[附件: ${attachment.name}, type=${
+        attachment.mimeType || "unknown"
+      }, size=${formatAttachmentSize(attachment.size)}. 二进制内容未内嵌。]`,
+    });
+  }
+
+  return blocks;
+}
+
 export function useChat({
   activeAssistant,
+  streamConfig,
   onHistoryRevalidate,
   thread,
   resourceId,
   resourceLabel,
 }: {
   activeAssistant: Assistant | null;
+  streamConfig: StreamConfig;
   onHistoryRevalidate?: () => void;
   thread?: UseStreamThread<StateType>;
   resourceId?: string;
   resourceLabel?: string;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
-  const client = useClient();
+  const remoteAgent = useRemoteAgent();
+  const client = remoteAgent.client;
+  const streamEventLayer = useStreamEventLayer(remoteAgent);
+
+  const streamSubmitOptions = useMemo(
+    () => remoteAgent.getStreamSubmitOptions(streamConfig),
+    [remoteAgent, streamConfig]
+  );
+
+  const withStreamSubmitOptions = useCallback(
+    <T extends object>(options: T) => ({
+      ...options,
+      ...streamSubmitOptions,
+    }),
+    [streamSubmitOptions]
+  );
 
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
@@ -58,25 +153,45 @@ export function useChat({
   });
 
   const sendMessage = useCallback(
-    (content: string) => {
-      const newMessage: Message = { id: uuidv4(), type: "human", content };
+    (content: string, attachments: ChatAttachment[] = []) => {
+      const newMessage: Message = {
+        id: uuidv4(),
+        type: "human",
+        content: buildMessageContent(
+          content,
+          attachments
+        ) as Message["content"],
+        additional_kwargs:
+          attachments.length > 0
+            ? { attachments: attachmentMetadata(attachments) }
+            : undefined,
+      };
+      streamEventLayer.clearStreamEvents();
       stream.submit(
         { messages: [newMessage] },
-        {
+        withStreamSubmitOptions({
           metadata: {
             ...(resourceId ? { resource_id: resourceId } : {}),
             ...(resourceLabel ? { resource_label: resourceLabel } : {}),
           },
-          optimisticValues: (prev) => ({
+          optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
           }),
           config: { ...(activeAssistant?.config ?? {}), recursion_limit: 100 },
-        }
+        })
       );
       // Update thread list immediately when sending a message
       onHistoryRevalidate?.();
     },
-    [stream, activeAssistant?.config, onHistoryRevalidate, resourceId, resourceLabel]
+    [
+      stream,
+      streamEventLayer,
+      withStreamSubmitOptions,
+      activeAssistant?.config,
+      onHistoryRevalidate,
+      resourceId,
+      resourceLabel,
+    ]
   );
 
   const runSingleStep = useCallback(
@@ -86,25 +201,32 @@ export function useChat({
       isRerunningSubagent?: boolean,
       optimisticMessages?: Message[]
     ) => {
+      streamEventLayer.clearStreamEvents();
       if (checkpoint) {
-        stream.submit(undefined, {
-          ...(optimisticMessages
-            ? { optimisticValues: { messages: optimisticMessages } }
-            : {}),
-          config: activeAssistant?.config,
-          checkpoint: checkpoint,
-          ...(isRerunningSubagent
-            ? { interruptAfter: ["tools"] }
-            : { interruptBefore: ["tools"] }),
-        });
+        stream.submit(
+          undefined,
+          withStreamSubmitOptions({
+            ...(optimisticMessages
+              ? { optimisticValues: { messages: optimisticMessages } }
+              : {}),
+            config: activeAssistant?.config,
+            checkpoint: checkpoint,
+            ...(isRerunningSubagent
+              ? { interruptAfter: ["tools"] }
+              : { interruptBefore: ["tools"] }),
+          })
+        );
       } else {
         stream.submit(
           { messages },
-          { config: activeAssistant?.config, interruptBefore: ["tools"] }
+          withStreamSubmitOptions({
+            config: activeAssistant?.config,
+            interruptBefore: ["tools"],
+          })
         );
       }
     },
-    [stream, activeAssistant?.config]
+    [stream, streamEventLayer, withStreamSubmitOptions, activeAssistant?.config]
   );
 
   const setFiles = useCallback(
@@ -112,26 +234,36 @@ export function useChat({
       if (!threadId) return;
       // TODO: missing a way how to revalidate the internal state
       // I think we do want to have the ability to externally manage the state
-      await client.threads.updateState(threadId, { values: { files } });
+      await remoteAgent.updateState(threadId, { files });
     },
-    [client, threadId]
+    [remoteAgent, threadId]
   );
 
   const continueStream = useCallback(
     (hasTaskToolCall?: boolean) => {
-      stream.submit(undefined, {
-        config: {
-          ...(activeAssistant?.config || {}),
-          recursion_limit: 100,
-        },
-        ...(hasTaskToolCall
-          ? { interruptAfter: ["tools"] }
-          : { interruptBefore: ["tools"] }),
-      });
+      streamEventLayer.clearStreamEvents();
+      stream.submit(
+        undefined,
+        withStreamSubmitOptions({
+          config: {
+            ...(activeAssistant?.config || {}),
+            recursion_limit: 100,
+          },
+          ...(hasTaskToolCall
+            ? { interruptAfter: ["tools"] }
+            : { interruptBefore: ["tools"] }),
+        })
+      );
       // Update thread list when continuing stream
       onHistoryRevalidate?.();
     },
-    [stream, activeAssistant?.config, onHistoryRevalidate]
+    [
+      stream,
+      streamEventLayer,
+      withStreamSubmitOptions,
+      activeAssistant?.config,
+      onHistoryRevalidate,
+    ]
   );
 
   const markCurrentThreadAsResolved = useCallback(() => {
@@ -142,11 +274,15 @@ export function useChat({
 
   const resumeInterrupt = useCallback(
     (value: any) => {
-      stream.submit(null, { command: { resume: value } });
+      streamEventLayer.clearStreamEvents();
+      stream.submit(
+        null,
+        withStreamSubmitOptions({ command: { resume: value } })
+      );
       // Update thread list when resuming from interrupt
       onHistoryRevalidate?.();
     },
-    [stream, onHistoryRevalidate]
+    [stream, streamEventLayer, withStreamSubmitOptions, onHistoryRevalidate]
   );
 
   const stopStream = useCallback(() => {
@@ -163,8 +299,11 @@ export function useChat({
     messages: stream.messages,
     isLoading: stream.isLoading,
     isThreadLoading: stream.isThreadLoading,
-    interrupt: stream.interrupt,
+    interrupt: stream.interrupt ?? streamEventLayer.interrupt,
     getMessagesMetadata: stream.getMessagesMetadata,
+    streamEvents: streamEventLayer.streamEvents,
+    clearStreamEvents: streamEventLayer.clearStreamEvents,
+    lastUpdateNamespace: streamEventLayer.lastUpdateNamespace,
     sendMessage,
     runSingleStep,
     continueStream,

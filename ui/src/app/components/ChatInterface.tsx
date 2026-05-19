@@ -16,13 +16,18 @@ import {
   Clock,
   Circle,
   FileIcon,
+  ImagePlus,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
+import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
 import type {
   TodoItem,
   ToolCall,
   ActionRequest,
   ReviewConfig,
+  ChatAttachment,
 } from "@/app/types/types";
 import { Assistant, Message } from "@langchain/langgraph-sdk";
 import { extractStringFromMessageContent } from "@/app/utils/utils";
@@ -33,9 +38,96 @@ import { FilesPopover } from "@/app/components/TasksFilesSidebar";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
-  assistantStatus?: "loading" | "ready" | "fallback";
-  resourceLabel?: string;
-  activeAssistantId?: string;
+}
+
+const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
+const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
+
+const TEXT_ATTACHMENT_EXTENSIONS = new Set([
+  "csv",
+  "css",
+  "html",
+  "js",
+  "json",
+  "jsx",
+  "md",
+  "mdx",
+  "py",
+  "sh",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "xml",
+  "yaml",
+  "yml",
+]);
+
+function formatAttachmentSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function createAttachmentId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function isTextAttachment(file: File): boolean {
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  return (
+    file.type.startsWith("text/") ||
+    TEXT_ATTACHMENT_EXTENSIONS.has(extension)
+  );
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function prepareAttachment(file: File): Promise<ChatAttachment> {
+  const baseAttachment = {
+    id: createAttachmentId(),
+    name: file.name,
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+  };
+
+  if (file.type.startsWith("image/")) {
+    if (file.size > MAX_IMAGE_ATTACHMENT_SIZE) {
+      return {
+        ...baseAttachment,
+        kind: "image",
+        error: "图片超过 8 MB",
+      };
+    }
+
+    return {
+      ...baseAttachment,
+      kind: "image",
+      dataUrl: await readAsDataUrl(file),
+    };
+  }
+
+  if (isTextAttachment(file)) {
+    const slice = file.slice(0, MAX_TEXT_ATTACHMENT_SIZE);
+    return {
+      ...baseAttachment,
+      kind: "text",
+      text: await slice.text(),
+      truncated: file.size > MAX_TEXT_ATTACHMENT_SIZE,
+    };
+  }
+
+  return {
+    ...baseAttachment,
+    kind: "file",
+  };
 }
 
 const getStatusIcon = (status: TodoItem["status"], className?: string) => {
@@ -64,17 +156,15 @@ const getStatusIcon = (status: TodoItem["status"], className?: string) => {
   }
 };
 
-function ChatInterfaceComponent({
-  assistant,
-  assistantStatus,
-  resourceLabel,
-  activeAssistantId,
-}: ChatInterfaceProps) {
+export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const { scrollRef, contentRef } = useStickToBottom();
 
   const {
@@ -93,12 +183,9 @@ function ChatInterfaceComponent({
   } = useChatContext();
 
   const submitDisabled = isLoading || !assistant;
-  const sendDisabledReason = useMemo(() => {
-    if (isLoading) return "Agent is running.";
-    if (!assistant) return "Assistant is still connecting.";
-    if (!input.trim()) return "Type a message to send.";
-    return null;
-  }, [assistant, input, isLoading]);
+  const hasSendableAttachments = attachments.some(
+    (attachment) => !attachment.error
+  );
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -106,12 +193,38 @@ function ChatInterfaceComponent({
         e.preventDefault();
       }
       const messageText = input.trim();
-      if (!messageText || isLoading || submitDisabled) return;
-      sendMessage(messageText);
+      const sendableAttachments = attachments.filter(
+        (attachment) => !attachment.error
+      );
+      if (
+        (!messageText && sendableAttachments.length === 0) ||
+        isLoading ||
+        submitDisabled
+      ) {
+        return;
+      }
+      sendMessage(messageText, sendableAttachments);
       setInput("");
+      setAttachments([]);
     },
-    [input, isLoading, sendMessage, setInput, submitDisabled]
+    [attachments, input, isLoading, sendMessage, setInput, submitDisabled]
   );
+
+  const handleAttachmentFiles = useCallback(async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []);
+    if (files.length === 0) return;
+
+    const preparedAttachments = await Promise.all(
+      files.map((file) => prepareAttachment(file))
+    );
+    setAttachments((current) => [...current, ...preparedAttachments]);
+  }, []);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((current) =>
+      current.filter((attachment) => attachment.id !== id)
+    );
+  }, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -123,6 +236,30 @@ function ChatInterfaceComponent({
     },
     [handleSubmit, submitDisabled]
   );
+
+  const interruptValues = useMemo(() => {
+    if (!interrupt) return [];
+    const interrupts = Array.isArray(interrupt) ? interrupt : [interrupt];
+    return interrupts
+      .map((item: any) => item?.value)
+      .filter((value: unknown) => value && typeof value === "object");
+  }, [interrupt]);
+
+  const actionRequests = useMemo(() => {
+    return interruptValues.flatMap((value: any) =>
+      Array.isArray(value.action_requests) ? value.action_requests : []
+    ) as ActionRequest[];
+  }, [interruptValues]);
+
+  const reviewConfigs = useMemo(() => {
+    return interruptValues.flatMap((value: any) =>
+      Array.isArray(value.review_configs) ? value.review_configs : []
+    ) as ReviewConfig[];
+  }, [interruptValues]);
+
+  const interruptedToolNames = useMemo(() => {
+    return new Set(actionRequests.map((request) => request.name));
+  }, [actionRequests]);
 
   // TODO: can we make this part of the hook?
   const processedMessages = useMemo(() => {
@@ -163,14 +300,17 @@ function ChatInterfaceComponent({
           toolCallsInMessage.push(...toolUseBlocks);
         }
         const toolCallsWithStatus = toolCallsInMessage.map(
-          (toolCall: {
-            id?: string;
-            function?: { name?: string; arguments?: unknown };
-            name?: string;
-            type?: string;
-            args?: unknown;
-            input?: unknown;
-          }) => {
+          (
+            toolCall: {
+              id?: string;
+              function?: { name?: string; arguments?: unknown };
+              name?: string;
+              type?: string;
+              args?: unknown;
+              input?: unknown;
+            },
+            toolCallIndex
+          ) => {
             const name =
               toolCall.function?.name ||
               toolCall.name ||
@@ -182,10 +322,10 @@ function ChatInterfaceComponent({
               toolCall.input ||
               {};
             return {
-              id: toolCall.id || `tool-${Math.random()}`,
+              id: toolCall.id || `${message.id}-tool-${toolCallIndex}`,
               name,
               args,
-              status: interrupt ? "interrupted" : ("pending" as const),
+              status: "pending" as const,
             } as ToolCall;
           }
         );
@@ -220,6 +360,30 @@ function ChatInterfaceComponent({
       }
     });
     const processedArray = Array.from(messageMap.values());
+
+    if (interrupt) {
+      const interruptTarget = [...processedArray]
+        .reverse()
+        .find((data) =>
+          data.toolCalls.some(
+            (toolCall) =>
+              toolCall.status === "pending" &&
+              (interruptedToolNames.size === 0 ||
+                interruptedToolNames.has(toolCall.name))
+          )
+        );
+
+      if (interruptTarget) {
+        interruptTarget.toolCalls = interruptTarget.toolCalls.map((toolCall) =>
+          toolCall.status === "pending" &&
+          (interruptedToolNames.size === 0 ||
+            interruptedToolNames.has(toolCall.name))
+            ? { ...toolCall, status: "interrupted" as const }
+            : toolCall
+        );
+      }
+    }
+
     return processedArray.map((data, index) => {
       const prevMessage = index > 0 ? processedArray[index - 1].message : null;
       return {
@@ -227,7 +391,7 @@ function ChatInterfaceComponent({
         showAvatar: data.message.type !== prevMessage?.type,
       };
     });
-  }, [messages, interrupt]);
+  }, [messages, interrupt, interruptedToolNames]);
 
   const groupedTodos = {
     in_progress: todos.filter((t) => t.status === "in_progress"),
@@ -240,20 +404,29 @@ function ChatInterfaceComponent({
 
   // Parse out any action requests or review configs from the interrupt
   const actionRequestsMap: Map<string, ActionRequest> | null = useMemo(() => {
-    const actionRequests =
-      interrupt?.value && (interrupt.value as any)["action_requests"];
-    if (!actionRequests) return new Map<string, ActionRequest>();
     return new Map(actionRequests.map((ar: ActionRequest) => [ar.name, ar]));
-  }, [interrupt]);
+  }, [actionRequests]);
 
   const reviewConfigsMap: Map<string, ReviewConfig> | null = useMemo(() => {
-    const reviewConfigs =
-      interrupt?.value && (interrupt.value as any)["review_configs"];
-    if (!reviewConfigs) return new Map<string, ReviewConfig>();
     return new Map(
       reviewConfigs.map((rc: ReviewConfig) => [rc.actionName, rc])
     );
-  }, [interrupt]);
+  }, [reviewConfigs]);
+
+  const hasVisibleInterruptToolCall = useMemo(() => {
+    return processedMessages.some((data) =>
+      data.toolCalls.some(
+        (toolCall) =>
+          toolCall.status === "interrupted" &&
+          (interruptedToolNames.size === 0 ||
+            interruptedToolNames.has(toolCall.name))
+      )
+    );
+  }, [processedMessages, interruptedToolNames]);
+
+  const orphanActionRequests = useMemo(() => {
+    return hasVisibleInterruptToolCall ? [] : actionRequests;
+  }, [actionRequests, hasVisibleInterruptToolCall]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -295,6 +468,19 @@ function ChatInterfaceComponent({
                   />
                 );
               })}
+              {orphanActionRequests.length > 0 && (
+                <div className="mt-4 flex w-full flex-col gap-3">
+                  {orphanActionRequests.map((actionRequest, index) => (
+                    <ToolApprovalInterrupt
+                      key={`${actionRequest.name}-${index}`}
+                      actionRequest={actionRequest}
+                      reviewConfig={reviewConfigsMap?.get(actionRequest.name)}
+                      onResume={resumeInterrupt}
+                      isLoading={isLoading}
+                    />
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -518,40 +704,119 @@ function ChatInterfaceComponent({
             onSubmit={handleSubmit}
             className="flex flex-col"
           >
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                handleAttachmentFiles(event.currentTarget.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                handleAttachmentFiles(event.currentTarget.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 border-b border-border px-[18px] py-2">
+                {attachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className={cn(
+                      "flex min-w-0 max-w-full items-center gap-2 rounded-md border px-2 py-1.5 text-xs",
+                      attachment.error
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-border bg-muted text-foreground"
+                    )}
+                  >
+                    {attachment.kind === "image" && attachment.dataUrl ? (
+                      <img
+                        src={attachment.dataUrl}
+                        alt=""
+                        className="h-7 w-7 shrink-0 rounded object-cover"
+                      />
+                    ) : (
+                      <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="min-w-0 max-w-[180px] truncate">
+                      {attachment.name}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {attachment.error || formatAttachmentSize(attachment.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(attachment.id)}
+                      className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                      aria-label={`移除 ${attachment.name}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isLoading ? "Running..." : "Write your message..."}
-              data-testid="chat-input"
-              className="font-inherit field-sizing-content flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[14px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary"
-              rows={1}
+              placeholder={isLoading ? "正在运行..." : "你希望我做些什么？"}
+              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary/60"
+              rows={2}
             />
             <div className="flex items-center justify-between gap-2 p-3">
-              <div className="min-w-0 truncate text-xs text-muted-foreground">
-                {resourceLabel || "Resource"} ·{" "}
-                {activeAssistantId || assistant?.graph_id || "assistant"} ·{" "}
-                {assistantStatus || (assistant ? "ready" : "loading")}
-                {sendDisabledReason ? ` · ${sendDisabledReason}` : ""}
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={submitDisabled}
+                  aria-label="添加图片"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={submitDisabled}
+                  aria-label="添加附件"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
               </div>
               <div className="flex justify-end gap-2">
                 <Button
                   type={isLoading ? "button" : "submit"}
                   variant={isLoading ? "destructive" : "default"}
                   onClick={isLoading ? stopStream : handleSubmit}
-                  disabled={!isLoading && (submitDisabled || !input.trim())}
-                  data-testid="send-button"
+                  disabled={
+                    !isLoading &&
+                    (submitDisabled || (!input.trim() && !hasSendableAttachments))
+                  }
                 >
                   {isLoading ? (
                     <>
                       <Square size={14} />
-                      <span>Stop</span>
+                      <span>停止</span>
                     </>
                   ) : (
                     <>
                       <ArrowUp size={18} />
-                      <span>Send</span>
+                      <span>发送</span>
                     </>
                   )}
                 </Button>
@@ -562,7 +827,6 @@ function ChatInterfaceComponent({
       </div>
     </div>
   );
-}
+});
 
-export const ChatInterface = React.memo(ChatInterfaceComponent);
 ChatInterface.displayName = "ChatInterface";

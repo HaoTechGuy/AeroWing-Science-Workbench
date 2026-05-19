@@ -1,7 +1,6 @@
 import useSWRInfinite from "swr/infinite";
 import type { Thread } from "@langchain/langgraph-sdk";
-import { Client } from "@langchain/langgraph-sdk";
-import { getConfig } from "@/lib/config";
+import { useRemoteAgent } from "@/providers/ClientProvider";
 
 export interface ThreadItem {
   id: string;
@@ -10,6 +9,8 @@ export interface ThreadItem {
   title: string;
   description: string;
   assistantId?: string;
+  metadata: Record<string, unknown>;
+  archived: boolean;
 }
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -20,21 +21,11 @@ export function useThreads(props: {
   resourceId?: string;
   assistantId?: string;
 }) {
+  const remoteAgent = useRemoteAgent();
   const pageSize = props.limit || DEFAULT_PAGE_SIZE;
 
   return useSWRInfinite(
     (pageIndex: number, previousPageData: ThreadItem[] | null) => {
-      const config = getConfig();
-      const apiKey =
-        config?.langsmithApiKey ||
-        process.env.NEXT_PUBLIC_LANGSMITH_API_KEY ||
-        "";
-
-      if (!config) {
-        return null;
-      }
-
-      // If the previous page returned no items, we've reached the end
       if (previousPageData && previousPageData.length === 0) {
         return null;
       }
@@ -43,17 +34,14 @@ export function useThreads(props: {
         kind: "threads" as const,
         pageIndex,
         pageSize,
-        deploymentUrl: config.deploymentUrl,
-        assistantId: props?.assistantId || config.assistantId,
-        apiKey,
+        deploymentUrl: remoteAgent.url,
+        assistantId: props.assistantId || remoteAgent.graphName,
         status: props?.status,
-        resourceId: props?.resourceId,
+        resourceId: props.resourceId,
       };
     },
     async ({
-      deploymentUrl,
       assistantId,
-      apiKey,
       status,
       resourceId,
       pageIndex,
@@ -64,77 +52,68 @@ export function useThreads(props: {
       pageSize: number;
       deploymentUrl: string;
       assistantId: string;
-      apiKey: string;
       status?: Thread["status"];
       resourceId?: string;
     }) => {
-      const client = new Client({
-        apiUrl: deploymentUrl,
-        defaultHeaders: apiKey ? { "X-Api-Key": apiKey } : {},
-      });
-
-      // Check if assistantId is a UUID (deployed) or graph name (local)
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          assistantId
-        );
-
-      const threads = await client.threads.search({
+      const threads = await remoteAgent.searchThreads({
         limit: pageSize,
         offset: pageIndex * pageSize,
-        sortBy: "updated_at" as const,
-        sortOrder: "desc" as const,
         status,
-        // Only filter by assistant_id metadata for deployed graphs (UUIDs)
-        // Local dev graphs don't set this metadata
         metadata: {
-          ...(isUUID ? { assistant_id: assistantId } : {}),
           ...(resourceId ? { resource_id: resourceId } : {}),
         },
       });
 
-      return threads.map((thread): ThreadItem => {
-        let title = "Untitled Thread";
-        let description = "";
+      return threads
+        .map((thread): ThreadItem => {
+          let title = "Untitled Thread";
+          let description = "";
+          const metadata =
+            thread.metadata && typeof thread.metadata === "object"
+              ? (thread.metadata as Record<string, unknown>)
+              : {};
 
-        try {
-          if (thread.values && typeof thread.values === "object") {
-            const values = thread.values as any;
-            const firstHumanMessage = values.messages.find(
-              (m: any) => m.type === "human"
-            );
-            if (firstHumanMessage?.content) {
-              const content =
-                typeof firstHumanMessage.content === "string"
-                  ? firstHumanMessage.content
-                  : firstHumanMessage.content[0]?.text || "";
-              title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
+          try {
+            if (thread.values && typeof thread.values === "object") {
+              const values = thread.values as any;
+              const firstHumanMessage = values.messages.find(
+                (m: any) => m.type === "human"
+              );
+              if (firstHumanMessage?.content) {
+                const content =
+                  typeof firstHumanMessage.content === "string"
+                    ? firstHumanMessage.content
+                    : firstHumanMessage.content[0]?.text || "";
+                title =
+                  content.slice(0, 50) + (content.length > 50 ? "..." : "");
+              }
+              const firstAiMessage = values.messages.find(
+                (m: any) => m.type === "ai"
+              );
+              if (firstAiMessage?.content) {
+                const content =
+                  typeof firstAiMessage.content === "string"
+                    ? firstAiMessage.content
+                    : firstAiMessage.content[0]?.text || "";
+                description = content.slice(0, 100);
+              }
             }
-            const firstAiMessage = values.messages.find(
-              (m: any) => m.type === "ai"
-            );
-            if (firstAiMessage?.content) {
-              const content =
-                typeof firstAiMessage.content === "string"
-                  ? firstAiMessage.content
-                  : firstAiMessage.content[0]?.text || "";
-              description = content.slice(0, 100);
-            }
+          } catch {
+            title = `会话 ${thread.thread_id.slice(0, 8)}`;
           }
-        } catch {
-          // Fallback to thread ID
-          title = `Thread ${thread.thread_id.slice(0, 8)}`;
-        }
 
-        return {
-          id: thread.thread_id,
-          updatedAt: new Date(thread.updated_at),
-          status: thread.status,
-          title,
-          description,
-          assistantId,
-        };
-      });
+          return {
+            id: thread.thread_id,
+            updatedAt: new Date(thread.updated_at),
+            status: thread.status,
+            title,
+            description,
+            assistantId,
+            metadata,
+            archived: metadata.internagents_archived === true,
+          };
+        })
+        .filter((thread) => !thread.archived);
     },
     {
       revalidateFirstPage: true,

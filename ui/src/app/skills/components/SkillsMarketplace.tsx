@@ -1,0 +1,551 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  Check,
+  CloudDownload,
+  FolderCog,
+  FolderPlus,
+  Loader2,
+  Save,
+  Sparkles,
+  ServerCog,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
+import type {
+  BackendStatusResult,
+  BackendRestartResult,
+  ImportSkillsResponse,
+  SkillImportType,
+  SkillsConfigResponse,
+} from "@/app/skills/types";
+
+function SkillSkeleton() {
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div
+          key={index}
+          className="h-40 animate-pulse rounded-lg border border-border bg-muted/40"
+        />
+      ))}
+    </div>
+  );
+}
+
+function emptyResponse(): SkillsConfigResponse {
+  return {
+    enabled: false,
+    catalogPaths: ["skills"],
+    activePath: ".internagents/active-skills",
+    selected: [],
+    skills: [],
+  };
+}
+
+export function SkillsMarketplace() {
+  const [data, setData] = useState<SkillsConfigResponse>(() => emptyResponse());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [importingSkill, setImportingSkill] = useState<SkillImportType | null>(
+    null
+  );
+  const [localSource, setLocalSource] = useState("");
+  const [cloudSource, setCloudSource] = useState("");
+  const [autoRestart, setAutoRestart] = useState(false);
+  const [backendStatus, setBackendStatus] =
+    useState<BackendStatusResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const selectedCount = selected.size;
+  const draftEnabled = selectedCount > 0;
+  const actionBusy = loading || saving || restarting || importingSkill !== null;
+  const isBusy = actionBusy || checkingStatus;
+  const hasChanges = useMemo(() => {
+    const initial = new Set(data.selected);
+    if (draftEnabled !== data.enabled || selected.size !== initial.size) {
+      return true;
+    }
+    return Array.from(selected).some((key) => !initial.has(key));
+  }, [data.enabled, data.selected, draftEnabled, selected]);
+  const canApplyWhenIdle = !isBusy;
+  const canApplyNow = !isBusy && !hasChanges;
+
+  async function loadSkills() {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/skills", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "技能配置加载失败");
+      }
+      const nextData = payload as SkillsConfigResponse;
+      setData(nextData);
+      setSelected(new Set(nextData.selected));
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error ? loadError.message : "技能配置加载失败"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveSkills() {
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/skills", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: draftEnabled,
+          selected: Array.from(selected),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "技能配置保存失败");
+      }
+      const nextData = payload as SkillsConfigResponse;
+      setData({
+        ...nextData,
+        requiresRestart: true,
+      });
+      setSelected(new Set(nextData.selected));
+      setBackendStatus(null);
+      setAutoRestart(true);
+      toast.success(nextData.message || "技能配置已保存，将在空闲时自动应用");
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error ? saveError.message : "技能配置保存失败";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function checkBackendStatus(): Promise<BackendStatusResult> {
+    setCheckingStatus(true);
+    try {
+      const response = await fetch("/api/runtime/backend/status", {
+        cache: "no-store",
+      });
+      const status = (await response.json()) as BackendStatusResult;
+      setBackendStatus(status);
+      setData((current) => ({
+        ...current,
+        backendStatus: status,
+      }));
+      return status;
+    } finally {
+      setCheckingStatus(false);
+    }
+  }
+
+  async function restartBackendNow({ manual }: { manual: boolean }) {
+    if (manual) {
+      const status = await checkBackendStatus();
+      const confirmed = window.confirm(
+        [
+          "立即应用会重新加载技能配置。",
+          "",
+          "风险：正在运行或等待审批的任务可能中断。历史会话会保留，但当前未完成的步骤可能需要重新发送。",
+          "",
+          status.status === "idle"
+            ? "当前检测结果：后台空闲。确认立即应用？"
+            : `当前检测结果：${status.message} 确认仍然立即应用？`,
+        ].join("\n")
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setRestarting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/runtime/backend/restart", {
+        method: "POST",
+      });
+      const restart = (await response.json()) as BackendRestartResult;
+      setData((current) => ({
+        ...current,
+        requiresRestart: restart.status !== "restarted",
+        restart,
+      }));
+
+      if (!response.ok || restart.status !== "restarted") {
+        throw new Error(restart.message || "后台重启失败");
+      }
+
+      setAutoRestart(false);
+      setBackendStatus({
+        status: "idle",
+        message: "技能配置已应用。",
+        url: restart.url,
+        busyThreads: 0,
+        interruptedThreads: 0,
+      });
+      toast.success(restart.message || "技能配置已应用");
+    } catch (restartError) {
+      const message =
+        restartError instanceof Error ? restartError.message : "技能配置应用失败";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setRestarting(false);
+    }
+  }
+
+  async function applyWhenIdle() {
+    if (hasChanges) {
+      await saveSkills();
+      return;
+    }
+
+    setData((current) => ({
+      ...current,
+      requiresRestart: true,
+    }));
+    setBackendStatus(null);
+    setAutoRestart(true);
+    toast.success("将在后台空闲时自动应用当前技能配置");
+  }
+
+  function toggleSkill(key: string, checked: boolean) {
+    const next = new Set(selected);
+    if (checked) {
+      next.add(key);
+    } else {
+      next.delete(key);
+    }
+    setSelected(next);
+  }
+
+  async function importSkill(type: SkillImportType) {
+    const source = type === "local" ? localSource.trim() : cloudSource.trim();
+    if (!source) {
+      toast.error(type === "local" ? "请输入本地技能路径" : "请输入云端技能地址");
+      return;
+    }
+
+    setImportingSkill(type);
+    setError(null);
+    try {
+      const response = await fetch("/api/skills/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, source }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "技能添加失败");
+      }
+
+      const nextData = payload as ImportSkillsResponse;
+      setData((current) => ({
+        ...nextData,
+        requiresRestart: current.requiresRestart,
+        restart: current.restart,
+        backendStatus: current.backendStatus,
+      }));
+      setSelected(new Set(nextData.selected));
+      if (type === "local") {
+        setLocalSource("");
+      } else {
+        setCloudSource("");
+      }
+      toast.success(nextData.message || "技能已添加");
+    } catch (importError) {
+      const message =
+        importError instanceof Error ? importError.message : "技能添加失败";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setImportingSkill(null);
+    }
+  }
+
+  useEffect(() => {
+    loadSkills();
+  }, []);
+
+  useEffect(() => {
+    if (!autoRestart || !data.requiresRestart || hasChanges || actionBusy) {
+      return;
+    }
+
+    let cancelled = false;
+    const checkAndRestart = async () => {
+      try {
+        const status = await checkBackendStatus();
+        if (!cancelled && status.status === "idle") {
+          await restartBackendNow({ manual: false });
+        }
+      } catch {
+        // Keep polling; the visible status panel will update on the next success.
+      }
+    };
+    void checkAndRestart();
+    const interval = window.setInterval(checkAndRestart, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRestart, data.requiresRestart, hasChanges, actionBusy]);
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <header className="flex h-16 items-center justify-between border-b border-border px-6">
+        <div className="flex min-w-0 items-center gap-4">
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2"
+          >
+            <Link href="/?assistantId=agent">
+              <ArrowLeft className="h-4 w-4" />
+              工作台
+            </Link>
+          </Button>
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-semibold">技能广场</h1>
+            <p className="truncate text-xs text-muted-foreground">
+              为本地 InternAgents 选择可按需加载的技能
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={applyWhenIdle}
+            disabled={!canApplyWhenIdle}
+            title={
+              hasChanges
+                ? "保存当前技能选择，并在后台空闲时自动应用。"
+                : "后台空闲时自动重启并加载当前技能配置。"
+            }
+            className="bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            空闲时应用
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => restartBackendNow({ manual: true })}
+            disabled={!canApplyNow}
+            title={
+              hasChanges
+                ? "请先保存当前技能选择，再立即应用。"
+                : "立即重启后台并加载当前技能配置。"
+            }
+          >
+            {restarting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ServerCog className="h-4 w-4" />
+            )}
+            立即应用
+          </Button>
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-5">
+        <section className="min-w-0">
+          {error && (
+            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              已选择 {selectedCount} 个技能。建议为保证性能请选择 20
+              个以内技能。
+            </span>
+            {data.restart && (
+              <span
+                className={cn(
+                  data.restart.status === "restarted"
+                    ? "text-green-700"
+                    : "text-red-700"
+                )}
+              >
+                {data.restart.message}
+              </span>
+            )}
+            {backendStatus && (
+              <span
+                className={cn(
+                  backendStatus.status === "idle"
+                    ? "text-green-700"
+                    : backendStatus.status === "busy"
+                    ? "text-amber-700"
+                    : "text-red-700"
+                )}
+              >
+                {backendStatus.message}
+              </span>
+            )}
+          </div>
+
+          {loading ? (
+            <SkillSkeleton />
+          ) : data.skills.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center">
+              <FolderCog className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+              <h2 className="text-base font-semibold">还没有可选技能</h2>
+              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                在项目的 skills 目录下放置包含 SKILL.md 的技能文件夹后，这里会自动出现。
+              </p>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-[#2F6868]" />
+                <h2 className="text-sm font-semibold">
+                  InternAgents 精选技能
+                </h2>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {data.skills.map((skill) => {
+                  const checked = selected.has(skill.key);
+                  return (
+                    <article
+                      key={skill.key}
+                      className={cn(
+                        "flex min-h-40 flex-col justify-between rounded-lg border bg-card p-4 transition-colors",
+                        checked
+                          ? "border-[#2F6868] bg-[#F1F7F6]"
+                          : "border-border hover:border-[#2F6868]/40"
+                      )}
+                    >
+                      <div>
+                        <div className="mb-3 flex items-start justify-between gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background">
+                            {checked ? (
+                              <Check className="h-4 w-4 text-[#2F6868]" />
+                            ) : (
+                              <Sparkles className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <Switch
+                            checked={checked}
+                            onCheckedChange={(nextChecked) =>
+                              toggleSkill(skill.key, nextChecked)
+                            }
+                            disabled={isBusy}
+                            aria-label={`选择 ${skill.name}`}
+                          />
+                        </div>
+                        <h3 className="text-sm font-semibold">{skill.name}</h3>
+                        <p className="mt-2 line-clamp-3 text-xs leading-5 text-muted-foreground">
+                          {skill.description}
+                        </p>
+                      </div>
+                      <div className="mt-4 truncate rounded-md bg-background px-2 py-1 text-[11px] text-muted-foreground">
+                        {skill.relativePath}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-6 border-t border-border pt-5">
+            <div className="mb-3 flex items-center gap-2">
+              <FolderPlus className="h-4 w-4 text-[#2F6868]" />
+              <h2 className="text-sm font-semibold">添加技能</h2>
+              <span className="text-xs text-muted-foreground">
+                添加后勾选并应用
+              </span>
+            </div>
+
+            <div className="grid gap-3 xl:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
+                <Label
+                  htmlFor="local-skill-source"
+                  className="text-xs text-muted-foreground"
+                >
+                  本地路径
+                </Label>
+                <Input
+                  id="local-skill-source"
+                  value={localSource}
+                  onChange={(event) => setLocalSource(event.target.value)}
+                  placeholder="/Users/me/skills/paper-reading 或 skills/my-skill"
+                  disabled={isBusy}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => importSkill("local")}
+                  disabled={isBusy || !localSource.trim()}
+                >
+                  {importingSkill === "local" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderPlus className="h-4 w-4" />
+                  )}
+                  添加
+                </Button>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
+                <Label
+                  htmlFor="cloud-skill-source"
+                  className="text-xs text-muted-foreground"
+                >
+                  云端地址
+                </Label>
+                <Input
+                  id="cloud-skill-source"
+                  value={cloudSource}
+                  onChange={(event) => setCloudSource(event.target.value)}
+                  placeholder="github:owner/repo/path 或 https://github.com/owner/repo"
+                  disabled={isBusy}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => importSkill("cloud")}
+                  disabled={isBusy || !cloudSource.trim()}
+                >
+                  {importingSkill === "cloud" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CloudDownload className="h-4 w-4" />
+                  )}
+                  添加
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
