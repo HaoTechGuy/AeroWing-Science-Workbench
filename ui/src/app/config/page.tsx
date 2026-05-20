@@ -335,9 +335,8 @@ export default function ConfigPage() {
   }
 
   async function restartBackendNow({ manual }: { manual: boolean }) {
-    let status: BackendStatusResult | null = null;
     if (manual) {
-      status = await checkBackendStatus();
+      const status = await checkBackendStatus();
       const confirmed = window.confirm(
         [
           "立即应用会重新加载配置。",
