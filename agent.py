@@ -369,6 +369,24 @@ def create_runtime_agent():  # noqa: ANN201
     )
 
 
+def create_missing_resource_agent(resource_id: str):  # noqa: ANN201
+    async def missing_resource(
+        state: InternAgentState,
+        config: RunnableConfig,
+    ) -> dict[str, Any]:
+        raise ValueError(
+            f"Resource {resource_id!r} is not configured. "
+            "Create an untracked resource config and point "
+            "INTERNAGENT_RESOURCES_FILE at it before using this assistant."
+        )
+
+    graph = StateGraph(InternAgentState)
+    graph.add_node("missing_resource", missing_resource)
+    graph.add_edge(START, "missing_resource")
+    graph.add_edge("missing_resource", END)
+    return graph.compile()
+
+
 def _build_resource_agents() -> tuple[str, dict[str, Any]]:
     default_resource, resources = load_resource_config()
     return default_resource, {
@@ -380,8 +398,8 @@ def _build_resource_agents() -> tuple[str, dict[str, Any]]:
 if (_env_value("INTERNAGENT_PROCESS_ROLE") or "").lower() == "runtime":
     agent = create_runtime_agent()
     agent_local = agent
-    agent_h = agent
-    agent_volcano = agent
+    agent_remote1 = agent
+    agent_remote2 = agent
 else:
     _default_resource_id, _resource_agents = _build_resource_agents()
 
@@ -390,5 +408,9 @@ else:
 
     # Static exports used by langgraph.json and the UI resource selector.
     agent_local = _resource_agents.get("local", agent)
-    agent_h = _resource_agents.get("h", agent)
-    agent_volcano = _resource_agents.get("volcano", agent)
+    agent_remote1 = _resource_agents.get("remote1") or create_missing_resource_agent(
+        "remote1"
+    )
+    agent_remote2 = _resource_agents.get("remote2") or create_missing_resource_agent(
+        "remote2"
+    )

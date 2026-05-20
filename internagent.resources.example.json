@@ -1,0 +1,26 @@
+{
+  "default_resource": "local",
+  "resources": [
+    {
+      "id": "local",
+      "label": "Current Machine",
+      "backend": "local_shell",
+      "workspace": ".",
+      "remote_url": "http://127.0.0.1:22024",
+      "remote_assistant_id": "agent",
+      "kb_path": "",
+      "enabled": true
+    },
+    {
+      "id": "remote1",
+      "label": "Remote Runtime",
+      "backend": "ssh_shell",
+      "ssh_command": "ssh user@example-host",
+      "workspace": "/path/to/InternAgents",
+      "remote_url": "http://127.0.0.1:22025",
+      "remote_assistant_id": "agent",
+      "kb_path": "",
+      "enabled": true
+    }
+  ]
+}

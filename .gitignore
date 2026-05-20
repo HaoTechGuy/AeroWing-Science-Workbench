@@ -1,5 +1,6 @@
 .DS_Store
 .env
+internagent.resources.local.json
 .venv/
 .langgraph_api/
 .internagents/
@@ -29,3 +30,6 @@ mcp/**/node_modules/
 .codex/skills/.system/**
 !.codex/prompts/
 !.codex/prompts/**
+
+# Local backup files
+*.bak

@@ -271,17 +271,36 @@ The default resource config is in:
 internagent.resources.json
 ```
 
-Each enabled resource becomes a graph named `agent_<resource-id>`. The current
+The committed default only contains the current machine. Per-machine resources
+such as private clusters, cloud hosts, usernames, IPs, SSH aliases, and tunnel
+ports should live in an untracked local file, for example:
+
+```bash
+cp internagent.resources.example.json internagent.resources.local.json
+echo 'INTERNAGENT_RESOURCES_FILE=internagent.resources.local.json' >> .env
+```
+
+Each enabled resource maps to a graph named `agent_<resource-id>`. The committed
 config exposes:
 
 - `agent_local` through the local runtime at `http://127.0.0.1:22024`
-- `agent_h` through the H runtime tunnel at `http://127.0.0.1:22025`
-- `agent_volcano` through the Volcano runtime tunnel at `http://127.0.0.1:22026`
+
+`langgraph.json` also registers generic remote slots (`agent_remote1`,
+`agent_remote2`) so a local resource file can add private remote runtimes without
+committing machine-specific details.
 
 The web UI reads matching resource labels and assistant IDs from:
 
 ```text
 ui/deepagent-ui.config.json
+```
+
+For browser-visible private resources, set `NEXT_PUBLIC_INTERNAGENT_RESOURCES`
+in `ui/.env.local` instead of committing host-specific labels:
+
+```bash
+NEXT_PUBLIC_INTERNAGENT_RESOURCES='[{"id":"local","label":"Current Machine","assistantId":"agent_local"},{"id":"remote1","label":"Remote Runtime","assistantId":"agent_remote1"}]'
+NEXT_PUBLIC_INTERNAGENT_RESOURCE_ID=local
 ```
 
 For local development, `scripts/dev.sh` starts the local runtime, the
@@ -314,9 +333,11 @@ python -m langgraph_cli dev \
 Remote resources follow the same runtime pattern: start `langgraph.runtime.json`
 on the remote machine with `INTERNAGENT_PROCESS_ROLE=runtime` and the matching
 `INTERNAGENT_RUNTIME_ID`, then expose it to the coordinator through an existing
-SSH tunnel. Do not change server network, firewall, SSH daemon, security-group,
-or routing settings for this setup; if a runtime is not reachable with existing
-access, fix the resource config, credentials, process, or tunnel instead.
+SSH tunnel. Store the concrete SSH command, workspace, and tunnel URL only in
+local config. Do not change server network, firewall, SSH daemon,
+security-group, or routing settings for this setup; if a runtime is not
+reachable with existing access, fix the local resource config, credentials,
+process, or tunnel instead.
 
 If a resource sets `kb_path`, InternAgents will best-effort run `kb sync pull`
 before each agent run and `kb sync push` after the run using that resource's

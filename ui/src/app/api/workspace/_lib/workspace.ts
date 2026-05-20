@@ -115,11 +115,36 @@ interface WorkspaceFileData {
 }
 
 function readResourcesConfig(): ResourcesFile {
-  const explicit = process.env.INTERNAGENT_RESOURCES_FILE;
+  const explicit =
+    process.env.INTERNAGENT_RESOURCES_FILE ||
+    readRootEnvValue("INTERNAGENT_RESOURCES_FILE");
   const configPath = explicit
     ? path.resolve(getWorkspaceRoot(), explicit)
     : path.join(getWorkspaceRoot(), "internagent.resources.json");
   return JSON.parse(readFileSync(configPath, "utf8")) as ResourcesFile;
+}
+
+function readRootEnvValue(name: string): string | undefined {
+  try {
+    const content = readFileSync(path.join(getWorkspaceRoot(), ".env"), "utf8");
+    for (const line of content.split(/\r?\n/)) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (!match || match[1] !== name || line.trim().startsWith("#")) {
+        continue;
+      }
+      const value = match[2].trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        return value.slice(1, -1);
+      }
+      return value;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 export function getWorkspaceRoot(): string {

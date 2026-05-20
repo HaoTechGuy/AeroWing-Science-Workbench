@@ -5,8 +5,8 @@
   "graphs": {
     "agent": "./agent.py:agent",
     "agent_local": "./agent.py:agent_local",
-    "agent_h": "./agent.py:agent_h",
-    "agent_volcano": "./agent.py:agent_volcano"
+    "agent_remote1": "./agent.py:agent_remote1",
+    "agent_remote2": "./agent.py:agent_remote2"
   },
   "env": ".env"
 }

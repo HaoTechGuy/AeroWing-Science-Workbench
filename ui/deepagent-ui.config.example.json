@@ -8,6 +8,11 @@
       "id": "local",
       "label": "Current Machine",
       "assistantId": "agent_local"
+    },
+    {
+      "id": "remote1",
+      "label": "Remote Runtime",
+      "assistantId": "agent_remote1"
     }
   ],
   "stream": {

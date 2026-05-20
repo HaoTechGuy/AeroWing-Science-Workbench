@@ -34,8 +34,36 @@ const DEFAULT_STREAM_CONFIG: StreamConfig = {
 const rawConfig = uiConfig as Partial<StandaloneConfig>;
 const CONNECTION_STORAGE_KEY = "internagents.connection";
 
+function parseResourceEnv(value: string | undefined): ResourceConfig[] | null {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    const resources = parsed.filter((item): item is ResourceConfig => {
+      if (!item || typeof item !== "object") {
+        return false;
+      }
+      const record = item as Record<string, unknown>;
+      return (
+        typeof record.id === "string" &&
+        typeof record.label === "string" &&
+        typeof record.assistantId === "string"
+      );
+    });
+    return resources.length > 0 ? resources : null;
+  } catch {
+    return null;
+  }
+}
+
 const configuredResources = (
-  rawConfig.resources?.length
+  parseResourceEnv(process.env.NEXT_PUBLIC_INTERNAGENT_RESOURCES) ||
+  (rawConfig.resources?.length
     ? rawConfig.resources
     : [
         {
@@ -43,7 +71,7 @@ const configuredResources = (
           label: "Current Machine",
           assistantId: rawConfig.assistantId || "agent",
         },
-      ]
+      ])
 ) as ResourceConfig[];
 
 const defaultResourceId =
