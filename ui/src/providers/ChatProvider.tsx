@@ -14,6 +14,9 @@ interface ChatProviderProps {
   thread?: UseStreamThread<StateType>;
   resourceId?: string;
   resourceLabel?: string;
+  workspaceId?: string;
+  workspacePath?: string;
+  workspaceLabel?: string;
 }
 
 export function ChatProvider({
@@ -24,6 +27,9 @@ export function ChatProvider({
   thread,
   resourceId,
   resourceLabel,
+  workspaceId,
+  workspacePath,
+  workspaceLabel,
 }: ChatProviderProps) {
   const chat = useChat({
     activeAssistant,
@@ -32,6 +38,9 @@ export function ChatProvider({
     thread,
     resourceId,
     resourceLabel,
+    workspaceId,
+    workspacePath,
+    workspaceLabel,
   });
   return <ChatContext.Provider value={chat}>{children}</ChatContext.Provider>;
 }

@@ -14,10 +14,15 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const requestedPath = request.nextUrl.searchParams.get("path") || "";
   const resourceId = request.nextUrl.searchParams.get("resourceId");
+  const workspaceId = request.nextUrl.searchParams.get("workspaceId");
 
   try {
     assertReadableFilePath(requestedPath);
-    const fileData = await readWorkspaceFileData(requestedPath, resourceId);
+    const fileData = await readWorkspaceFileData(
+      requestedPath,
+      resourceId,
+      workspaceId
+    );
 
     if (!fileData.isFile) {
       return NextResponse.json(
@@ -30,6 +35,9 @@ export async function GET(request: NextRequest) {
     const rawParams = new URLSearchParams({ path: fileData.path });
     if (resourceId) {
       rawParams.set("resourceId", resourceId);
+    }
+    if (workspaceId) {
+      rawParams.set("workspaceId", workspaceId);
     }
     const payload: WorkspaceFileResponse = {
       name: fileData.name,

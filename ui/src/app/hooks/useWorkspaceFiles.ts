@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   WorkspaceEntry,
   WorkspaceListResponse,
@@ -10,11 +10,15 @@ type DirectoryEntries = Record<string, WorkspaceEntry[]>;
 
 async function fetchDirectory(
   path: string,
-  resourceId?: string
+  resourceId?: string,
+  workspaceId?: string
 ): Promise<WorkspaceListResponse> {
   const params = new URLSearchParams({ path });
   if (resourceId) {
     params.set("resourceId", resourceId);
+  }
+  if (workspaceId) {
+    params.set("workspaceId", workspaceId);
   }
   const response = await fetch(`/api/workspace/files?${params.toString()}`);
 
@@ -26,7 +30,11 @@ async function fetchDirectory(
   return response.json();
 }
 
-export function useWorkspaceFiles(resourceId?: string) {
+export function useWorkspaceFiles(
+  resourceId?: string,
+  workspaceId?: string,
+  refreshKey?: number
+) {
   const [directories, setDirectories] = useState<DirectoryEntries>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set([""])
@@ -35,6 +43,7 @@ export function useWorkspaceFiles(resourceId?: string) {
     () => new Set()
   );
   const [error, setError] = useState<string | null>(null);
+  const lastHandledRefreshKey = useRef<number | undefined>(refreshKey);
 
   const setPathLoading = useCallback((path: string, isLoading: boolean) => {
     setLoadingPaths((current) => {
@@ -58,7 +67,7 @@ export function useWorkspaceFiles(resourceId?: string) {
       setError(null);
 
       try {
-        const payload = await fetchDirectory(path, resourceId);
+        const payload = await fetchDirectory(path, resourceId, workspaceId);
         setDirectories((current) => ({
           ...current,
           [payload.path]: payload.entries,
@@ -71,7 +80,7 @@ export function useWorkspaceFiles(resourceId?: string) {
         setPathLoading(path, false);
       }
     },
-    [directories, resourceId, setPathLoading]
+    [directories, resourceId, setPathLoading, workspaceId]
   );
 
   const toggleDirectory = useCallback(
@@ -94,11 +103,44 @@ export function useWorkspaceFiles(resourceId?: string) {
     [expandedPaths, loadDirectory]
   );
 
+  const reloadDirectories = useCallback(
+    async (paths?: string[]) => {
+      const targetPaths = paths?.length ? paths : Array.from(expandedPaths);
+      const uniquePaths = Array.from(
+        new Set(targetPaths.length ? targetPaths : [""])
+      );
+
+      setError(null);
+      uniquePaths.forEach((path) => setPathLoading(path, true));
+
+      try {
+        const payloads = await Promise.all(
+          uniquePaths.map((path) =>
+            fetchDirectory(path, resourceId, workspaceId)
+          )
+        );
+
+        setDirectories((current) => {
+          const next = { ...current };
+          for (const payload of payloads) {
+            next[payload.path] = payload.entries;
+          }
+          return next;
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "工作区文件加载失败。");
+      } finally {
+        uniquePaths.forEach((path) => setPathLoading(path, false));
+      }
+    },
+    [expandedPaths, resourceId, setPathLoading, workspaceId]
+  );
+
   const refresh = useCallback(async () => {
     setDirectories({});
     setExpandedPaths(new Set([""]));
-    await loadDirectory("", true);
-  }, [loadDirectory]);
+    await reloadDirectories([""]);
+  }, [reloadDirectories]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -108,7 +150,7 @@ export function useWorkspaceFiles(resourceId?: string) {
     setPathLoading("", true);
     setError(null);
 
-    fetchDirectory("", resourceId)
+    fetchDirectory("", resourceId, workspaceId)
       .then((payload) => {
         if (!isCancelled) {
           setDirectories({ [payload.path]: payload.entries });
@@ -128,7 +170,20 @@ export function useWorkspaceFiles(resourceId?: string) {
     return () => {
       isCancelled = true;
     };
-  }, [resourceId, setPathLoading]);
+  }, [resourceId, setPathLoading, workspaceId]);
+
+  useEffect(() => {
+    if (refreshKey === undefined) {
+      return;
+    }
+
+    if (lastHandledRefreshKey.current === refreshKey) {
+      return;
+    }
+
+    lastHandledRefreshKey.current = refreshKey;
+    void reloadDirectories();
+  }, [refreshKey, reloadDirectories]);
 
   return useMemo(
     () => ({

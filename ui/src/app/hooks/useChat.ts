@@ -15,6 +15,8 @@ import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import { useStreamEventLayer } from "@/app/hooks/useStreamEventLayer";
 
+type RunConfig = Record<string, any>;
+
 export type StateType = {
   messages: Message[];
   todos: TodoItem[];
@@ -110,6 +112,9 @@ export function useChat({
   thread,
   resourceId,
   resourceLabel,
+  workspaceId,
+  workspacePath,
+  workspaceLabel,
 }: {
   activeAssistant: Assistant | null;
   streamConfig: StreamConfig;
@@ -117,6 +122,9 @@ export function useChat({
   thread?: UseStreamThread<StateType>;
   resourceId?: string;
   resourceLabel?: string;
+  workspaceId?: string;
+  workspacePath?: string;
+  workspaceLabel?: string;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const remoteAgent = useRemoteAgent();
@@ -126,6 +134,38 @@ export function useChat({
   const streamSubmitOptions = useMemo(
     () => remoteAgent.getStreamSubmitOptions(streamConfig),
     [remoteAgent, streamConfig]
+  );
+
+  const workspaceMetadata = useMemo(
+    () => ({
+      ...(resourceId ? { resource_id: resourceId } : {}),
+      ...(resourceLabel ? { resource_label: resourceLabel } : {}),
+      ...(workspaceId ? { internagents_workspace_id: workspaceId } : {}),
+      ...(workspacePath ? { internagents_workspace_path: workspacePath } : {}),
+      ...(workspaceLabel ? { internagents_workspace_label: workspaceLabel } : {}),
+    }),
+    [resourceId, resourceLabel, workspaceId, workspacePath, workspaceLabel]
+  );
+
+  const buildRunConfig = useCallback(
+    (overrides: RunConfig = {}) => {
+      const base = (activeAssistant?.config || {}) as RunConfig;
+      return {
+        ...base,
+        ...overrides,
+        configurable: {
+          ...(base.configurable || {}),
+          ...workspaceMetadata,
+          ...(overrides.configurable || {}),
+        },
+        metadata: {
+          ...(base.metadata || {}),
+          ...workspaceMetadata,
+          ...(overrides.metadata || {}),
+        },
+      };
+    },
+    [activeAssistant?.config, workspaceMetadata]
   );
 
   const withStreamSubmitOptions = useCallback(
@@ -170,14 +210,11 @@ export function useChat({
       stream.submit(
         { messages: [newMessage] },
         withStreamSubmitOptions({
-          metadata: {
-            ...(resourceId ? { resource_id: resourceId } : {}),
-            ...(resourceLabel ? { resource_label: resourceLabel } : {}),
-          },
+          metadata: workspaceMetadata,
           optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
           }),
-          config: { ...(activeAssistant?.config ?? {}), recursion_limit: 100 },
+          config: buildRunConfig({ recursion_limit: 100 }),
         })
       );
       // Update thread list immediately when sending a message
@@ -187,10 +224,9 @@ export function useChat({
       stream,
       streamEventLayer,
       withStreamSubmitOptions,
-      activeAssistant?.config,
+      buildRunConfig,
       onHistoryRevalidate,
-      resourceId,
-      resourceLabel,
+      workspaceMetadata,
     ]
   );
 
@@ -209,24 +245,29 @@ export function useChat({
             ...(optimisticMessages
               ? { optimisticValues: { messages: optimisticMessages } }
               : {}),
-            config: activeAssistant?.config,
             checkpoint: checkpoint,
             ...(isRerunningSubagent
               ? { interruptAfter: ["tools"] }
               : { interruptBefore: ["tools"] }),
+            config: buildRunConfig(),
           })
         );
       } else {
         stream.submit(
           { messages },
           withStreamSubmitOptions({
-            config: activeAssistant?.config,
+            config: buildRunConfig(),
             interruptBefore: ["tools"],
           })
         );
       }
     },
-    [stream, streamEventLayer, withStreamSubmitOptions, activeAssistant?.config]
+    [
+      stream,
+      streamEventLayer,
+      withStreamSubmitOptions,
+      buildRunConfig,
+    ]
   );
 
   const setFiles = useCallback(
@@ -246,7 +287,7 @@ export function useChat({
         undefined,
         withStreamSubmitOptions({
           config: {
-            ...(activeAssistant?.config || {}),
+            ...buildRunConfig(),
             recursion_limit: 100,
           },
           ...(hasTaskToolCall
@@ -261,7 +302,7 @@ export function useChat({
       stream,
       streamEventLayer,
       withStreamSubmitOptions,
-      activeAssistant?.config,
+      buildRunConfig,
       onHistoryRevalidate,
     ]
   );
@@ -277,12 +318,21 @@ export function useChat({
       streamEventLayer.clearStreamEvents();
       stream.submit(
         null,
-        withStreamSubmitOptions({ command: { resume: value } })
+        withStreamSubmitOptions({
+          command: { resume: value },
+          config: buildRunConfig(),
+        })
       );
       // Update thread list when resuming from interrupt
       onHistoryRevalidate?.();
     },
-    [stream, streamEventLayer, withStreamSubmitOptions, onHistoryRevalidate]
+    [
+      stream,
+      streamEventLayer,
+      withStreamSubmitOptions,
+      buildRunConfig,
+      onHistoryRevalidate,
+    ]
   );
 
   const stopStream = useCallback(() => {
@@ -297,6 +347,7 @@ export function useChat({
     ui: stream.values.ui,
     setFiles,
     messages: stream.messages,
+    error: stream.error,
     isLoading: stream.isLoading,
     isThreadLoading: stream.isThreadLoading,
     interrupt: stream.interrupt ?? streamEventLayer.interrupt,

@@ -21,17 +21,22 @@ class KbSyncMiddleware(AgentMiddleware):
     def name(self) -> str:
         return f"KbSyncMiddleware_{self.resource.id}"
 
-    def _sync(self, action: str) -> ExecuteResponse | None:
+    def _backend_for_runtime(self, runtime):  # noqa: ANN001, ANN201
+        if callable(self.backend):
+            return self.backend(runtime)
+        return self.backend
+
+    def _sync(self, action: str, runtime) -> ExecuteResponse | None:  # noqa: ANN001
         if not self.resource.kb_path:
             return None
         command = f"cd {shlex.quote(self.resource.kb_path)} && {shlex.quote(self.resource.kb_command)} sync {action}"
-        execute = getattr(self.backend, "execute", None)
+        execute = getattr(self._backend_for_runtime(runtime), "execute", None)
         if not execute:
             return ExecuteResponse(output="Backend does not support execute; KB sync skipped.", exit_code=1)
         return execute(command, timeout=min(self.resource.timeout, 120))
 
     def before_agent(self, state, runtime):  # noqa: ANN001, ANN201
-        result = self._sync("pull")
+        result = self._sync("pull", runtime)
         if result is None or result.exit_code == 0:
             return None
         return {
@@ -46,7 +51,7 @@ class KbSyncMiddleware(AgentMiddleware):
         }
 
     def after_agent(self, state, runtime):  # noqa: ANN001, ANN201
-        result = self._sync("push")
+        result = self._sync("push", runtime)
         if result is None or result.exit_code == 0:
             return None
         return {

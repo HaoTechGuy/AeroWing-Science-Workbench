@@ -26,6 +26,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
 
+from dynamic_local_backend import DynamicLocalShellBackendFactory
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from ssh_backend import SshShellBackend
@@ -176,7 +177,9 @@ def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
     ]
 
     active_path = _resolve_config_path(
-        skills_config.get("active_path") or skills_config.get("activePath") or ".internagents/active-skills",
+        skills_config.get("active_path")
+        or skills_config.get("activePath")
+        or ".internagents/active-skills",
         ROOT_DIR,
     ).resolve()
     internagents_dir = (ROOT_DIR / ".internagents").resolve()
@@ -193,7 +196,9 @@ def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
         skill_path = _resolve_config_path(selected_key, ROOT_DIR).resolve()
         if not skill_path.is_dir() or not (skill_path / "SKILL.md").is_file():
             continue
-        if catalog_roots and not any(_is_relative_to(skill_path, root) for root in catalog_roots):
+        if catalog_roots and not any(
+            _is_relative_to(skill_path, root) for root in catalog_roots
+        ):
             continue
 
         destination = active_path / skill_path.name
@@ -223,6 +228,59 @@ def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
     return None
 
 
+def _skill_source_paths(skills: list[Any] | None) -> list[Path]:
+    paths: list[Path] = []
+    for source in skills or []:
+        source_path = source[0] if isinstance(source, tuple) else source
+        if isinstance(source_path, str) and source_path.strip():
+            paths.append(_resolve_config_path(source_path, ROOT_DIR).resolve())
+    return paths
+
+
+def _skill_read_only_roots(
+    config: dict[str, Any],
+    skills: list[Any] | None,
+) -> list[Path]:
+    roots = _skill_source_paths(skills)
+    skills_config = config.get("skills")
+
+    if isinstance(skills_config, list):
+        roots.extend(_skill_source_paths(_normalize_skill_sources(skills_config)))
+    elif isinstance(skills_config, dict):
+        roots.extend(
+            _skill_source_paths(_normalize_skill_sources(skills_config.get("sources")))
+        )
+
+        selected = skills_config.get("selected")
+        if isinstance(selected, list):
+            roots.extend(
+                _resolve_config_path(source, ROOT_DIR).resolve()
+                for source in selected
+                if isinstance(source, str) and source.strip()
+            )
+
+        catalog_paths = (
+            skills_config.get("catalog_paths")
+            or skills_config.get("catalogPaths")
+            or []
+        )
+        if isinstance(catalog_paths, list):
+            roots.extend(
+                _resolve_config_path(source, ROOT_DIR).resolve()
+                for source in catalog_paths
+                if isinstance(source, str) and source.strip()
+            )
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(root)
+    return deduped
+
+
 def _create_backend_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.backend == "local_shell":
         return LocalShellBackend(
@@ -242,16 +300,47 @@ def _create_backend_for_resource(resource: ResourceConfig):  # noqa: ANN201
     raise ValueError(f"Unsupported backend type: {resource.backend}")
 
 
-def _create_runtime_backend(config: dict[str, Any]) -> LocalShellBackend:
+def _create_runtime_backend(  # noqa: ANN201
+    config: dict[str, Any],
+    resource: ResourceConfig | None = None,
+    read_only_roots: list[Path] | None = None,
+):
     backend_config = config.get("backend") or {}
     backend_type = backend_config.get("type", "local_shell")
     if backend_type != "local_shell":
-        raise ValueError(f"Runtime mode only supports local_shell backend, got {backend_type!r}")
+        raise ValueError(
+            f"Runtime mode only supports local_shell backend, got {backend_type!r}"
+        )
+
+    if resource is not None and resource.backend == "local_shell":
+        return DynamicLocalShellBackendFactory(
+            resource_id=resource.id,
+            fallback_root=ROOT_DIR,
+            inherit_env=backend_config.get("inherit_env", True),
+            virtual_mode=True,
+            timeout=resource.timeout,
+            max_output_bytes=resource.max_output_bytes,
+            read_only_roots=read_only_roots,
+        )
+
+    root_dir = (
+        _resolve_workspace(resource.workspace)
+        if resource is not None
+        else _resolve_config_path(backend_config.get("root_dir"), ROOT_DIR)
+    )
 
     return LocalShellBackend(
-        root_dir=_resolve_config_path(backend_config.get("root_dir"), ROOT_DIR),
+        root_dir=root_dir,
         inherit_env=backend_config.get("inherit_env", True),
         virtual_mode=backend_config.get("virtual_mode", False),
+        timeout=resource.timeout
+        if resource is not None
+        else backend_config.get("timeout", 120),
+        max_output_bytes=(
+            resource.max_output_bytes
+            if resource is not None
+            else backend_config.get("max_output_bytes", 100_000)
+        ),
     )
 
 
@@ -269,7 +358,11 @@ def _resource_system_prompt(base_prompt: str, resource: ResourceConfig) -> str:
         f"Workspace: {resource.workspace}\n"
         f"{kb_line}\n"
         "Do not change server network settings, firewall settings, SSH daemon settings, or cloud security-group settings. "
-        "If such a change seems necessary, stop and ask the user."
+        "If such a change seems necessary, stop and ask the user. "
+        "Use workspace-virtual file paths such as '/file.py' or '/src/file.py' with filesystem tools, "
+        "not host absolute paths such as '/Users/...'. "
+        "When using shell commands, the command already runs in the workspace; use relative paths "
+        "such as 'python3 file.py' rather than virtual paths like '/file.py'."
     )
 
 
@@ -324,13 +417,18 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
 def create_runtime_agent():  # noqa: ANN201
     agent_config = _load_agent_config()
     runtime_id = _env_value("INTERNAGENT_RUNTIME_ID") or "runtime"
-    backend = _create_runtime_backend(agent_config)
     runtime_resource = None
     try:
         _, resources = load_resource_config()
         runtime_resource = resources.get(runtime_id)
     except Exception:
         runtime_resource = None
+    skills = _resolve_skills(agent_config)
+    backend = _create_runtime_backend(
+        agent_config,
+        runtime_resource,
+        read_only_roots=_skill_read_only_roots(agent_config, skills),
+    )
     base_prompt = agent_config.get(
         "system_prompt",
         (
@@ -349,7 +447,14 @@ def create_runtime_agent():  # noqa: ANN201
     if runtime_resource is not None:
         system_prompt += (
             f"\nConfigured resource id: {runtime_resource.id}\n"
-            f"Configured workspace: {runtime_resource.workspace}\n"
+            f"Configured workspace at startup: {runtime_resource.workspace}\n"
+            "For local resources, the active workspace can be hot-switched from the UI; "
+            "filesystem and shell tools use the selected run workspace when provided, "
+            "and fall back to the latest resource workspace. "
+            "Use workspace-virtual file paths such as '/file.py' or '/src/file.py' with filesystem tools, "
+            "not host absolute paths such as '/Users/...'. "
+            "When using shell commands, the command already runs in the workspace; use relative paths "
+            "such as 'python3 file.py' rather than virtual paths like '/file.py'.\n"
             + (
                 f"KB sync is enabled at {runtime_resource.kb_path}."
                 if runtime_resource.kb_path
@@ -362,7 +467,7 @@ def create_runtime_agent():  # noqa: ANN201
     return create_deep_agent(
         model=MODEL,
         backend=backend,
-        skills=_resolve_skills(agent_config),
+        skills=skills,
         system_prompt=system_prompt,
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,

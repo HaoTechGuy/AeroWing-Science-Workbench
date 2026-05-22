@@ -11,10 +11,15 @@ export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   const requestedPath = request.nextUrl.searchParams.get("path") || "";
   const resourceId = request.nextUrl.searchParams.get("resourceId");
+  const workspaceId = request.nextUrl.searchParams.get("workspaceId");
 
   try {
     assertReadableFilePath(requestedPath);
-    const fileData = await readWorkspaceRawFile(requestedPath, resourceId);
+    const fileData = await readWorkspaceRawFile(
+      requestedPath,
+      resourceId,
+      workspaceId
+    );
 
     if (!fileData.isFile) {
       return NextResponse.json(

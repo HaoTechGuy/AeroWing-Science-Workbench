@@ -8,10 +8,19 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const requestedPath = searchParams.get("path") || "";
   const resourceId = searchParams.get("resourceId");
+  const workspaceId = searchParams.get("workspaceId");
 
   try {
-    const resolved = await resolveWorkspacePath(requestedPath, resourceId);
-    const entries = await listWorkspaceEntries(resolved.relativePath, resourceId);
+    const resolved = await resolveWorkspacePath(
+      requestedPath,
+      resourceId,
+      workspaceId
+    );
+    const entries = await listWorkspaceEntries(
+      resolved.relativePath,
+      resourceId,
+      workspaceId
+    );
     const payload: WorkspaceListResponse = {
       path: resolved.relativePath,
       entries,

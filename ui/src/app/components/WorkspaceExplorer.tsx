@@ -17,13 +17,30 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
-import type { WorkspaceEntry } from "@/app/types/workspace";
+import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
 
 interface WorkspaceExplorerProps {
   selectedPath?: string | null;
   resourceId?: string;
+  workspaceId?: string;
+  refreshKey?: number;
+  activeWorkspace?: LocalWorkspace | null;
+  workspaces?: LocalWorkspace[];
+  onWorkspaceChange?: (workspaceId: string) => void | Promise<void>;
+  onWorkspacePick?: () => void | Promise<void>;
   onFileSelect: (entry: WorkspaceEntry) => void;
 }
 
@@ -68,6 +85,12 @@ function matchesFilter(entry: WorkspaceEntry, filter: string): boolean {
 export function WorkspaceExplorer({
   selectedPath,
   resourceId,
+  workspaceId,
+  refreshKey,
+  activeWorkspace,
+  workspaces = [],
+  onWorkspaceChange,
+  onWorkspacePick,
   onFileSelect,
 }: WorkspaceExplorerProps) {
   const {
@@ -77,12 +100,27 @@ export function WorkspaceExplorer({
     error,
     toggleDirectory,
     refresh,
-  } = useWorkspaceFiles(resourceId);
+  } = useWorkspaceFiles(resourceId, workspaceId, refreshKey);
   const [filter, setFilter] = useState("");
+  const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
 
   const rootEntries = useMemo(() => directories[""] ?? [], [directories]);
   const rootLoading = loadingPaths.has("") && rootEntries.length === 0;
   const normalizedFilter = filter.trim();
+  const workspacePath =
+    activeWorkspace?.resolvedPath || activeWorkspace?.path || "当前资源文件";
+
+  const handlePickWorkspace = useCallback(async () => {
+    if (!onWorkspacePick) {
+      return;
+    }
+    setIsPickingWorkspace(true);
+    try {
+      await onWorkspacePick();
+    } finally {
+      setIsPickingWorkspace(false);
+    }
+  }, [onWorkspacePick]);
 
   const renderEntry = useCallback(
     (entry: WorkspaceEntry, depth: number): React.ReactNode => {
@@ -179,15 +217,70 @@ export function WorkspaceExplorer({
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
       <div className="border-b border-border px-4 py-3">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold tracking-tight">
-              工作区
-            </h2>
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="shrink-0 text-sm font-semibold tracking-tight">
+                工作区
+              </h2>
+              {activeWorkspace && workspaces.length > 0 && onWorkspaceChange && (
+                <Select
+                  value={activeWorkspace.id}
+                  onValueChange={(value) => onWorkspaceChange(value)}
+                >
+                  <SelectTrigger className="h-7 min-w-0 flex-1 rounded-md px-2 text-xs">
+                    <span className="truncate">
+                      {activeWorkspace.label}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent
+                    align="start"
+                    className="w-[280px]"
+                  >
+                    {workspaces.map((workspace) => (
+                      <SelectItem
+                        key={workspace.id}
+                        value={workspace.id}
+                        textValue={workspace.label}
+                        className="py-2"
+                      >
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate">{workspace.label}</span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {workspace.resolvedPath || workspace.path}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <p className="truncate text-xs text-muted-foreground">
-              当前资源文件
+              {workspacePath}
             </p>
           </div>
+          {onWorkspacePick && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handlePickWorkspace}
+                  disabled={isPickingWorkspace}
+                  className="h-8 w-8 shrink-0"
+                  aria-label="浏览本机工作区文件夹"
+                >
+                  {isPickingWorkspace ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderOpen className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>浏览本机文件夹</TooltipContent>
+            </Tooltip>
+          )}
           <Button
             variant="ghost"
             size="icon"

@@ -69,6 +69,29 @@ function formatAttachmentSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatChatError(error: unknown): string | null {
+  if (!error) {
+    return null;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+      ? error
+      : JSON.stringify(error);
+
+  if (/ConnectError|connection|connect/i.test(message)) {
+    return "模型服务连接失败，请检查网络或代理后重试。";
+  }
+
+  if (/RemoteException/i.test(message)) {
+    return "远程 Agent runtime 执行失败，请查看 backend 和 runtime 日志。";
+  }
+
+  return message || "运行失败，请重试。";
+}
+
 function createAttachmentId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
@@ -268,6 +291,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     files,
     ui,
     setFiles,
+    error,
     isLoading,
     isThreadLoading,
     interrupt,
@@ -280,6 +304,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const hasSendableAttachments = attachments.some(
     (attachment) => !attachment.error
   );
+  const errorMessage = formatChatError(error);
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -577,6 +602,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   />
                 );
               })}
+              {errorMessage && (
+                <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+                  {errorMessage}
+                </div>
+              )}
               {orphanActionRequests.length > 0 && (
                 <div className="mt-4 flex w-full flex-col gap-3">
                   {orphanActionRequests.map((actionRequest, index) => (

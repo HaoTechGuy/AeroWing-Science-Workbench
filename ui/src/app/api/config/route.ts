@@ -1,7 +1,13 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
+import {
+  getResourcesConfigPath,
+  getWorkspaceResource,
+  getWorkspaceRoot,
+  resolveWorkspacePath,
+  updateLocalResourceWorkspace,
+} from "@/app/api/workspace/_lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -25,6 +31,7 @@ interface UpdateConfigRequest {
   openrouterModel?: unknown;
   openrouterApiKey?: unknown;
   authorizationMode?: unknown;
+  workspacePath?: unknown;
 }
 
 const AUTO_MODEL = "openrouter/auto";
@@ -257,10 +264,15 @@ async function normalizedResponse(config: AgentConfig) {
       ? AUTO_MODEL
       : manualModel;
   const apiKey = env.OPENROUTER_API_KEY;
+  const workspaceResource = getWorkspaceResource("local");
+  const workspaceResolved = await resolveWorkspacePath("", "local");
 
   return {
     configPath: configPath(),
     envPath: envPath(),
+    resourcesPath: getResourcesConfigPath(),
+    workspacePath: workspaceResource.workspace || ".",
+    workspaceResolvedPath: workspaceResolved.root,
     model: manualModel,
     modelSelectionMode,
     openrouterDirectEnabled,
@@ -320,6 +332,16 @@ export async function PUT(request: NextRequest) {
       typeof body.openrouterApiKey === "string"
         ? body.openrouterApiKey.trim()
         : "";
+    const workspacePath =
+      typeof body.workspacePath === "string"
+        ? body.workspacePath.trim()
+        : undefined;
+    if (workspacePath === "") {
+      throw new Error("工作区路径不能为空。");
+    }
+    const currentWorkspacePath = getWorkspaceResource("local").workspace || ".";
+    const shouldUpdateWorkspace =
+      workspacePath !== undefined && workspacePath !== currentWorkspacePath;
 
     const nextConfig: AgentConfig = {
       ...currentConfig,
@@ -348,6 +370,9 @@ export async function PUT(request: NextRequest) {
       envUpdates.OPENROUTER_API_KEY = apiKey;
     }
     await writeEnvValues(envUpdates);
+    if (shouldUpdateWorkspace) {
+      await updateLocalResourceWorkspace(workspacePath);
+    }
 
     return NextResponse.json({
       ...(await normalizedResponse(nextConfig)),

@@ -20,6 +20,7 @@ export function useThreads(props: {
   limit?: number;
   resourceId?: string;
   assistantId?: string;
+  workspaceId?: string;
   archived?: boolean;
 }) {
   const remoteAgent = useRemoteAgent();
@@ -40,6 +41,7 @@ export function useThreads(props: {
         assistantId: props.assistantId || remoteAgent.graphName,
         status: props?.status,
         resourceId: props.resourceId,
+        workspaceId: props.workspaceId,
         archived,
       };
     },
@@ -47,6 +49,7 @@ export function useThreads(props: {
       assistantId,
       status,
       resourceId,
+      workspaceId,
       pageIndex,
       pageSize,
       archived,
@@ -58,6 +61,7 @@ export function useThreads(props: {
       assistantId: string;
       status?: Thread["status"];
       resourceId?: string;
+      workspaceId?: string;
       archived: boolean;
     }) => {
       const threads = await remoteAgent.searchThreads({
@@ -66,6 +70,7 @@ export function useThreads(props: {
         status,
         metadata: {
           ...(resourceId ? { resource_id: resourceId } : {}),
+          ...(workspaceId ? { internagents_workspace_id: workspaceId } : {}),
           ...(archived ? { internagents_archived: true } : {}),
         },
       });

@@ -18,6 +18,13 @@ export interface WorkspaceEntry {
   previewKind?: WorkspacePreviewKind;
 }
 
+export interface LocalWorkspace {
+  id: string;
+  label: string;
+  path: string;
+  resolvedPath: string;
+}
+
 export interface WorkspaceListResponse {
   path: string;
   entries: WorkspaceEntry[];

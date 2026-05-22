@@ -93,6 +93,7 @@ interface ThreadListProps {
   onInterruptCountChange?: (count: number) => void;
   resourceId?: string;
   assistantId?: string;
+  workspaceId?: string;
 }
 
 export function ThreadList({
@@ -103,6 +104,7 @@ export function ThreadList({
   onInterruptCountChange,
   resourceId,
   assistantId,
+  workspaceId,
 }: ThreadListProps) {
   const remoteAgent = useRemoteAgent();
   const [currentThreadId, setCurrentThreadId] = useQueryState("threadId");
@@ -114,6 +116,7 @@ export function ThreadList({
     limit: 20,
     resourceId,
     assistantId,
+    workspaceId,
   });
 
   const flattened = useMemo(() => {

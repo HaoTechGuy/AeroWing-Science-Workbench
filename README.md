@@ -280,6 +280,49 @@ cp internagent.resources.example.json internagent.resources.local.json
 echo 'INTERNAGENT_RESOURCES_FILE=internagent.resources.local.json' >> .env
 ```
 
+The local workspace folder is configurable. Open the UI configuration page and
+set `工作区 -> 本机工作区路径`; InternAgents writes that value to the
+untracked `internagent.resources.local.json` file and points `.env` at it. Local
+workspace changes hot-switch for the file browser and subsequent agent
+filesystem/shell tool calls; model, API key, and authorization changes still
+need the backend to be applied.
+
+The workbench also has a workspace selector. Selecting a workspace resets the
+active `threadId`, filters the conversation list to threads whose metadata
+matches that workspace, and attaches `internagents_workspace_*` metadata to new
+runs. Local runtimes resolve filesystem and shell tools from that run metadata,
+so a conversation created under one workspace keeps operating inside that
+workspace. The folder button next to the workspace selector opens the local
+folder picker, remembers the previous active workspace, and adds the selected
+folder as the active workspace.
+
+You can also edit the local resources file directly:
+
+```json
+{
+  "default_resource": "local",
+  "default_workspace": "local-xxxxxxxxxxxx",
+  "workspaces": [
+    {
+      "id": "local-xxxxxxxxxxxx",
+      "label": "your-project",
+      "path": "/absolute/path/to/your/project"
+    }
+  ],
+  "resources": [
+    {
+      "id": "local",
+      "label": "Current Machine",
+      "backend": "local_shell",
+      "workspace": "/absolute/path/to/your/project",
+      "remote_url": "http://127.0.0.1:22024",
+      "remote_assistant_id": "agent",
+      "enabled": true
+    }
+  ]
+}
+```
+
 Each enabled resource maps to a graph named `agent_<resource-id>`. The committed
 config exposes:
 

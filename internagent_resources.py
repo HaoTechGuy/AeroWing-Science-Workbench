@@ -35,11 +35,38 @@ class ResourceConfig:
 
 
 def _resource_file() -> Path:
-    explicit = os.getenv("INTERNAGENT_RESOURCES_FILE")
+    explicit = os.getenv("INTERNAGENT_RESOURCES_FILE") or _root_env_value(
+        "INTERNAGENT_RESOURCES_FILE"
+    )
     if not explicit:
         return DEFAULT_RESOURCES_FILE
     path = Path(explicit)
     return path if path.is_absolute() else ROOT_DIR / path
+
+
+def _root_env_value(name: str) -> str | None:
+    env_path = ROOT_DIR / ".env"
+    try:
+        lines = env_path.read_text().splitlines()
+    except OSError:
+        return None
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, separator, value = stripped.partition("=")
+        if separator != "=" or key.strip() != name:
+            continue
+        value = value.strip()
+        if (
+            len(value) >= 2
+            and value[0] == value[-1]
+            and value[0] in {'"', "'"}
+        ):
+            return value[1:-1]
+        return value
+    return None
 
 
 def _as_bool(value: Any, default: bool = True) -> bool:

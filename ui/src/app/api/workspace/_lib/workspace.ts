@@ -1,6 +1,8 @@
 import { execFile } from "child_process";
+import crypto from "crypto";
 import { readFileSync } from "fs";
 import { promises as fs } from "fs";
+import os from "os";
 import path from "path";
 import { promisify } from "util";
 import type { WorkspaceEntry, WorkspacePreviewKind } from "@/app/types/workspace";
@@ -80,20 +82,35 @@ const REMOTE_WORKSPACE_MAX_BUFFER = 32 * 1024 * 1024;
 
 type WorkspaceBackend = "local_shell" | "ssh_shell";
 
-interface ResourceRecord {
+export interface ResourceRecord {
   id: string;
   label?: string;
   backend?: WorkspaceBackend;
   workspace?: string;
   ssh_command?: string;
+  remote_url?: string;
+  remote_assistant_id?: string;
+  kb_path?: string;
   enabled?: boolean;
   timeout?: number;
   max_output_bytes?: number;
 }
 
-interface ResourcesFile {
+export interface ResourcesFile {
   default_resource?: string;
+  default_workspace?: string;
+  workspaces?: WorkspaceRecord[];
   resources?: ResourceRecord[];
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  label: string;
+  path: string;
+}
+
+export interface ResolvedWorkspaceRecord extends WorkspaceRecord {
+  resolvedPath: string;
 }
 
 interface WorkspaceResolvedPath {
@@ -114,14 +131,312 @@ interface WorkspaceFileData {
   dataBase64?: string;
 }
 
+const DEFAULT_RESOURCES_FILE = "internagent.resources.json";
+const LOCAL_RESOURCES_FILE = "internagent.resources.local.json";
+
+function getResourcesConfigEnvValue(): string | undefined {
+  return (
+    process.env.INTERNAGENT_RESOURCES_FILE ||
+    readRootEnvValue("INTERNAGENT_RESOURCES_FILE")
+  );
+}
+
+export function getResourcesConfigPath(): string {
+  const explicit = getResourcesConfigEnvValue();
+  return explicit
+    ? path.resolve(getWorkspaceRoot(), explicit)
+    : path.join(getWorkspaceRoot(), DEFAULT_RESOURCES_FILE);
+}
+
+function getLocalResourcesConfigPath(): string {
+  return path.join(getWorkspaceRoot(), LOCAL_RESOURCES_FILE);
+}
+
+function workspaceIdForPath(workspacePath: string): string {
+  const digest = crypto
+    .createHash("sha1")
+    .update(workspacePath)
+    .digest("hex")
+    .slice(0, 12);
+  return `local-${digest}`;
+}
+
+function workspaceLabelForPath(workspacePath: string): string {
+  const name = path.basename(workspacePath);
+  return name || workspacePath;
+}
+
 function readResourcesConfig(): ResourcesFile {
+  return JSON.parse(readFileSync(getResourcesConfigPath(), "utf8")) as ResourcesFile;
+}
+
+export function readWorkspaceResourcesConfig(): ResourcesFile {
+  return readResourcesConfig();
+}
+
+async function writeResourcesConfigAtPath(
+  configPath: string,
+  config: ResourcesFile
+) {
+  await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+async function writeRootEnvValues(updates: Record<string, string>) {
+  const envPath = path.join(getWorkspaceRoot(), ".env");
+  let content = "";
+  try {
+    content = await fs.readFile(envPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const lines = content ? content.split(/\r?\n/) : [];
+  const seen = new Set<string>();
+  const nextLines = lines.map((line) => {
+    const match = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*)$/);
+    if (!match || line.trim().startsWith("#")) {
+      return line;
+    }
+
+    const key = match[2];
+    if (!(key in updates)) {
+      return line;
+    }
+
+    seen.add(key);
+    return `${match[1]}${key}${match[3]}${JSON.stringify(updates[key])}`;
+  });
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (!seen.has(key)) {
+      nextLines.push(`${key}=${JSON.stringify(value)}`);
+    }
+  }
+
+  const nextContent = `${nextLines
+    .filter((_, index) => index < nextLines.length - 1 || nextLines[index] !== "")
+    .join("\n")}\n`;
+
+  await fs.writeFile(envPath, nextContent);
+}
+
+async function getWritableResourcesConfig(): Promise<{
+  configPath: string;
+  config: ResourcesFile;
+}> {
   const explicit =
     process.env.INTERNAGENT_RESOURCES_FILE ||
     readRootEnvValue("INTERNAGENT_RESOURCES_FILE");
-  const configPath = explicit
-    ? path.resolve(getWorkspaceRoot(), explicit)
-    : path.join(getWorkspaceRoot(), "internagent.resources.json");
-  return JSON.parse(readFileSync(configPath, "utf8")) as ResourcesFile;
+  if (explicit) {
+    const configPath = path.resolve(getWorkspaceRoot(), explicit);
+    return {
+      configPath,
+      config: JSON.parse(await fs.readFile(configPath, "utf8")) as ResourcesFile,
+    };
+  }
+
+  const configPath = getLocalResourcesConfigPath();
+  let config: ResourcesFile;
+  try {
+    config = JSON.parse(await fs.readFile(configPath, "utf8")) as ResourcesFile;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+    config = readResourcesConfig();
+    await writeResourcesConfigAtPath(configPath, config);
+  }
+
+  await writeRootEnvValues({
+    INTERNAGENT_RESOURCES_FILE: LOCAL_RESOURCES_FILE,
+  });
+
+  return { configPath, config };
+}
+
+function expandHomePath(value: string): string {
+  if (value === "~") {
+    return os.homedir();
+  }
+  if (value.startsWith("~/")) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
+}
+
+async function normalizeWorkspacePath(workspacePath: string): Promise<string> {
+  const rawPath = workspacePath.trim();
+  if (!rawPath) {
+    throw new Error("工作区路径不能为空。");
+  }
+
+  const expandedPath = expandHomePath(rawPath);
+  const absolutePath = path.isAbsolute(expandedPath)
+    ? expandedPath
+    : path.resolve(getWorkspaceRoot(), expandedPath);
+  const realWorkspacePath = await fs.realpath(absolutePath);
+  const stats = await fs.stat(realWorkspacePath);
+  if (!stats.isDirectory()) {
+    throw new Error("工作区路径必须是一个文件夹。");
+  }
+
+  return realWorkspacePath;
+}
+
+function normalizeWorkspaceRecords(
+  config: ResourcesFile,
+  fallbackWorkspacePaths: string | string[] = []
+): WorkspaceRecord[] {
+  const seen = new Set<string>();
+  const records: WorkspaceRecord[] = [];
+  const candidates = config.workspaces || [];
+  const fallbackPaths = Array.isArray(fallbackWorkspacePaths)
+    ? fallbackWorkspacePaths
+    : [fallbackWorkspacePaths];
+
+  for (const workspace of candidates) {
+    if (!workspace.path?.trim()) {
+      continue;
+    }
+    const workspacePath = workspace.path.trim();
+    const id = workspace.id?.trim() || workspaceIdForPath(workspacePath);
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    records.push({
+      id,
+      label: workspace.label?.trim() || workspaceLabelForPath(workspacePath),
+      path: workspacePath,
+    });
+  }
+
+  for (const fallbackWorkspacePath of fallbackPaths) {
+    const workspacePath = fallbackWorkspacePath.trim();
+    if (!workspacePath) {
+      continue;
+    }
+    const fallbackId = workspaceIdForPath(workspacePath);
+    if (!seen.has(fallbackId)) {
+      seen.add(fallbackId);
+      records.push({
+        id: fallbackId,
+        label: workspaceLabelForPath(workspacePath),
+        path: workspacePath,
+      });
+    }
+  }
+
+  return records;
+}
+
+async function workspaceHistoryPath(value?: string): Promise<string | null> {
+  if (!value?.trim()) {
+    return null;
+  }
+
+  try {
+    return await normalizeWorkspacePath(value);
+  } catch {
+    return value.trim();
+  }
+}
+
+export async function listLocalWorkspaces(): Promise<{
+  defaultWorkspaceId: string;
+  workspaces: ResolvedWorkspaceRecord[];
+}> {
+  const config = readResourcesConfig();
+  const resource = getWorkspaceResource("local");
+  const current = await resolveWorkspacePath("", "local");
+  const records = normalizeWorkspaceRecords(config, current.root);
+  const resolved = await Promise.all(
+    records.map(async (workspace) => {
+      try {
+        return {
+          ...workspace,
+          resolvedPath: await normalizeWorkspacePath(workspace.path),
+        };
+      } catch {
+        return {
+          ...workspace,
+          resolvedPath: workspace.path,
+        };
+      }
+    })
+  );
+  const currentWorkspaceId = workspaceIdForPath(current.root);
+  const configuredDefaultId =
+    typeof config.default_workspace === "string"
+      ? config.default_workspace.trim()
+      : "";
+  const defaultWorkspaceId =
+    [configuredDefaultId].find((id) =>
+      id ? resolved.some((workspace) => workspace.id === id) : false
+    ) ||
+    resolved.find((workspace) => workspace.path === resource.workspace)?.id ||
+    resolved.find((workspace) => workspace.resolvedPath === current.root)?.id ||
+    currentWorkspaceId;
+
+  return {
+    defaultWorkspaceId,
+    workspaces: resolved,
+  };
+}
+
+export async function updateLocalResourceWorkspace(
+  workspacePath: string
+): Promise<{ resourcesPath: string; workspacePath: string; workspaceId: string }> {
+  const realWorkspacePath = await normalizeWorkspacePath(workspacePath);
+  const workspaceId = workspaceIdForPath(realWorkspacePath);
+  const { configPath, config } = await getWritableResourcesConfig();
+  const resources = config.resources || [];
+  let localResource = resources.find((resource) => resource.id === "local");
+  const previousWorkspacePath = await workspaceHistoryPath(
+    localResource?.workspace
+  );
+  if (!localResource) {
+    localResource = {
+      id: "local",
+      label: "Current Machine",
+      backend: "local_shell",
+      enabled: true,
+    };
+    resources.unshift(localResource);
+  }
+
+  localResource.backend = "local_shell";
+  localResource.workspace = realWorkspacePath;
+  localResource.enabled = true;
+  localResource.remote_url ||= "http://127.0.0.1:22024";
+  localResource.remote_assistant_id ||= "agent";
+
+  config.resources = resources;
+  config.default_resource ||= "local";
+  const workspaces = normalizeWorkspaceRecords(
+    config,
+    previousWorkspacePath ? [previousWorkspacePath] : []
+  );
+  const existing = workspaces.find((workspace) => workspace.id === workspaceId);
+  const selectedWorkspace = {
+    id: workspaceId,
+    label: existing?.label || workspaceLabelForPath(realWorkspacePath),
+    path: realWorkspacePath,
+  };
+  config.workspaces = [
+    selectedWorkspace,
+    ...workspaces.filter((workspace) => workspace.id !== workspaceId),
+  ];
+  config.default_workspace = workspaceId;
+  await writeResourcesConfigAtPath(configPath, config);
+
+  return {
+    resourcesPath: configPath,
+    workspacePath: realWorkspacePath,
+    workspaceId,
+  };
 }
 
 function readRootEnvValue(name: string): string | undefined {
@@ -149,7 +464,8 @@ function readRootEnvValue(name: string): string | undefined {
 
 export function getWorkspaceRoot(): string {
   return path.resolve(
-    process.env.INTERNAGENTS_WORKSPACE_ROOT ||
+    process.env.INTERNAGENTS_APP_ROOT ||
+      process.env.INTERNAGENTS_WORKSPACE_ROOT ||
       process.env.WORKSPACE_ROOT ||
       path.join(process.cwd(), "..")
   );
@@ -213,14 +529,15 @@ export function getFileExtension(filePath: string): string {
 
 export async function resolveWorkspacePath(
   relativePath = "",
-  resourceId?: string | null
+  resourceId?: string | null,
+  workspaceId?: string | null
 ): Promise<WorkspaceResolvedPath> {
   const resource = getWorkspaceResource(resourceId);
   if ((resource.backend || "local_shell") !== "local_shell") {
     return resolveRemoteWorkspacePath(resource, relativePath);
   }
 
-  const root = resolveLocalWorkspaceRoot(resource);
+  const root = resolveLocalWorkspaceRoot(resource, workspaceId);
   const rootReal = await fs.realpath(root);
   const cleanPath = normalizeRelativePath(relativePath);
   const target = path.resolve(rootReal, cleanPath);
@@ -238,7 +555,26 @@ export async function resolveWorkspacePath(
   };
 }
 
-function resolveLocalWorkspaceRoot(resource: ResourceRecord): string {
+function resolveLocalWorkspaceRoot(
+  resource: ResourceRecord,
+  workspaceId?: string | null
+): string {
+  if (workspaceId) {
+    const fallbackRoot = resolveConfiguredLocalWorkspaceRoot(resource);
+    const records = normalizeWorkspaceRecords(readResourcesConfig(), fallbackRoot);
+    const selected = records.find((workspace) => workspace.id === workspaceId);
+    if (selected) {
+      const expandedPath = expandHomePath(selected.path);
+      return path.isAbsolute(expandedPath)
+        ? expandedPath
+        : path.resolve(getWorkspaceRoot(), expandedPath);
+    }
+  }
+
+  return resolveConfiguredLocalWorkspaceRoot(resource);
+}
+
+function resolveConfiguredLocalWorkspaceRoot(resource: ResourceRecord): string {
   const configuredRoot = resource.workspace || ".";
   if (path.isAbsolute(configuredRoot)) {
     return configuredRoot;
@@ -451,7 +787,8 @@ function withPreviewKind(entry: WorkspaceEntry): WorkspaceEntry {
 
 export async function listWorkspaceEntries(
   relativePath = "",
-  resourceId?: string | null
+  resourceId?: string | null,
+  workspaceId?: string | null
 ): Promise<WorkspaceEntry[]> {
   const resource = getWorkspaceResource(resourceId);
   if ((resource.backend || "local_shell") === "ssh_shell") {
@@ -462,7 +799,11 @@ export async function listWorkspaceEntries(
     return payload.entries.map(withPreviewKind);
   }
 
-  const { root, absolutePath } = await resolveWorkspacePath(relativePath, resourceId);
+  const { root, absolutePath } = await resolveWorkspacePath(
+    relativePath,
+    resourceId,
+    workspaceId
+  );
   const dirents = await fs.readdir(absolutePath, { withFileTypes: true });
   const entries = await Promise.all(
     dirents
@@ -501,7 +842,8 @@ export async function listWorkspaceEntries(
 
 export async function readWorkspaceFileData(
   relativePath: string,
-  resourceId?: string | null
+  resourceId?: string | null,
+  workspaceId?: string | null
 ): Promise<WorkspaceFileData> {
   const resource = getWorkspaceResource(resourceId);
   if ((resource.backend || "local_shell") === "ssh_shell") {
@@ -512,7 +854,7 @@ export async function readWorkspaceFileData(
     );
   }
 
-  const resolved = await resolveWorkspacePath(relativePath, resourceId);
+  const resolved = await resolveWorkspacePath(relativePath, resourceId, workspaceId);
   const stats = await fs.stat(resolved.absolutePath);
   if (!stats.isFile()) {
     throw new Error("Selected workspace path is not a file.");
@@ -535,7 +877,8 @@ export async function readWorkspaceFileData(
 
 export async function readWorkspaceRawFile(
   relativePath: string,
-  resourceId?: string | null
+  resourceId?: string | null,
+  workspaceId?: string | null
 ): Promise<WorkspaceFileData & { data: Buffer }> {
   const resource = getWorkspaceResource(resourceId);
   if ((resource.backend || "local_shell") === "ssh_shell") {
@@ -553,7 +896,7 @@ export async function readWorkspaceRawFile(
     };
   }
 
-  const resolved = await resolveWorkspacePath(relativePath, resourceId);
+  const resolved = await resolveWorkspacePath(relativePath, resourceId, workspaceId);
   const stats = await fs.stat(resolved.absolutePath);
   if (!stats.isFile()) {
     throw new Error("Selected workspace path is not a file.");

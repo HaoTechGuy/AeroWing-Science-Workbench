@@ -18,6 +18,7 @@ import type { WorkspaceFileResponse } from "@/app/types/workspace";
 interface WorkspaceViewerProps {
   selectedPath?: string | null;
   resourceId?: string;
+  workspaceId?: string;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -44,11 +45,15 @@ function formatBytes(bytes: number): string {
 
 async function fetchWorkspaceFile(
   path: string,
-  resourceId?: string
+  resourceId?: string,
+  workspaceId?: string
 ): Promise<WorkspaceFileResponse> {
   const params = new URLSearchParams({ path });
   if (resourceId) {
     params.set("resourceId", resourceId);
+  }
+  if (workspaceId) {
+    params.set("workspaceId", workspaceId);
   }
   const response = await fetch(`/api/workspace/file?${params.toString()}`);
 
@@ -79,6 +84,7 @@ function EmptyViewer() {
 export function WorkspaceViewer({
   selectedPath,
   resourceId,
+  workspaceId,
 }: WorkspaceViewerProps) {
   const [file, setFile] = useState<WorkspaceFileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +102,7 @@ export function WorkspaceViewer({
     setIsLoading(true);
     setError(null);
 
-    fetchWorkspaceFile(selectedPath, resourceId)
+    fetchWorkspaceFile(selectedPath, resourceId, workspaceId)
       .then((payload) => {
         if (!isCancelled) {
           setFile(payload);
@@ -117,7 +123,7 @@ export function WorkspaceViewer({
     return () => {
       isCancelled = true;
     };
-  }, [resourceId, selectedPath]);
+  }, [resourceId, selectedPath, workspaceId]);
 
   const language = useMemo(() => {
     return file?.extension ? LANGUAGE_MAP[file.extension] || "text" : "text";

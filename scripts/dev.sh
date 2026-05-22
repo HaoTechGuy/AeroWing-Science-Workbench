@@ -274,7 +274,7 @@ start_frontend() {
   log "Starting frontend on $UI_URL..."
   (
     cd "$ROOT_DIR/ui"
-    INTERNAGENTS_WORKSPACE_ROOT="$ROOT_DIR" \
+    INTERNAGENTS_APP_ROOT="$ROOT_DIR" \
     NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL="$BACKEND_URL" \
     NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID="$ASSISTANT_ID" \
       npm run dev -- --hostname "$HOST" --port "$UI_PORT"

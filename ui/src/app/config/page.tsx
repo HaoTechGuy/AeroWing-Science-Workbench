@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Cpu,
+  FolderOpen,
   KeyRound,
   Loader2,
   Moon,
@@ -33,6 +34,9 @@ type ModelSelectionMode = "auto" | "manual";
 interface ConfigResponse {
   configPath: string;
   envPath: string;
+  resourcesPath: string;
+  workspacePath: string;
+  workspaceResolvedPath: string;
   model: string;
   modelSelectionMode: ModelSelectionMode;
   openrouterDirectEnabled: boolean;
@@ -65,6 +69,9 @@ interface BackendStatusResult {
 const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
+  resourcesPath: "",
+  workspacePath: ".",
+  workspaceResolvedPath: "",
   model: "deepseek/deepseek-v4-flash",
   modelSelectionMode: "auto",
   openrouterDirectEnabled: false,
@@ -225,6 +232,35 @@ export default function ConfigPage() {
       config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
       config.openrouterModel !== savedConfig.openrouterModel ||
       config.authorizationMode !== savedConfig.authorizationMode ||
+      config.workspacePath !== savedConfig.workspacePath ||
+      apiKeyDraft.trim().length > 0
+    );
+  }, [
+    apiKeyDraft,
+    config.authorizationMode,
+    config.model,
+    config.modelSelectionMode,
+    config.openrouterDirectEnabled,
+    config.openrouterModel,
+    config.workspacePath,
+    savedConfig.authorizationMode,
+    savedConfig.model,
+    savedConfig.modelSelectionMode,
+    savedConfig.openrouterDirectEnabled,
+    savedConfig.openrouterModel,
+    savedConfig.workspacePath,
+  ]);
+  const selectedJisiModel = useMemo(
+    () => JISI_MODEL_OPTIONS.find((option) => option.id === config.model),
+    [config.model]
+  );
+  const restartSensitiveChanged = useMemo(() => {
+    return (
+      config.model !== savedConfig.model ||
+      config.modelSelectionMode !== savedConfig.modelSelectionMode ||
+      config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
+      config.openrouterModel !== savedConfig.openrouterModel ||
+      config.authorizationMode !== savedConfig.authorizationMode ||
       apiKeyDraft.trim().length > 0
     );
   }, [
@@ -240,10 +276,6 @@ export default function ConfigPage() {
     savedConfig.openrouterDirectEnabled,
     savedConfig.openrouterModel,
   ]);
-  const selectedJisiModel = useMemo(
-    () => JISI_MODEL_OPTIONS.find((option) => option.id === config.model),
-    [config.model]
-  );
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
   const backendStatusMessage = backendStatus?.message.trim();
@@ -276,8 +308,9 @@ export default function ConfigPage() {
 
   async function saveConfig(
     options: { scheduleIdle?: boolean } = {}
-  ): Promise<boolean> {
+  ): Promise<{ saved: boolean; needsRestart: boolean }> {
     const scheduleIdle = options.scheduleIdle ?? true;
+    const needsRestart = restartSensitiveChanged;
     setSaving(true);
     setError(null);
     try {
@@ -291,6 +324,7 @@ export default function ConfigPage() {
           openrouterModel: config.openrouterModel,
           openrouterApiKey: apiKeyDraft.trim(),
           authorizationMode: config.authorizationMode,
+          workspacePath: config.workspacePath,
         }),
       });
       const payload = await response.json();
@@ -301,20 +335,24 @@ export default function ConfigPage() {
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
       setApiKeyDraft("");
-      setRequiresRestart(true);
+      setRequiresRestart(needsRestart);
       setBackendStatus(null);
       setRestartResult(null);
-      setAutoRestart(scheduleIdle);
+      setAutoRestart(scheduleIdle && needsRestart);
       toast.success(
-        scheduleIdle ? "配置已保存，将在空闲时自动应用" : "配置已保存"
+        needsRestart
+          ? scheduleIdle
+            ? "配置已保存，将在空闲时自动应用"
+            : "配置已保存"
+          : "工作区已保存，已热切换"
       );
-      return true;
+      return { saved: true, needsRestart };
     } catch (saveError) {
       const message =
         saveError instanceof Error ? saveError.message : "配置保存失败";
       setError(message);
       toast.error(message);
-      return false;
+      return { saved: false, needsRestart: false };
     } finally {
       setSaving(false);
     }
@@ -385,8 +423,8 @@ export default function ConfigPage() {
   }
 
   async function applyNow() {
-    const saved = await saveConfig({ scheduleIdle: false });
-    if (saved) {
+    const result = await saveConfig({ scheduleIdle: false });
+    if (result.saved && result.needsRestart) {
       await restartBackendNow({ manual: true });
     }
   }
@@ -448,7 +486,7 @@ export default function ConfigPage() {
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold">配置</h1>
             <div className="truncate text-xs text-muted-foreground">
-              模型、授权模式和界面风格
+              模型、工作区、授权模式和界面风格
             </div>
           </div>
         </div>
@@ -507,7 +545,7 @@ export default function ConfigPage() {
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
-              模型和授权模式需要应用后生效；界面风格会立即生效。
+              模型和授权模式需要重启后端后生效；工作区和界面风格会立即生效。
             </span>
             {requiresRestart && !hasChanges && (
               <span className="text-amber-700">有配置等待应用。</span>
@@ -783,6 +821,46 @@ export default function ConfigPage() {
                   )}
               </div>
             )}
+          </section>
+
+          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+            <div className="mb-4 flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                <FolderOpen className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold">工作区</h2>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  选择本机资源的文件夹；文件浏览和 Agent 命令都会以它为根目录。
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="workspace-path">本机工作区路径</Label>
+                <Input
+                  id="workspace-path"
+                  value={config.workspacePath}
+                  disabled={loading}
+                  onChange={(event) =>
+                    setConfig((current) => ({
+                      ...current,
+                      workspacePath: event.target.value,
+                    }))
+                  }
+                  placeholder="/Users/you/Projects/example"
+                />
+              </div>
+              <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                <div className="min-w-0 truncate">
+                  当前解析：{config.workspaceResolvedPath || "-"}
+                </div>
+                <div className="min-w-0 truncate">
+                  资源配置：{config.resourcesPath || "-"}
+                </div>
+              </div>
+            </div>
           </section>
 
           <section className="rounded-lg border border-border bg-card p-5 shadow-sm">

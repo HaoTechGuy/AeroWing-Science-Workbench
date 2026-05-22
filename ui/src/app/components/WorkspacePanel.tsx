@@ -7,7 +7,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import type { WorkspaceEntry } from "@/app/types/workspace";
+import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
 
 interface WorkspacePanelProps {
   selectedFilePath?: string | null;
@@ -18,6 +18,12 @@ interface WorkspacePanelProps {
   onInterruptCountChange?: (count: number) => void;
   resourceId?: string;
   assistantId?: string;
+  workspaceId?: string;
+  workspaceRefreshKey?: number;
+  activeWorkspace?: LocalWorkspace | null;
+  workspaces?: LocalWorkspace[];
+  onWorkspaceChange?: (workspaceId: string) => void | Promise<void>;
+  onWorkspacePick?: () => void | Promise<void>;
 }
 
 export function WorkspacePanel({
@@ -29,6 +35,12 @@ export function WorkspacePanel({
   onInterruptCountChange,
   resourceId,
   assistantId,
+  workspaceId,
+  workspaceRefreshKey,
+  activeWorkspace,
+  workspaces = [],
+  onWorkspaceChange,
+  onWorkspacePick,
 }: WorkspacePanelProps) {
   return (
     <div className="h-full bg-background">
@@ -46,6 +58,12 @@ export function WorkspacePanel({
           <WorkspaceExplorer
             selectedPath={selectedFilePath}
             resourceId={resourceId}
+            workspaceId={workspaceId}
+            refreshKey={workspaceRefreshKey}
+            activeWorkspace={activeWorkspace}
+            workspaces={workspaces}
+            onWorkspaceChange={onWorkspaceChange}
+            onWorkspacePick={onWorkspacePick}
             onFileSelect={onFileSelect}
           />
         </ResizablePanel>
@@ -64,6 +82,7 @@ export function WorkspacePanel({
             onInterruptCountChange={onInterruptCountChange}
             resourceId={resourceId}
             assistantId={assistantId}
+            workspaceId={workspaceId}
           />
         </ResizablePanel>
       </ResizablePanelGroup>
