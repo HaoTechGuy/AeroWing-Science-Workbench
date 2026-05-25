@@ -74,7 +74,7 @@ function EmptyViewer() {
         </div>
         <h2 className="text-sm font-semibold">No file selected</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          从工作区选择 Markdown、文本或 PDF 文件后，会在这里预览。
+          从工作区选择 Markdown、文本、图片或 PDF 文件后，会在这里预览。
         </p>
       </div>
     </div>
@@ -199,6 +199,16 @@ export function WorkspaceViewer({
           />
         )}
 
+        {!isLoading && !error && file?.previewKind === "image" && file.rawUrl && (
+          <div className="flex h-full items-center justify-center bg-muted/30 p-6">
+            <img
+              src={file.rawUrl}
+              alt={file.name}
+              className="max-h-full max-w-full rounded-md border border-border bg-background shadow-sm"
+            />
+          </div>
+        )}
+
         {!isLoading && !error && file?.previewKind === "markdown" && (
           <ScrollArea className="h-full">
             <div className="px-6 py-5">
@@ -237,7 +247,7 @@ export function WorkspaceViewer({
         {!isLoading &&
           !error &&
           file &&
-          !["markdown", "pdf", "text"].includes(file.previewKind) && (
+          !["image", "markdown", "pdf", "text"].includes(file.previewKind) && (
             <div className="flex h-full items-center justify-center px-8 text-center">
               <div className="max-w-xs rounded-md border border-border bg-muted p-5 text-sm text-muted-foreground">
                 This file type cannot be previewed inline.

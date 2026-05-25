@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, Any, NotRequired, TypedDict
 
 from dotenv import dotenv_values, load_dotenv
-from langchain_core.messages import AnyMessage
+from langchain_core.messages import AnyMessage, BaseMessage, messages_from_dict, messages_to_dict
 from langchain_core.runnables import RunnableConfig
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -366,6 +366,44 @@ def _resource_system_prompt(base_prompt: str, resource: ResourceConfig) -> str:
     )
 
 
+def _normalize_remote_content_block(block: Any) -> Any:
+    if isinstance(block, list):
+        return [_normalize_remote_content_block(item) for item in block]
+
+    if not isinstance(block, dict):
+        return block
+
+    block_type = block.get("type")
+    if block_type == "image" and block.get("base64"):
+        mime_type = str(block.get("mime_type") or "image/png")
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{block['base64']}"},
+        }
+
+    normalized = dict(block)
+    for key, value in block.items():
+        normalized[key] = _normalize_remote_content_block(value)
+    return normalized
+
+
+def _normalize_remote_message(message: Any) -> Any:
+    if isinstance(message, BaseMessage):
+        message_dict = messages_to_dict([message])[0]
+        normalized_dict = _normalize_remote_content_block(message_dict)
+        return messages_from_dict([normalized_dict])[0]
+
+    return _normalize_remote_content_block(message)
+
+
+def _normalize_state_for_remote_runtime(state: InternAgentState) -> dict[str, Any]:
+    payload = dict(state)
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        payload["messages"] = [_normalize_remote_message(message) for message in messages]
+    return payload
+
+
 def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.remote_url:
         remote = RemoteGraph(
@@ -378,7 +416,10 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             state: InternAgentState,
             config: RunnableConfig,
         ) -> dict[str, Any]:
-            return await remote.ainvoke(dict(state), config=config)
+            return await remote.ainvoke(
+                _normalize_state_for_remote_runtime(state),
+                config=config,
+            )
 
         graph = StateGraph(InternAgentState)
         graph.add_node("remote_runtime", call_remote_runtime)

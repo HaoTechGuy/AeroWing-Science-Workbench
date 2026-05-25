@@ -53,24 +53,38 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown", ".mdx"]);
+const IMAGE_EXTENSIONS = new Set([
+  ".apng",
+  ".gif",
+  ".jpeg",
+  ".jpg",
+  ".png",
+  ".webp",
+]);
 
 const MIME_TYPES: Record<string, string> = {
+  ".apng": "image/apng",
   ".css": "text/css; charset=utf-8",
   ".csv": "text/csv; charset=utf-8",
   ".env.example": "text/plain; charset=utf-8",
+  ".gif": "image/gif",
   ".gitignore": "text/plain; charset=utf-8",
   ".html": "text/html; charset=utf-8",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".mdx": "text/markdown; charset=utf-8",
   ".pdf": "application/pdf",
+  ".png": "image/png",
   ".py": "text/x-python; charset=utf-8",
   ".sh": "text/x-shellscript; charset=utf-8",
   ".toml": "application/toml; charset=utf-8",
   ".ts": "text/typescript; charset=utf-8",
   ".tsx": "text/typescript; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp",
   ".yaml": "application/yaml; charset=utf-8",
   ".yml": "application/yaml; charset=utf-8",
 };
@@ -609,6 +623,10 @@ export function getPreviewKind(filePath: string): WorkspacePreviewKind {
 
   if (extension === ".pdf") {
     return "pdf";
+  }
+
+  if (IMAGE_EXTENSIONS.has(extension)) {
+    return "image";
   }
 
   if (TEXT_EXTENSIONS.has(extension)) {
