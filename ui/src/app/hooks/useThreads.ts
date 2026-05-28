@@ -87,26 +87,39 @@ export function useThreads(props: {
           try {
             if (thread.values && typeof thread.values === "object") {
               const values = thread.values as any;
-              const firstHumanMessage = values.messages.find(
-                (m: any) => m.type === "human"
-              );
-              if (firstHumanMessage?.content) {
-                const content =
-                  typeof firstHumanMessage.content === "string"
-                    ? firstHumanMessage.content
-                    : firstHumanMessage.content[0]?.text || "";
+              const goal = values.goal;
+              if (
+                goal &&
+                typeof goal === "object" &&
+                typeof goal.objective === "string" &&
+                goal.objective.trim()
+              ) {
+                const objective = goal.objective.trim();
                 title =
-                  content.slice(0, 50) + (content.length > 50 ? "..." : "");
-              }
-              const firstAiMessage = values.messages.find(
-                (m: any) => m.type === "ai"
-              );
-              if (firstAiMessage?.content) {
-                const content =
-                  typeof firstAiMessage.content === "string"
-                    ? firstAiMessage.content
-                    : firstAiMessage.content[0]?.text || "";
-                description = content.slice(0, 100);
+                  objective.slice(0, 50) + (objective.length > 50 ? "..." : "");
+                description = `Goal ${goal.status || "active"}`;
+              } else if (Array.isArray(values.messages)) {
+                const firstHumanMessage = values.messages.find(
+                  (m: any) => m.type === "human"
+                );
+                if (firstHumanMessage?.content) {
+                  const content =
+                    typeof firstHumanMessage.content === "string"
+                      ? firstHumanMessage.content
+                      : firstHumanMessage.content[0]?.text || "";
+                  title =
+                    content.slice(0, 50) + (content.length > 50 ? "..." : "");
+                }
+                const firstAiMessage = values.messages.find(
+                  (m: any) => m.type === "ai"
+                );
+                if (firstAiMessage?.content) {
+                  const content =
+                    typeof firstAiMessage.content === "string"
+                      ? firstAiMessage.content
+                      : firstAiMessage.content[0]?.text || "";
+                  description = content.slice(0, 100);
+                }
               }
             }
           } catch {

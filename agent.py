@@ -7,8 +7,10 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Annotated, Any, NotRequired, TypedDict
+from typing import Annotated, Any, Awaitable, Callable, NotRequired, TypedDict
 
+from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from dotenv import dotenv_values, load_dotenv
 from langchain_core.messages import AnyMessage, BaseMessage, messages_from_dict, messages_to_dict
 from langchain_core.runnables import RunnableConfig
@@ -27,6 +29,8 @@ from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
 
 from dynamic_local_backend import DynamicLocalShellBackendFactory
+from goal_middleware import GoalContextMiddleware, goal_system_prompt
+from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from ssh_backend import SshShellBackend
@@ -46,6 +50,17 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.lower() not in {"0", "false", "no", "off"}
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    value = _env_value(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _load_discoveryos_env() -> dict[str, str | None]:
@@ -82,12 +97,17 @@ def _resolve_model() -> str:
 
 
 MODEL = _resolve_model()
+GOAL_CONTINUATION_TURNS_KEY = "goalContinuationTurns"
+GOAL_MAX_AUTO_TURNS_ENV = "INTERNAGENT_GOAL_MAX_AUTO_TURNS"
+REMOTE_RUNTIME_INTERNAL_STATE_KEYS = {GOAL_CONTINUATION_TURNS_KEY}
 
 
 class InternAgentState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
     todos: NotRequired[list[Any]]
     files: NotRequired[dict[str, str]]
+    goal: NotRequired[dict[str, Any]]
+    goalContinuationTurns: NotRequired[int]
     email: NotRequired[dict[str, Any]]
     ui: NotRequired[Any]
 
@@ -381,6 +401,17 @@ def _normalize_remote_content_block(block: Any) -> Any:
             "image_url": {"url": f"data:{mime_type};base64,{block['base64']}"},
         }
 
+    if block_type == "file" and block.get("base64"):
+        mime_type = str(block.get("mime_type") or "application/octet-stream")
+        return {
+            "type": "text",
+            "text": (
+                f"[A {mime_type} file result was omitted from the model request for "
+                "provider compatibility. Use shell/file extraction tools on the "
+                "workspace path to inspect its contents instead.]"
+            ),
+        }
+
     normalized = dict(block)
     for key, value in block.items():
         normalized[key] = _normalize_remote_content_block(value)
@@ -397,11 +428,89 @@ def _normalize_remote_message(message: Any) -> Any:
 
 
 def _normalize_state_for_remote_runtime(state: InternAgentState) -> dict[str, Any]:
-    payload = dict(state)
+    payload = {
+        key: value
+        for key, value in dict(state).items()
+        if key not in REMOTE_RUNTIME_INTERNAL_STATE_KEYS
+    }
     messages = payload.get("messages")
     if isinstance(messages, list):
         payload["messages"] = [_normalize_remote_message(message) for message in messages]
     return payload
+
+
+def _goal_status(state: dict[str, Any]) -> str | None:
+    goal = state.get("goal")
+    status = goal.get("status") if isinstance(goal, dict) else None
+    return status if isinstance(status, str) else None
+
+
+def _goal_continuation_turns(state: dict[str, Any]) -> int:
+    value = state.get(GOAL_CONTINUATION_TURNS_KEY)
+    if isinstance(value, int):
+        return max(0, value)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _with_goal_continuation_accounting(
+    previous_state: dict[str, Any],
+    next_state: dict[str, Any],
+) -> dict[str, Any]:
+    updated = dict(next_state)
+    if _goal_status(updated) == "active":
+        updated[GOAL_CONTINUATION_TURNS_KEY] = _goal_continuation_turns(previous_state) + 1
+    else:
+        updated[GOAL_CONTINUATION_TURNS_KEY] = 0
+    return updated
+
+
+def _should_continue_goal(state: dict[str, Any], *, max_turns: int | None = None) -> bool:
+    if _goal_status(state) != "active":
+        return False
+    max_auto_turns = (
+        _env_positive_int(GOAL_MAX_AUTO_TURNS_ENV, 50)
+        if max_turns is None
+        else max_turns
+    )
+    return _goal_continuation_turns(state) < max_auto_turns
+
+
+def _route_after_remote_runtime(state: dict[str, Any]) -> str:
+    return "remote_runtime" if _should_continue_goal(state) else END
+
+
+class ImageContentCompatibilityMiddleware(AgentMiddleware):
+    """Converts DeepAgents image tool blocks to OpenRouter-compatible image_url blocks."""
+
+    @property
+    def name(self) -> str:
+        return "ImageContentCompatibilityMiddleware"
+
+    def _normalize_request(self, request: ModelRequest) -> ModelRequest:
+        messages = [_normalize_remote_message(message) for message in request.messages]
+        system_message = (
+            _normalize_remote_message(request.system_message)
+            if request.system_message is not None
+            else None
+        )
+        return request.override(messages=messages, system_message=system_message)
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        return handler(self._normalize_request(request))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        return await handler(self._normalize_request(request))
 
 
 def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
@@ -416,15 +525,23 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             state: InternAgentState,
             config: RunnableConfig,
         ) -> dict[str, Any]:
-            return await remote.ainvoke(
+            result = await remote.ainvoke(
                 _normalize_state_for_remote_runtime(state),
                 config=config,
             )
+            return _with_goal_continuation_accounting(dict(state), result)
 
         graph = StateGraph(InternAgentState)
         graph.add_node("remote_runtime", call_remote_runtime)
         graph.add_edge(START, "remote_runtime")
-        graph.add_edge("remote_runtime", END)
+        graph.add_conditional_edges(
+            "remote_runtime",
+            _route_after_remote_runtime,
+            {
+                "remote_runtime": "remote_runtime",
+                END: END,
+            },
+        )
         return graph.compile()
 
     if not _env_flag("INTERNAGENT_ALLOW_EMBEDDED_RESOURCE"):
@@ -445,11 +562,14 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     backend = _create_backend_for_resource(resource)
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
+    middleware.append(ImageContentCompatibilityMiddleware())
+    middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=MODEL,
+        tools=goal_tools(),
         backend=backend,
         skills=_resolve_skills(agent_config),
-        system_prompt=_resource_system_prompt(base_prompt, resource),
+        system_prompt=goal_system_prompt(_resource_system_prompt(base_prompt, resource)),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
     )
@@ -505,11 +625,14 @@ def create_runtime_agent():  # noqa: ANN201
     middleware = list(agent_config.get("middleware") or [])
     if runtime_resource is not None and runtime_resource.kb_path:
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
+    middleware.append(ImageContentCompatibilityMiddleware())
+    middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=MODEL,
+        tools=goal_tools(),
         backend=backend,
         skills=skills,
-        system_prompt=system_prompt,
+        system_prompt=goal_system_prompt(system_prompt),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
     )
