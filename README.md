@@ -192,6 +192,16 @@ read_file / write_file / edit_file -> 读取文件 / 写入文件 / 编辑文件
 ls / glob / grep -> 查看目录 / 搜索文件 / 搜索文本
 ```
 
+### Goal Mode
+
+InternAgents includes a lightweight Codex-style goal mode. When the user sends
+`/goal <objective>` or explicitly asks to create a persistent goal, the agent can
+call `create_goal`. Active goals are stored in the LangGraph thread state,
+surfaced in the chat UI, and injected into subsequent model calls so the agent
+continues pursuing the same objective across turns. The agent can inspect the
+current goal with `get_goal` and mark it `complete` or `blocked` with
+`update_goal` after verification.
+
 ## Manual Backend Startup
 
 Use this fallback when debugging the LangGraph server directly:

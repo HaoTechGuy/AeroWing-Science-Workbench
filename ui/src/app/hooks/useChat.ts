@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import {
   type Message,
@@ -9,18 +9,25 @@ import {
 } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
-import type { ChatAttachment, TodoItem } from "@/app/types/types";
+import type { ChatAttachment, GoalState, TodoItem } from "@/app/types/types";
 import type { StreamConfig } from "@/lib/config";
 import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import { useStreamEventLayer } from "@/app/hooks/useStreamEventLayer";
 
 type RunConfig = Record<string, any>;
+type ParsedGoalCommand = {
+  objective: string;
+  tokenBudget?: number;
+};
+
+const MAX_GOAL_OBJECTIVE_CHARS = 4_000;
 
 export type StateType = {
   messages: Message[];
   todos: TodoItem[];
   files: Record<string, string>;
+  goal?: GoalState | null;
   email?: {
     id?: string;
     subject?: string;
@@ -105,6 +112,47 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
   return blocks;
 }
 
+function parseGoalCommand(content: string): ParsedGoalCommand | null {
+  const match = content.trim().match(/^\/goal(?:\s+([\s\S]+))?$/i);
+  const rawObjective = match?.[1]?.trim();
+  if (!rawObjective || rawObjective.length > MAX_GOAL_OBJECTIVE_CHARS) {
+    return null;
+  }
+
+  const budgetMatch = rawObjective.match(
+    /^(?:--tokens|--token-budget)\s+(\d+)\s+([\s\S]+)$/i
+  );
+  if (!budgetMatch) {
+    return { objective: rawObjective };
+  }
+
+  const tokenBudget = Number.parseInt(budgetMatch[1], 10);
+  const objective = budgetMatch[2].trim();
+  if (!objective || !Number.isSafeInteger(tokenBudget) || tokenBudget <= 0) {
+    return { objective: rawObjective };
+  }
+
+  return { objective, tokenBudget };
+}
+
+function createGoalState(
+  goalCommand: ParsedGoalCommand,
+  threadId: string
+): GoalState {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    id: uuidv4(),
+    threadId,
+    objective: goalCommand.objective,
+    status: "active",
+    tokenBudget: goalCommand.tokenBudget ?? null,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export function useChat({
   activeAssistant,
   streamConfig,
@@ -130,6 +178,7 @@ export function useChat({
   const remoteAgent = useRemoteAgent();
   const client = remoteAgent.client;
   const streamEventLayer = useStreamEventLayer(remoteAgent);
+  const { clearStreamEvents } = streamEventLayer;
 
   const streamSubmitOptions = useMemo(
     () => remoteAgent.getStreamSubmitOptions(streamConfig),
@@ -170,8 +219,8 @@ export function useChat({
 
   const withStreamSubmitOptions = useCallback(
     <T extends object>(options: T) => ({
-      ...options,
       ...streamSubmitOptions,
+      ...options,
     }),
     [streamSubmitOptions]
   );
@@ -192,29 +241,86 @@ export function useChat({
     experimental_thread: thread,
   });
 
+  const streamScopeKey = useMemo(
+    () =>
+      [
+        remoteAgent.url,
+        activeAssistant?.assistant_id || "",
+        resourceId || "",
+        workspaceId || "",
+        threadId || "__new_thread__",
+      ].join("|"),
+    [
+      remoteAgent.url,
+      activeAssistant?.assistant_id,
+      resourceId,
+      workspaceId,
+      threadId,
+    ]
+  );
+  const previousStreamScopeKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (previousStreamScopeKey.current === streamScopeKey) return;
+    previousStreamScopeKey.current = streamScopeKey;
+    if (!stream.isLoading) {
+      clearStreamEvents();
+    }
+  }, [streamScopeKey, stream.isLoading, clearStreamEvents]);
+
   const sendMessage = useCallback(
     (content: string, attachments: ChatAttachment[] = []) => {
+      const goalCommand = parseGoalCommand(content);
+      const existingGoal = threadId ? stream.values.goal : null;
+      const shouldSeedGoal = Boolean(goalCommand && !existingGoal);
+      const seededGoalThreadId = shouldSeedGoal ? threadId ?? uuidv4() : null;
+      const seededGoal =
+        shouldSeedGoal && goalCommand && seededGoalThreadId
+          ? createGoalState(goalCommand, seededGoalThreadId)
+          : null;
+      const messageContent = seededGoal ? seededGoal.objective : content;
+      const additionalKwargs = {
+        ...(attachments.length > 0
+          ? { attachments: attachmentMetadata(attachments) }
+          : {}),
+        ...(seededGoal
+          ? {
+              internagents_goal_command: {
+                original_content: content,
+                goal_id: seededGoal.id,
+              },
+            }
+          : {}),
+      };
       const newMessage: Message = {
         id: uuidv4(),
         type: "human",
         content: buildMessageContent(
-          content,
+          messageContent,
           attachments
         ) as Message["content"],
         additional_kwargs:
-          attachments.length > 0
-            ? { attachments: attachmentMetadata(attachments) }
+          Object.keys(additionalKwargs).length > 0
+            ? additionalKwargs
             : undefined,
       };
-      streamEventLayer.clearStreamEvents();
+      clearStreamEvents();
       stream.submit(
-        { messages: [newMessage] },
+        {
+          messages: [newMessage],
+          ...(seededGoal ? { goal: seededGoal } : {}),
+        },
         withStreamSubmitOptions({
           metadata: workspaceMetadata,
+          ...(seededGoalThreadId && !threadId
+            ? { threadId: seededGoalThreadId }
+            : {}),
           optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
+            ...(seededGoal ? { goal: seededGoal } : {}),
           }),
           config: buildRunConfig({ recursion_limit: 100 }),
+          ...(seededGoal ? { durability: "async" as const } : {}),
         })
       );
       // Update thread list immediately when sending a message
@@ -222,11 +328,12 @@ export function useChat({
     },
     [
       stream,
-      streamEventLayer,
+      clearStreamEvents,
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
       workspaceMetadata,
+      threadId,
     ]
   );
 
@@ -237,7 +344,7 @@ export function useChat({
       isRerunningSubagent?: boolean,
       optimisticMessages?: Message[]
     ) => {
-      streamEventLayer.clearStreamEvents();
+      clearStreamEvents();
       if (checkpoint) {
         stream.submit(
           undefined,
@@ -264,7 +371,7 @@ export function useChat({
     },
     [
       stream,
-      streamEventLayer,
+      clearStreamEvents,
       withStreamSubmitOptions,
       buildRunConfig,
     ]
@@ -282,7 +389,7 @@ export function useChat({
 
   const continueStream = useCallback(
     (hasTaskToolCall?: boolean) => {
-      streamEventLayer.clearStreamEvents();
+      clearStreamEvents();
       stream.submit(
         undefined,
         withStreamSubmitOptions({
@@ -300,7 +407,7 @@ export function useChat({
     },
     [
       stream,
-      streamEventLayer,
+      clearStreamEvents,
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
@@ -315,7 +422,7 @@ export function useChat({
 
   const resumeInterrupt = useCallback(
     (value: any) => {
-      streamEventLayer.clearStreamEvents();
+      clearStreamEvents();
       stream.submit(
         null,
         withStreamSubmitOptions({
@@ -328,7 +435,7 @@ export function useChat({
     },
     [
       stream,
-      streamEventLayer,
+      clearStreamEvents,
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
@@ -343,6 +450,7 @@ export function useChat({
     stream,
     todos: stream.values.todos ?? [],
     files: stream.values.files ?? {},
+    goal: stream.values.goal ?? null,
     email: stream.values.email,
     ui: stream.values.ui,
     setFiles,

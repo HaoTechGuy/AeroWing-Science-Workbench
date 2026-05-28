@@ -12,6 +12,7 @@ UI_PORT="${INTERNAGENTS_UI_PORT:-3000}"
 OPEN_BROWSER="${INTERNAGENTS_OPEN_BROWSER:-1}"
 SKIP_INSTALL="${INTERNAGENTS_SKIP_INSTALL:-0}"
 ASSISTANT_ID="${INTERNAGENTS_ASSISTANT_ID:-agent_local}"
+LANGGRAPH_NO_RELOAD="${INTERNAGENTS_LANGGRAPH_NO_RELOAD:-1}"
 
 RUNTIME_DIR="$ROOT_DIR/.internagents"
 LOG_DIR="$RUNTIME_DIR/logs"
@@ -38,6 +39,12 @@ UI_PID=""
 
 log() {
   printf '[InternAgents] %s\n' "$*"
+}
+
+langgraph_reload_args() {
+  if [ "$LANGGRAPH_NO_RELOAD" = "1" ]; then
+    printf '%s\n' "--no-reload"
+  fi
 }
 
 die() {
@@ -222,6 +229,7 @@ start_local_runtime() {
         --host "$HOST" \
         --port "$LOCAL_RUNTIME_PORT" \
         --no-browser \
+        $(langgraph_reload_args) \
         --config langgraph.runtime.json
   ) >>"$LOCAL_RUNTIME_LOG" 2>&1 &
 
@@ -250,6 +258,7 @@ start_backend() {
       --host "$HOST" \
       --port "$BACKEND_PORT" \
       --no-browser \
+      $(langgraph_reload_args) \
       --config langgraph.json
   ) >>"$BACKEND_LOG" 2>&1 &
 

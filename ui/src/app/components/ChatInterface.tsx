@@ -18,6 +18,7 @@ import {
   FileIcon,
   ImagePlus,
   Paperclip,
+  Target,
   X,
 } from "lucide-react";
 import { ChatMessage } from "@/app/components/ChatMessage";
@@ -28,6 +29,7 @@ import type {
   ActionRequest,
   ReviewConfig,
   ChatAttachment,
+  GoalState,
 } from "@/app/types/types";
 import { Assistant, Message } from "@langchain/langgraph-sdk";
 import { extractStringFromMessageContent } from "@/app/utils/utils";
@@ -90,6 +92,44 @@ function formatChatError(error: unknown): string | null {
   }
 
   return message || "运行失败，请重试。";
+}
+
+function formatGoalElapsed(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds || 0));
+  if (safeSeconds < 60) return `${safeSeconds}s`;
+  const minutes = Math.floor(safeSeconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) {
+    return remainingMinutes === 0
+      ? `${hours}h`
+      : `${hours}h ${remainingMinutes}m`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+function goalStatusLabel(status: GoalState["status"]): string {
+  switch (status) {
+    case "complete":
+      return "已完成";
+    case "blocked":
+      return "受阻";
+    default:
+      return "进行中";
+  }
+}
+
+function goalStatusClassName(status: GoalState["status"]): string {
+  switch (status) {
+    case "complete":
+      return "border-success/30 bg-success/10 text-success";
+    case "blocked":
+      return "border-warning/30 bg-warning/10 text-warning";
+    default:
+      return "border-[#2F6868]/30 bg-[#2F6868]/10 text-[#2F6868]";
+  }
 }
 
 function createAttachmentId(): string {
@@ -273,7 +313,9 @@ function buildRemoteRuntimeToolMessages(
 }
 
 export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
-  const [metaOpen, setMetaOpen] = useState<"tasks" | "files" | null>(null);
+  const [metaOpen, setMetaOpen] = useState<"goal" | "tasks" | "files" | null>(
+    null
+  );
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -289,6 +331,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     streamEvents,
     todos,
     files,
+    goal,
     ui,
     setFiles,
     error,
@@ -535,6 +578,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
   const hasTasks = todos.length > 0;
   const hasFiles = Object.keys(files).length > 0;
+  const hasGoal = Boolean(goal?.objective);
 
   // Parse out any action requests or review configs from the interrupt
   const actionRequestsMap: Map<string, ActionRequest> | null = useMemo(() => {
@@ -578,6 +622,33 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
             </div>
           ) : (
             <>
+              {hasGoal && goal && (
+                <div className="mb-4 rounded-xl border border-border bg-sidebar px-4 py-3 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    <Target className="h-4 w-4 text-[#2F6868]" />
+                    Goal
+                    <span
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal",
+                        goalStatusClassName(goal.status)
+                      )}
+                    >
+                      {goalStatusLabel(goal.status)}
+                    </span>
+                    <span className="normal-case tracking-normal">
+                      {formatGoalElapsed(goal.timeUsedSeconds || 0)}
+                    </span>
+                    {typeof goal.tokenBudget === "number" && (
+                      <span className="normal-case tracking-normal">
+                        Tokens {goal.tokensUsed || 0}/{goal.tokenBudget}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-primary">
+                    {goal.objective}
+                  </div>
+                </div>
+              )}
               {processedMessages.map((data, index) => {
                 const messageUi = ui?.filter(
                   (u: any) => u.metadata?.message_id === data.message.id
@@ -632,7 +703,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
             "mx-auto w-[calc(100%-32px)] max-w-[1024px] transition-colors duration-200 ease-in-out"
           )}
         >
-          {(hasTasks || hasFiles) && (
+          {(hasGoal || hasTasks || hasFiles) && (
             <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-sidebar empty:hidden">
               {!metaOpen && (
                 <>
@@ -717,6 +788,33 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       );
                     })();
 
+                    const goalTrigger = (() => {
+                      if (!hasGoal || !goal) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMetaOpen((prev) =>
+                              prev === "goal" ? null : "goal"
+                            )
+                          }
+                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left"
+                          aria-expanded={metaOpen === "goal"}
+                        >
+                          <Target
+                            size={16}
+                            className="text-[#2F6868]"
+                          />
+                          <span className="ml-[1px] min-w-0 truncate text-sm">
+                            Goal · {goalStatusLabel(goal.status)}
+                          </span>
+                          <span className="min-w-0 truncate text-sm text-muted-foreground">
+                            {goal.objective}
+                          </span>
+                        </button>
+                      );
+                    })();
+
                     const filesTrigger = (() => {
                       if (!hasFiles) return null;
                       return (
@@ -741,7 +839,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
                     return (
                       <div className="grid grid-cols-[1fr_auto_auto] items-center">
-                        {tasksTrigger}
+                        {goalTrigger || tasksTrigger}
+                        {goalTrigger ? tasksTrigger : null}
                         {filesTrigger}
                       </div>
                     );
@@ -752,6 +851,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               {metaOpen && (
                 <>
                   <div className="sticky top-0 flex items-stretch bg-sidebar text-sm">
+                    {hasGoal && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 py-3 pr-4 first:pl-[18px] aria-expanded:font-semibold"
+                        onClick={() =>
+                          setMetaOpen((prev) =>
+                            prev === "goal" ? null : "goal"
+                          )
+                        }
+                        aria-expanded={metaOpen === "goal"}
+                      >
+                        <Target className="h-4 w-4 text-[#2F6868]" />
+                        Goal
+                      </button>
+                    )}
                     {hasTasks && (
                       <button
                         type="button"
@@ -793,6 +907,30 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     ref={tasksContainerRef}
                     className="px-[18px]"
                   >
+                    {metaOpen === "goal" && goal && (
+                      <div className="mb-5 rounded-lg border border-border bg-background px-3 py-3">
+                        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span
+                            className={cn(
+                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                              goalStatusClassName(goal.status)
+                            )}
+                          >
+                            {goalStatusLabel(goal.status)}
+                          </span>
+                          <span>{formatGoalElapsed(goal.timeUsedSeconds || 0)}</span>
+                          {typeof goal.tokenBudget === "number" && (
+                            <span>
+                              Tokens {goal.tokensUsed || 0}/{goal.tokenBudget}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm leading-6 text-primary">
+                          {goal.objective}
+                        </div>
+                      </div>
+                    )}
+
                     {metaOpen === "tasks" &&
                       Object.entries(groupedTodos)
                         .filter(([_, todos]) => todos.length > 0)

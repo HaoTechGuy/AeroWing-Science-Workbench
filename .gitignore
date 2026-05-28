@@ -22,14 +22,9 @@ mcp/**/node_modules/
 
 # OMX/Codex local runtime artifacts
 .omx/
-.codex/*
-!.codex/agents/
-!.codex/agents/**
-!.codex/skills/
-!.codex/skills/**
-.codex/skills/.system/**
-!.codex/prompts/
-!.codex/prompts/**
+.codex/
+AGENTS.md
+tmp/
 
 # Local backup files
 *.bak

@@ -27,6 +27,18 @@ export interface TodoItem {
   updatedAt?: Date;
 }
 
+export interface GoalState {
+  id: string;
+  threadId?: string | null;
+  objective: string;
+  status: "active" | "blocked" | "complete";
+  tokenBudget?: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ChatAttachment {
   id: string;
   name: string;
