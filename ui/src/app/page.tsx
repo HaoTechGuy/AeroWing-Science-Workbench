@@ -8,7 +8,7 @@ import React, {
   Suspense,
 } from "react";
 import Link from "next/link";
-import { BookOpenText, Settings, Server, Sparkles } from "lucide-react";
+import { Settings, Server, Sparkles } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
 import {
@@ -174,17 +174,6 @@ function HomePageInner({
             <Link href="/connect">
               <Server className="h-4 w-4" />
               连接服务器
-            </Link>
-          </Button>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-8"
-          >
-            <Link href="/knowledge">
-              <BookOpenText className="h-4 w-4" />
-              团队知识库
             </Link>
           </Button>
           <Button
