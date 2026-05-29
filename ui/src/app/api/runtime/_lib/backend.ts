@@ -11,7 +11,11 @@ import {
 import path from "path";
 import { spawn, execFile } from "child_process";
 import { promisify } from "util";
-import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
+import {
+  getResourcesConfigPath,
+  getWorkspaceRoot,
+  type ResourcesFile,
+} from "@/app/api/workspace/_lib/workspace";
 
 const execFileAsync = promisify(execFile);
 
@@ -84,6 +88,10 @@ function isExecutable(filePath: string): boolean {
 }
 
 function pythonBinary(root: string): string {
+  if (process.env.INTERNAGENTS_PYTHON_BIN) {
+    return process.env.INTERNAGENTS_PYTHON_BIN;
+  }
+
   const venvPython = path.join(root, ".venv", "bin", "python");
   return isExecutable(venvPython) ? venvPython : "python3";
 }
@@ -230,6 +238,47 @@ function readPidFile(pidFile: string): number | null {
   const raw = readFileSync(pidFile, "utf8").trim();
   const pid = Number(raw);
   return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+async function ensureLocalRuntimeResource(runtimeUrl: string): Promise<string> {
+  const resourcesPath = getResourcesConfigPath();
+  let config: ResourcesFile;
+
+  try {
+    const content = await fs.readFile(resourcesPath, "utf8");
+    config = JSON.parse(content) as ResourcesFile;
+  } catch {
+    config = {
+      default_resource: "local",
+      resources: [],
+    };
+  }
+
+  const resources = Array.isArray(config.resources) ? config.resources : [];
+  const localResource = resources.find((resource) => resource.id === "local") || {
+    id: "local",
+    label: "Current Machine",
+    backend: "local_shell" as const,
+    workspace: ".",
+    enabled: true,
+  };
+
+  localResource.label ||= "Current Machine";
+  localResource.backend = "local_shell";
+  localResource.workspace ||= ".";
+  localResource.remote_url = runtimeUrl;
+  localResource.remote_assistant_id = "agent";
+  localResource.enabled = localResource.enabled !== false;
+
+  config.default_resource ||= "local";
+  config.resources = [
+    localResource,
+    ...resources.filter((resource) => resource.id !== "local"),
+  ];
+
+  await fs.mkdir(path.dirname(resourcesPath), { recursive: true });
+  await fs.writeFile(resourcesPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  return resourcesPath;
 }
 
 async function listListeningPids(port: number): Promise<number[]> {
@@ -385,6 +434,7 @@ async function startLangGraphServer({
       "--port",
       String(port),
       "--no-browser",
+      "--no-reload",
       "--config",
       configFile,
     ],
@@ -471,6 +521,8 @@ export async function restartBackend(): Promise<BackendRestartResult> {
         logPath: paths.localRuntimeLog,
       };
     }
+
+    await ensureLocalRuntimeResource(runtimeUrl);
 
     const pid = await startLangGraphServer({
       root,

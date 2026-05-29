@@ -17,6 +17,7 @@ interface WorkspacePanelProps {
   onMutateReady?: (mutate: () => void) => void;
   onInterruptCountChange?: (count: number) => void;
   resourceId?: string;
+  runtimeUrl?: string;
   assistantId?: string;
   workspaceId?: string;
   workspaceRefreshKey?: number;
@@ -34,6 +35,7 @@ export function WorkspacePanel({
   onMutateReady,
   onInterruptCountChange,
   resourceId,
+  runtimeUrl,
   assistantId,
   workspaceId,
   workspaceRefreshKey,
@@ -81,6 +83,7 @@ export function WorkspacePanel({
             onMutateReady={onMutateReady}
             onInterruptCountChange={onInterruptCountChange}
             resourceId={resourceId}
+            runtimeUrl={runtimeUrl}
             assistantId={assistantId}
             workspaceId={workspaceId}
           />

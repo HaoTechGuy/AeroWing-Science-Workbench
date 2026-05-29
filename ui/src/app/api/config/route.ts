@@ -13,6 +13,7 @@ export const runtime = "nodejs";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
+type OnboardingMissing = "openrouterApiKey" | "workspacePath";
 
 interface AgentConfig {
   interrupt_on?: Record<string, unknown>;
@@ -63,6 +64,10 @@ function configPath() {
 
 function envPath() {
   return path.join(getWorkspaceRoot(), ".env");
+}
+
+function isDesktopMode() {
+  return process.env.INTERNAGENTS_DESKTOP === "1";
 }
 
 async function readConfig(): Promise<AgentConfig> {
@@ -264,15 +269,35 @@ async function normalizedResponse(config: AgentConfig) {
       ? AUTO_MODEL
       : manualModel;
   const apiKey = env.OPENROUTER_API_KEY;
-  const workspaceResource = getWorkspaceResource("local");
-  const workspaceResolved = await resolveWorkspacePath("", "local");
+  let workspacePath = ".";
+  let workspaceResolvedPath = "";
+  let workspaceError: string | undefined;
+  try {
+    const workspaceResource = getWorkspaceResource("local");
+    const workspaceResolved = await resolveWorkspacePath("", "local");
+    workspacePath = workspaceResource.workspace || ".";
+    workspaceResolvedPath = workspaceResolved.root;
+  } catch (error) {
+    workspaceError =
+      error instanceof Error ? error.message : "工作区配置读取失败。";
+  }
+
+  const missing: OnboardingMissing[] = [];
+  if (!apiKey?.trim()) {
+    missing.push("openrouterApiKey");
+  }
+  if (workspaceError) {
+    missing.push("workspacePath");
+  }
+  const desktopMode = isDesktopMode();
 
   return {
     configPath: configPath(),
     envPath: envPath(),
     resourcesPath: getResourcesConfigPath(),
-    workspacePath: workspaceResource.workspace || ".",
-    workspaceResolvedPath: workspaceResolved.root,
+    workspacePath,
+    workspaceResolvedPath,
+    workspaceError,
     model: manualModel,
     modelSelectionMode,
     openrouterDirectEnabled,
@@ -282,6 +307,9 @@ async function normalizedResponse(config: AgentConfig) {
     openrouterApiKeySet: Boolean(apiKey),
     openrouterApiKeyPreview: previewApiKey(apiKey),
     authorizationMode: inferAuthorizationMode(config),
+    desktopMode,
+    needsOnboarding: desktopMode && missing.length > 0,
+    missing,
   };
 }
 
@@ -332,6 +360,10 @@ export async function PUT(request: NextRequest) {
       typeof body.openrouterApiKey === "string"
         ? body.openrouterApiKey.trim()
         : "";
+    const currentEnv = await readEnvValues();
+    if (isDesktopMode() && !apiKey && !currentEnv.OPENROUTER_API_KEY?.trim()) {
+      throw new Error("桌面版首次配置需要填写 OpenRouter API key。");
+    }
     const workspacePath =
       typeof body.workspacePath === "string"
         ? body.workspacePath.trim()

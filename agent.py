@@ -11,12 +11,11 @@ from typing import Annotated, Any, Awaitable, Callable, NotRequired, TypedDict
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from dotenv import dotenv_values, load_dotenv
+from dotenv import load_dotenv
 from langchain_core.messages import AnyMessage, BaseMessage, messages_from_dict, messages_to_dict
 from langchain_core.runnables import RunnableConfig
 
 ROOT_DIR = Path(__file__).resolve().parent
-DEFAULT_DISCOVERYOS_ENV_FILE = ROOT_DIR.parent / "DiscoveryOS" / ".env.local"
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
 BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
@@ -63,26 +62,6 @@ def _env_positive_int(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-def _load_discoveryos_env() -> dict[str, str | None]:
-    env_file = Path(_env_value("DISCOVERYOS_ENV_FILE") or DEFAULT_DISCOVERYOS_ENV_FILE)
-    if not env_file.exists():
-        return {}
-    return dict(dotenv_values(env_file))
-
-
-def _set_env_if_missing(name: str, values: dict[str, str | None]) -> None:
-    if _env_value(name):
-        return
-    value = values.get(name)
-    if value and value.strip():
-        os.environ[name] = value.strip()
-
-
-discoveryos_env = _load_discoveryos_env()
-for env_name in ("OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "LLM_PROVIDER", "LLM_MODEL"):
-    _set_env_if_missing(env_name, discoveryos_env)
-
-
 def _resolve_model() -> str:
     explicit_model = _env_value("DEEPAGENT_MODEL")
     if explicit_model:
@@ -100,6 +79,24 @@ MODEL = _resolve_model()
 GOAL_CONTINUATION_TURNS_KEY = "goalContinuationTurns"
 GOAL_MAX_AUTO_TURNS_ENV = "INTERNAGENT_GOAL_MAX_AUTO_TURNS"
 REMOTE_RUNTIME_INTERNAL_STATE_KEYS = {GOAL_CONTINUATION_TURNS_KEY}
+REMOTE_RUNTIME_PARENT_CONFIG_KEYS = {
+    "assistant_id",
+    "checkpoint_id",
+    "checkpoint_map",
+    "checkpoint_ns",
+    "graph_id",
+    "langgraph_api_url",
+    "langgraph_checkpoint_ns",
+    "langgraph_node",
+    "langgraph_path",
+    "langgraph_request_id",
+    "langgraph_step",
+    "langgraph_triggers",
+    "run_attempt",
+    "run_id",
+    "thread_id",
+    "user_id",
+}
 
 
 class InternAgentState(TypedDict):
@@ -439,6 +436,37 @@ def _normalize_state_for_remote_runtime(state: InternAgentState) -> dict[str, An
     return payload
 
 
+def _sanitize_remote_runtime_config(config: RunnableConfig) -> RunnableConfig:
+    sanitized: RunnableConfig = dict(config or {})
+
+    metadata = sanitized.get("metadata")
+    if isinstance(metadata, dict):
+        sanitized["metadata"] = {
+            key: value
+            for key, value in metadata.items()
+            if key not in REMOTE_RUNTIME_PARENT_CONFIG_KEYS
+        }
+
+    configurable = sanitized.get("configurable")
+    if isinstance(configurable, dict):
+        sanitized["configurable"] = {
+            key: value
+            for key, value in configurable.items()
+            if key
+            not in {
+                "assistant_id",
+                "checkpoint_id",
+                "checkpoint_map",
+                "checkpoint_ns",
+                "graph_id",
+                "run_id",
+                "user_id",
+            }
+        }
+
+    return sanitized
+
+
 def _goal_status(state: dict[str, Any]) -> str | None:
     goal = state.get("goal")
     status = goal.get("status") if isinstance(goal, dict) else None
@@ -527,7 +555,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
         ) -> dict[str, Any]:
             result = await remote.ainvoke(
                 _normalize_state_for_remote_runtime(state),
-                config=config,
+                config=_sanitize_remote_runtime_config(config),
             )
             return _with_goal_continuation_accounting(dict(state), result)
 

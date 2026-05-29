@@ -14,6 +14,7 @@ interface ChatProviderProps {
   thread?: UseStreamThread<StateType>;
   resourceId?: string;
   resourceLabel?: string;
+  runtimeUrl?: string;
   workspaceId?: string;
   workspacePath?: string;
   workspaceLabel?: string;
@@ -27,6 +28,7 @@ export function ChatProvider({
   thread,
   resourceId,
   resourceLabel,
+  runtimeUrl,
   workspaceId,
   workspacePath,
   workspaceLabel,
@@ -38,6 +40,7 @@ export function ChatProvider({
     thread,
     resourceId,
     resourceLabel,
+    runtimeUrl,
     workspaceId,
     workspacePath,
     workspaceLabel,

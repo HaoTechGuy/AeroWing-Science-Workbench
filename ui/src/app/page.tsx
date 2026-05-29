@@ -235,6 +235,7 @@ function HomePageInner({
               onMutateReady={(fn) => setMutateThreads(() => fn)}
               onInterruptCountChange={setInterruptCount}
               resourceId={activeResource.id}
+              runtimeUrl={activeResource.runtimeUrl}
               assistantId={activeAssistantId}
               workspaceId={activeWorkspace?.id}
               workspaceRefreshKey={workspaceRefreshKey}
@@ -262,6 +263,7 @@ function HomePageInner({
               onHistoryRevalidate={handleRunActivity}
               resourceId={activeResource.id}
               resourceLabel={activeResource.label}
+              runtimeUrl={activeResource.runtimeUrl}
               workspaceId={activeWorkspace?.id}
               workspacePath={activeWorkspace?.resolvedPath}
               workspaceLabel={activeWorkspace?.label}
@@ -318,20 +320,47 @@ function HomePageContent() {
   }, [setWorkspaceId, workspaceId]);
 
   useEffect(() => {
-    const initialConfig = getConfig();
-    setConfig(initialConfig);
-    const initialResource = getResource(initialConfig, resourceId);
-    if (!resourceId && initialResource) {
-      setResourceId(initialResource.id);
+    let cancelled = false;
+
+    async function initialize() {
+      try {
+        const response = await fetch("/api/config", { cache: "no-store" });
+        const payload = (await response.json()) as {
+          needsOnboarding?: boolean;
+        };
+        if (!cancelled && response.ok && payload.needsOnboarding) {
+          window.location.replace("/config?onboarding=1");
+          return;
+        }
+      } catch {
+        // The workspace can still render config errors through its own panels.
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      const initialConfig = getConfig();
+      setConfig(initialConfig);
+      const initialResource = getResource(initialConfig, resourceId);
+      if (!resourceId && initialResource) {
+        setResourceId(initialResource.id);
+      }
+      if (!assistantId) {
+        setAssistantId(initialResource?.assistantId || initialConfig.assistantId);
+      }
+      void loadWorkspaces().catch((error) => {
+        const message =
+          error instanceof Error ? error.message : "工作区读取失败";
+        toast.error(message);
+      });
     }
-    if (!assistantId) {
-      setAssistantId(initialResource?.assistantId || initialConfig.assistantId);
-    }
-    void loadWorkspaces().catch((error) => {
-      const message =
-        error instanceof Error ? error.message : "工作区读取失败";
-      toast.error(message);
-    });
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

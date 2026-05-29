@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import {
+  Client,
   type Message,
   type Assistant,
   type Checkpoint,
+  type Thread,
+  type ThreadState,
 } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
@@ -42,6 +45,279 @@ type LangGraphContentBlock =
       type: "image_url";
       image_url: string | { url: string; detail?: "auto" | "low" | "high" };
     };
+
+function threadToState(
+  threadId: string,
+  thread: Thread<StateType>
+): ThreadState<StateType> {
+  const rawValues =
+    thread.values && typeof thread.values === "object" ? thread.values : {};
+  const values = rawValues as Partial<StateType>;
+
+  return {
+    values: {
+      ...values,
+      messages: Array.isArray(values.messages) ? values.messages : [],
+    } as StateType,
+    next: [],
+    tasks: [],
+    metadata:
+      thread.metadata && typeof thread.metadata === "object"
+        ? (thread.metadata as Record<string, unknown>)
+        : {},
+    created_at: thread.updated_at,
+    checkpoint: {
+      thread_id: threadId,
+      checkpoint_ns: "",
+      checkpoint_id: null,
+      checkpoint_map: {},
+    },
+    parent_checkpoint: null,
+  };
+}
+
+function messagesFromValues(values: unknown): Message[] {
+  if (!values || typeof values !== "object") {
+    return [];
+  }
+  const messages = (values as Partial<StateType>).messages;
+  return Array.isArray(messages) ? messages : [];
+}
+
+function stateHasMessages(state?: ThreadState<StateType> | null): boolean {
+  return messagesFromValues(state?.values).length > 0;
+}
+
+function findStateWithMessages(
+  states: ThreadState<StateType>[]
+): ThreadState<StateType> | undefined {
+  return states.find((state) => stateHasMessages(state));
+}
+
+function sanitizeThreadState(
+  state: ThreadState<StateType>
+): ThreadState<StateType> {
+  return {
+    ...state,
+    checkpoint: {
+      ...state.checkpoint,
+      checkpoint_map: state.checkpoint.checkpoint_map ?? {},
+    },
+    parent_checkpoint: state.parent_checkpoint
+      ? {
+          ...state.parent_checkpoint,
+          checkpoint_map: state.parent_checkpoint.checkpoint_map ?? {},
+        }
+      : null,
+  };
+}
+
+function mergeStateValues(
+  state: ThreadState<StateType>,
+  values: unknown
+): ThreadState<StateType> {
+  const incomingValues =
+    values && typeof values === "object" ? (values as Partial<StateType>) : {};
+  const nextValues = {
+    ...state.values,
+    ...incomingValues,
+  };
+
+  return sanitizeThreadState({
+    ...state,
+    values: {
+      ...nextValues,
+      messages: Array.isArray(nextValues.messages)
+        ? nextValues.messages
+        : [],
+    } as StateType,
+  });
+}
+
+async function loadThreadSnapshot({
+  client,
+  runtimeClient,
+  threadId,
+}: {
+  client: ReturnType<typeof useRemoteAgent>["client"];
+  runtimeClient: Client<StateType> | null;
+  threadId: string;
+}): Promise<ThreadState<StateType>[]> {
+  let primaryState: ThreadState<StateType> | null = null;
+  let primaryError: unknown;
+
+  try {
+    const mainState = sanitizeThreadState(
+      await client.threads.getState<StateType>(threadId)
+    );
+    primaryState = mainState;
+    if (stateHasMessages(mainState)) {
+      return [mainState];
+    }
+  } catch (error) {
+    primaryError = error;
+  }
+
+  try {
+    const threadRecord = await client.threads.get<StateType>(threadId);
+    const threadState = primaryState
+      ? mergeStateValues(primaryState, threadRecord.values)
+      : threadToState(threadId, threadRecord);
+    if (stateHasMessages(threadState)) {
+      return [sanitizeThreadState(threadState)];
+    }
+    primaryState = threadState;
+  } catch (error) {
+    primaryError ??= error;
+  }
+
+  try {
+    const mainHistory = await client.threads.getHistory<StateType>(threadId, {
+      limit: 80,
+    });
+    const sanitizedHistory = mainHistory.map(sanitizeThreadState);
+    const mainStateWithMessages = findStateWithMessages(sanitizedHistory);
+    if (mainStateWithMessages) {
+      return [mainStateWithMessages];
+    }
+    if (!primaryState && sanitizedHistory[0]) {
+      primaryState = sanitizedHistory[0];
+    }
+  } catch (error) {
+    // The latest thread record above is enough for normal main-service threads.
+    primaryError ??= error;
+  }
+
+  if (runtimeClient) {
+    try {
+      const runtimeThread = await runtimeClient.threads.get<StateType>(threadId);
+      const runtimeState = threadToState(threadId, runtimeThread);
+      if (stateHasMessages(runtimeState)) {
+        return [
+          primaryState
+            ? mergeStateValues(primaryState, runtimeState.values)
+            : sanitizeThreadState(runtimeState),
+        ];
+      }
+    } catch {
+      // Runtime may not know about every main-service thread.
+    }
+
+    try {
+      const runtimeHistory = await runtimeClient.threads.getHistory<StateType>(
+        threadId,
+        { limit: 80 }
+      );
+      const runtimeStateWithMessages = findStateWithMessages(runtimeHistory);
+      if (runtimeStateWithMessages) {
+        return [
+          primaryState
+            ? mergeStateValues(primaryState, runtimeStateWithMessages.values)
+            : sanitizeThreadState(runtimeStateWithMessages),
+        ];
+      }
+    } catch {
+      // Keep the primary snapshot below if runtime history is unavailable.
+    }
+  }
+
+  if (primaryState) {
+    return [sanitizeThreadState(primaryState)];
+  }
+  throw primaryError;
+}
+
+function useThreadSnapshot({
+  client,
+  runtimeClient,
+  threadId,
+  externalThread,
+}: {
+  client: ReturnType<typeof useRemoteAgent>["client"];
+  runtimeClient: Client<StateType> | null;
+  threadId: string | null;
+  externalThread?: UseStreamThread<StateType>;
+}): UseStreamThread<StateType> | undefined {
+  const requestIdRef = useRef(0);
+  const [snapshot, setSnapshot] = useState<{
+    data: ThreadState<StateType>[] | null | undefined;
+    error: unknown;
+    isLoading: boolean;
+  }>({
+    data: undefined,
+    error: undefined,
+    isLoading: false,
+  });
+
+  const mutate = useCallback(
+    async (mutateId?: string) => {
+      const targetThreadId = mutateId ?? threadId;
+      const requestId = ++requestIdRef.current;
+
+      if (!targetThreadId) {
+        const empty = {
+          data: undefined,
+          error: undefined,
+          isLoading: false,
+        };
+        setSnapshot(empty);
+        return empty.data;
+      }
+
+      setSnapshot((current) => ({
+        ...current,
+        data: undefined,
+        error: undefined,
+        isLoading: true,
+      }));
+
+      try {
+        const data = await loadThreadSnapshot({
+          client,
+          runtimeClient,
+          threadId: targetThreadId,
+        });
+        if (requestIdRef.current === requestId) {
+          setSnapshot({
+            data,
+            error: undefined,
+            isLoading: false,
+          });
+        }
+        return data;
+      } catch (error) {
+        if (requestIdRef.current === requestId) {
+          setSnapshot((current) => ({
+            ...current,
+            error,
+            isLoading: false,
+          }));
+        }
+        throw error;
+      }
+    },
+    [client, runtimeClient, threadId]
+  );
+
+  useEffect(() => {
+    if (externalThread) {
+      return;
+    }
+    void mutate(threadId ?? undefined);
+  }, [externalThread, mutate, threadId]);
+
+  return useMemo(() => {
+    if (externalThread) {
+      return externalThread;
+    }
+    return {
+      data: snapshot.data,
+      error: snapshot.error,
+      isLoading: snapshot.isLoading,
+      mutate,
+    };
+  }, [externalThread, mutate, snapshot.data, snapshot.error, snapshot.isLoading]);
+}
 
 function formatAttachmentSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -160,6 +436,7 @@ export function useChat({
   thread,
   resourceId,
   resourceLabel,
+  runtimeUrl,
   workspaceId,
   workspacePath,
   workspaceLabel,
@@ -170,6 +447,7 @@ export function useChat({
   thread?: UseStreamThread<StateType>;
   resourceId?: string;
   resourceLabel?: string;
+  runtimeUrl?: string;
   workspaceId?: string;
   workspacePath?: string;
   workspaceLabel?: string;
@@ -177,8 +455,24 @@ export function useChat({
   const [threadId, setThreadId] = useQueryState("threadId");
   const remoteAgent = useRemoteAgent();
   const client = remoteAgent.client;
+  const runtimeClient = useMemo(
+    () =>
+      runtimeUrl
+        ? new Client<StateType>({
+            apiUrl: runtimeUrl,
+            defaultHeaders: { "Content-Type": "application/json" },
+          })
+        : null,
+    [runtimeUrl]
+  );
   const streamEventLayer = useStreamEventLayer(remoteAgent);
   const { clearStreamEvents } = streamEventLayer;
+  const threadSnapshot = useThreadSnapshot({
+    client,
+    runtimeClient,
+    threadId: threadId ?? null,
+    externalThread: thread,
+  });
 
   const streamSubmitOptions = useMemo(
     () => remoteAgent.getStreamSubmitOptions(streamConfig),
@@ -238,7 +532,7 @@ export function useChat({
     onFinish: onHistoryRevalidate,
     onError: onHistoryRevalidate,
     onCreated: onHistoryRevalidate,
-    experimental_thread: thread,
+    experimental_thread: threadSnapshot,
   });
 
   const streamScopeKey = useMemo(

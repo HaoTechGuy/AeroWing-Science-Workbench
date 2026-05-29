@@ -1,0 +1,73 @@
+{
+  "name": "internagents-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "macOS desktop packaging for InternAgents.",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "prepare:dist": "node scripts/prepare-dist.mjs",
+    "sign:adhoc": "codesign --force --deep --sign - release/mac-arm64/InternAgents.app",
+    "pack": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc",
+    "build": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc && electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64"
+  },
+  "build": {
+    "appId": "com.internagents.desktop",
+    "productName": "InternAgents",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "hardenedRuntime": false,
+      "target": [
+        "dmg"
+      ]
+    },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist-app/ui-standalone",
+        "to": "ui-standalone",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../dist-app/internagents-template",
+        "to": "internagents-template",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../dist-app/python-runtime",
+        "to": "python-runtime",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1"
+  }
+}

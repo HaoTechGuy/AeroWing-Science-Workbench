@@ -18,6 +18,9 @@ ui/.next/
 ui/out/
 ui/tsconfig.tsbuildinfo
 ui/.env*
+dist-app/
+desktop/node_modules/
+desktop/release/
 mcp/**/node_modules/
 
 # OMX/Codex local runtime artifacts

@@ -72,13 +72,13 @@ INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 
 ## Model Configuration
 
-The agent reads `.env` first. The default `.env.example` leaves project-local
-OpenRouter values empty so a local DiscoveryOS env file can provide them:
+The agent reads model and credential settings from the project-local `.env`
+file, or from process environment variables supplied by a packaged desktop
+launcher:
 
 ```env
 OPENROUTER_API_KEY=
 DEEPAGENT_MODEL=
-DISCOVERYOS_ENV_FILE=/Users/qszhang/Documents/codex/DiscoveryOS/.env.local
 ```
 
 Set `DEEPAGENT_MODEL` to override the model explicitly:
@@ -87,10 +87,11 @@ Set `DEEPAGENT_MODEL` to override the model explicitly:
 DEEPAGENT_MODEL=openrouter:deepseek/deepseek-v4-flash
 ```
 
-If `DEEPAGENT_MODEL` is empty and `DISCOVERYOS_ENV_FILE` exists, `agent.py`
-reuses `LLM_PROVIDER=openrouter`, `LLM_MODEL`, and OpenRouter credentials from
-that file. Real keys should stay in `.env` or the DiscoveryOS env file; neither
-file should be committed.
+If `DEEPAGENT_MODEL` is empty, InternAgents falls back to
+`LLM_PROVIDER=openrouter` plus `LLM_MODEL`, and finally to
+`openrouter:openrouter/auto`. Real keys should stay in an untracked `.env` or in
+the desktop app's Application Support runtime directory; they should not be
+committed.
 
 ## DeepAgent Configuration
 
@@ -239,6 +240,39 @@ Open:
 http://127.0.0.1:3000/?assistantId=agent
 ```
 
+## macOS Desktop Packaging
+
+The desktop packaging entrypoint lives in `desktop/`. It builds the Next.js UI
+as a standalone server, copies an InternAgents runtime template, bundles a
+Python runtime, and asks `electron-builder` to produce an Apple Silicon DMG.
+
+```bash
+cd desktop
+npm install
+npm run build
+```
+
+By default `desktop/scripts/prepare-dist.mjs` copies `.conda` as the bundled
+Python runtime, falling back to `.venv`. To use a prepared portable runtime,
+set:
+
+```bash
+INTERNAGENTS_PYTHON_RUNTIME_SOURCE=/path/to/python-runtime npm run build
+```
+
+The packaged app writes real user configuration under macOS Application Support
+and starts the UI with:
+
+```text
+INTERNAGENTS_APP_ROOT=<Application Support>/InternAgents/runtime
+INTERNAGENTS_DESKTOP=1
+NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
+NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
+```
+
+First launch opens the configuration onboarding flow when the app runtime has no
+OpenRouter API key yet.
+
 ## Smoke Tests
 
 CLI smoke test:
@@ -348,13 +382,18 @@ The web UI reads matching resource labels and assistant IDs from:
 ui/deepagent-ui.config.json
 ```
 
-For browser-visible private resources, set `NEXT_PUBLIC_INTERNAGENT_RESOURCES`
-in `ui/.env.local` instead of committing host-specific labels:
+For browser-visible private resources during local UI development, set
+`NEXT_PUBLIC_INTERNAGENT_RESOURCES` in `ui/.env.local` instead of committing
+host-specific labels:
 
 ```bash
 NEXT_PUBLIC_INTERNAGENT_RESOURCES='[{"id":"local","label":"Current Machine","assistantId":"agent_local"},{"id":"remote1","label":"Remote Runtime","assistantId":"agent_remote1"}]'
 NEXT_PUBLIC_INTERNAGENT_RESOURCE_ID=local
 ```
+
+Packaged desktop builds do not read a user-authored `ui/.env.local`; the
+desktop launcher injects browser-visible connection and resource settings when
+it starts the Next.js standalone server.
 
 For local development, `scripts/dev.sh` starts the local runtime, the
 coordinator, and the UI:

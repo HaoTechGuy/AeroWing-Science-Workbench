@@ -1,9 +1,7 @@
-import { Inter } from "next/font/google";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
 const themeBootstrapScript = `
 (() => {
   try {
@@ -33,9 +31,9 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body
-        className={inter.className}
         suppressHydrationWarning
       >
+        <script src="/api/runtime/desktop-config" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <NuqsAdapter>{children}</NuqsAdapter>
         <Toaster />

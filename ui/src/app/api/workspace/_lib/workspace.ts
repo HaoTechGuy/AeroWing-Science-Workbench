@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import crypto from "crypto";
-import { readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
@@ -148,6 +148,45 @@ interface WorkspaceFileData {
 const DEFAULT_RESOURCES_FILE = "internagent.resources.json";
 const LOCAL_RESOURCES_FILE = "internagent.resources.local.json";
 
+function defaultLocalRuntimeUrl() {
+  return `http://127.0.0.1:${process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT || "22024"}`;
+}
+
+function defaultLocalWorkspacePath() {
+  if (process.env.INTERNAGENTS_DESKTOP === "1") {
+    const workspacePath = path.join(os.homedir(), "InternAgents-Workspace");
+    mkdirSync(workspacePath, { recursive: true });
+    return workspacePath;
+  }
+  return ".";
+}
+
+function defaultResourcesConfig(): ResourcesFile {
+  const workspacePath = defaultLocalWorkspacePath();
+  return {
+    default_resource: "local",
+    resources: [
+      {
+        id: "local",
+        label: "Current Machine",
+        backend: "local_shell",
+        workspace: workspacePath,
+        remote_url: defaultLocalRuntimeUrl(),
+        remote_assistant_id: "agent",
+        enabled: true,
+      },
+    ],
+    workspaces: [
+      {
+        id: workspaceIdForPath(workspacePath),
+        label: workspaceLabelForPath(workspacePath),
+        path: workspacePath,
+      },
+    ],
+    default_workspace: workspaceIdForPath(workspacePath),
+  };
+}
+
 function getResourcesConfigEnvValue(): string | undefined {
   return (
     process.env.INTERNAGENT_RESOURCES_FILE ||
@@ -181,7 +220,14 @@ function workspaceLabelForPath(workspacePath: string): string {
 }
 
 function readResourcesConfig(): ResourcesFile {
-  return JSON.parse(readFileSync(getResourcesConfigPath(), "utf8")) as ResourcesFile;
+  const configPath = getResourcesConfigPath();
+  if (!existsSync(configPath)) {
+    const config = defaultResourcesConfig();
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    return config;
+  }
+  return JSON.parse(readFileSync(configPath, "utf8")) as ResourcesFile;
 }
 
 export function readWorkspaceResourcesConfig(): ResourcesFile {

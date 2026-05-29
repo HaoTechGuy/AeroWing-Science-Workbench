@@ -92,6 +92,7 @@ interface ThreadListProps {
   onClose?: () => void;
   onInterruptCountChange?: (count: number) => void;
   resourceId?: string;
+  runtimeUrl?: string;
   assistantId?: string;
   workspaceId?: string;
 }
@@ -103,6 +104,7 @@ export function ThreadList({
   onClose,
   onInterruptCountChange,
   resourceId,
+  runtimeUrl,
   assistantId,
   workspaceId,
 }: ThreadListProps) {
@@ -115,6 +117,7 @@ export function ThreadList({
   const threads = useThreads({
     limit: 20,
     resourceId,
+    runtimeUrl,
     assistantId,
     workspaceId,
   });

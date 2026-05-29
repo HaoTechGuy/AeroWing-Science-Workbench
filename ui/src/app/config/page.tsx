@@ -30,6 +30,7 @@ import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
+type OnboardingMissing = "openrouterApiKey" | "workspacePath";
 
 interface ConfigResponse {
   configPath: string;
@@ -46,6 +47,10 @@ interface ConfigResponse {
   openrouterApiKeySet: boolean;
   openrouterApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
+  desktopMode: boolean;
+  needsOnboarding: boolean;
+  missing: OnboardingMissing[];
+  workspaceError?: string;
   message?: string;
 }
 
@@ -81,6 +86,9 @@ const DEFAULT_CONFIG: ConfigResponse = {
   openrouterApiKeySet: false,
   openrouterApiKeyPreview: "",
   authorizationMode: "auto",
+  desktopMode: false,
+  needsOnboarding: false,
+  missing: [],
 };
 
 const MODEL_SELECTION_OPTIONS: Array<{
@@ -205,6 +213,11 @@ const THEME_OPTIONS: Array<{
   },
 ];
 
+const ONBOARDING_MISSING_LABELS: Record<OnboardingMissing, string> = {
+  openrouterApiKey: "OpenRouter API key",
+  workspacePath: "本机工作区",
+};
+
 export default function ConfigPage() {
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] =
@@ -217,6 +230,7 @@ export default function ConfigPage() {
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [autoRestart, setAutoRestart] = useState(false);
   const [requiresRestart, setRequiresRestart] = useState(false);
+  const [onboardingRequested, setOnboardingRequested] = useState(false);
   const [backendStatus, setBackendStatus] =
     useState<BackendStatusResult | null>(null);
   const [restartResult, setRestartResult] =
@@ -278,6 +292,10 @@ export default function ConfigPage() {
   ]);
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
+  const onboardingMode = onboardingRequested || config.needsOnboarding;
+  const onboardingMissingLabels = config.missing
+    .map((key) => ONBOARDING_MISSING_LABELS[key])
+    .filter(Boolean);
   const backendStatusMessage = backendStatus?.message.trim();
   const showBackendStatus = Boolean(backendStatusMessage) && !restartResult;
 
@@ -372,7 +390,13 @@ export default function ConfigPage() {
     }
   }
 
-  async function restartBackendNow({ manual }: { manual: boolean }) {
+  async function restartBackendNow({
+    manual,
+    redirectHome = false,
+  }: {
+    manual: boolean;
+    redirectHome?: boolean;
+  }): Promise<boolean> {
     if (manual) {
       const status = await checkBackendStatus();
       const confirmed = window.confirm(
@@ -387,7 +411,7 @@ export default function ConfigPage() {
         ].join("\n")
       );
       if (!confirmed) {
-        return;
+        return false;
       }
     }
 
@@ -408,11 +432,16 @@ export default function ConfigPage() {
       setAutoRestart(false);
       setBackendStatus(null);
       toast.success(restart.message || "配置已应用");
+      if (redirectHome) {
+        window.location.href = "/?assistantId=agent_local";
+      }
+      return true;
     } catch (restartError) {
       const message =
         restartError instanceof Error ? restartError.message : "配置应用失败";
       setError(message);
       toast.error(message);
+      return false;
     } finally {
       setRestarting(false);
     }
@@ -429,12 +458,28 @@ export default function ConfigPage() {
     }
   }
 
+  async function finishOnboarding() {
+    const result = await saveConfig({ scheduleIdle: false });
+    if (!result.saved) {
+      return;
+    }
+    if (result.needsRestart) {
+      await restartBackendNow({ manual: false, redirectHome: true });
+      return;
+    }
+    window.location.href = "/?assistantId=agent_local";
+  }
+
   function updateTheme(nextTheme: ThemeMode) {
     setThemeMode(nextTheme);
     applyTheme(nextTheme);
   }
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setOnboardingRequested(params.get("onboarding") === "1");
+    }
     const storedTheme = getStoredTheme();
     setThemeMode(storedTheme);
     applyTheme(storedTheme);
@@ -472,59 +517,83 @@ export default function ConfigPage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
         <div className="flex min-w-0 items-center gap-4">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2"
-          >
-            <Link href="/?assistantId=agent">
-              <ArrowLeft className="h-4 w-4" />
-              工作台
-            </Link>
-          </Button>
+          {!onboardingMode && (
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+            >
+              <Link href="/?assistantId=agent_local">
+                <ArrowLeft className="h-4 w-4" />
+                工作台
+              </Link>
+            </Button>
+          )}
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold">配置</h1>
+            <h1 className="truncate text-xl font-semibold">
+              {onboardingMode ? "首次设置 InternAgents" : "配置"}
+            </h1>
             <div className="truncate text-xs text-muted-foreground">
-              模型、工作区、授权模式和界面风格
+              {onboardingMode
+                ? "完成模型、工作区和授权设置后进入工作台"
+                : "模型、工作区、授权模式和界面风格"}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={applyWhenIdle}
-            disabled={!canApplyWhenIdle}
-            title={
-              hasChanges
-                ? "保存当前配置，并在后台空闲时自动应用。"
-                : "后台空闲时自动重启并加载当前配置。"
-            }
-            className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            空闲时应用
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void applyNow()}
-            disabled={!canApplyNow}
-            title="保存配置并立即应用。"
-            className="h-9"
-          >
-            {restarting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ServerCog className="h-4 w-4" />
-            )}
-            立即应用
-          </Button>
+          {onboardingMode ? (
+            <Button
+              size="sm"
+              onClick={() => void finishOnboarding()}
+              disabled={!canApplyNow}
+              className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+            >
+              {saving || restarting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ServerCog className="h-4 w-4" />
+              )}
+              完成设置
+            </Button>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                onClick={applyWhenIdle}
+                disabled={!canApplyWhenIdle}
+                title={
+                  hasChanges
+                    ? "保存当前配置，并在后台空闲时自动应用。"
+                    : "后台空闲时自动重启并加载当前配置。"
+                }
+                className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                空闲时应用
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void applyNow()}
+                disabled={!canApplyNow}
+                title="保存配置并立即应用。"
+                className="h-9"
+              >
+                {restarting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ServerCog className="h-4 w-4" />
+                )}
+                立即应用
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
@@ -534,12 +603,31 @@ export default function ConfigPage() {
             {error}
           </div>
         )}
+        {onboardingMode && (
+          <div className="mb-4 rounded-md border border-[#BFD9D4] bg-[#F1F7F5] px-4 py-3 text-sm text-[#24595A] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
+            <div className="font-medium">欢迎使用 InternAgents 桌面版</div>
+            {onboardingMissingLabels.length > 0 && (
+              <div className="mt-1 text-xs">
+                还需要设置：{onboardingMissingLabels.join("、")}
+              </div>
+            )}
+          </div>
+        )}
+        {config.workspaceError && !loading && (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+            {config.workspaceError}
+          </div>
+        )}
 
         <form
           id="internagents-config-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void applyWhenIdle();
+            if (onboardingMode) {
+              void finishOnboarding();
+            } else {
+              void applyWhenIdle();
+            }
           }}
           className="space-y-5"
         >
@@ -679,7 +767,7 @@ export default function ConfigPage() {
                     />
                   </div>
 
-                  {config.openrouterDirectEnabled && (
+                  {(onboardingMode || config.openrouterDirectEnabled) && (
                     <div className="space-y-4 pt-1">
                       <div className="space-y-2">
                         <Label htmlFor="openrouter-key">
@@ -708,25 +796,27 @@ export default function ConfigPage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="openrouter-model">
-                          填写 OpenRouter 模型 ID
-                        </Label>
-                        <Input
-                          id="openrouter-model"
-                          value={config.openrouterModel}
-                          onChange={(event) =>
-                            setConfig((current) => ({
-                              ...current,
-                              openrouterModel: event.target.value,
-                            }))
-                          }
-                          placeholder="deepseek/deepseek-v4-flash"
-                        />
-                        <div className="text-xs text-muted-foreground">
-                          开启直连后会使用这个模型 ID。
+                      {config.openrouterDirectEnabled && (
+                        <div className="space-y-2">
+                          <Label htmlFor="openrouter-model">
+                            填写 OpenRouter 模型 ID
+                          </Label>
+                          <Input
+                            id="openrouter-model"
+                            value={config.openrouterModel}
+                            onChange={(event) =>
+                              setConfig((current) => ({
+                                ...current,
+                                openrouterModel: event.target.value,
+                              }))
+                            }
+                            placeholder="deepseek/deepseek-v4-flash"
+                          />
+                          <div className="text-xs text-muted-foreground">
+                            开启直连后会使用这个模型 ID。
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
                 </div>

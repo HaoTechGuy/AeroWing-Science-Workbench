@@ -10,6 +10,7 @@ export interface ResourceConfig {
   id: string;
   label: string;
   assistantId: string;
+  runtimeUrl?: string;
 }
 
 export interface StandaloneConfig {
@@ -25,6 +26,16 @@ export type ConnectionConfig = Pick<
   StandaloneConfig,
   "deploymentUrl" | "assistantId" | "langsmithApiKey"
 >;
+
+interface RuntimeConfig extends Partial<StandaloneConfig> {
+  desktopMode?: boolean;
+}
+
+declare global {
+  interface Window {
+    __INTERNAGENTS_RUNTIME_CONFIG__?: RuntimeConfig;
+  }
+}
 
 const DEFAULT_STREAM_CONFIG: StreamConfig = {
   modes: ["messages-tuple", "updates", "values"],
@@ -44,45 +55,35 @@ function parseResourceEnv(value: string | undefined): ResourceConfig[] | null {
     if (!Array.isArray(parsed)) {
       return null;
     }
-    const resources = parsed.filter((item): item is ResourceConfig => {
-      if (!item || typeof item !== "object") {
-        return false;
-      }
-      const record = item as Record<string, unknown>;
-      return (
-        typeof record.id === "string" &&
-        typeof record.label === "string" &&
-        typeof record.assistantId === "string"
-      );
-    });
+    const resources = parsed
+      .map((item): ResourceConfig | null => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+        const record = item as Record<string, unknown>;
+        if (
+          typeof record.id !== "string" ||
+          typeof record.label !== "string" ||
+          typeof record.assistantId !== "string"
+        ) {
+          return null;
+        }
+        return {
+          id: record.id,
+          label: record.label,
+          assistantId: record.assistantId,
+          runtimeUrl:
+            typeof record.runtimeUrl === "string"
+              ? record.runtimeUrl
+              : undefined,
+        };
+      })
+      .filter((item): item is ResourceConfig => item !== null);
     return resources.length > 0 ? resources : null;
   } catch {
     return null;
   }
 }
-
-const configuredResources = (
-  parseResourceEnv(process.env.NEXT_PUBLIC_INTERNAGENT_RESOURCES) ||
-  (rawConfig.resources?.length
-    ? rawConfig.resources
-    : [
-        {
-          id: "local",
-          label: "Current Machine",
-          assistantId: rawConfig.assistantId || "agent",
-        },
-      ])
-) as ResourceConfig[];
-
-const defaultResourceId =
-  process.env.NEXT_PUBLIC_INTERNAGENT_RESOURCE_ID ||
-  rawConfig.defaultResourceId ||
-  configuredResources[0]?.id ||
-  "local";
-
-const selectedDefaultResource =
-  configuredResources.find((resource) => resource.id === defaultResourceId) ||
-  configuredResources[0];
 
 function normalizeStreamConfig(stream?: Partial<StreamConfig>): StreamConfig {
   return {
@@ -97,24 +98,64 @@ function normalizeStreamConfig(stream?: Partial<StreamConfig>): StreamConfig {
   };
 }
 
-const DEFAULT_CONFIG: StandaloneConfig = {
-  deploymentUrl:
-    process.env.NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL ||
-    rawConfig.deploymentUrl ||
-    "http://127.0.0.1:2024",
-  assistantId:
-    process.env.NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID ||
-    selectedDefaultResource?.assistantId ||
-    rawConfig.assistantId ||
-    "agent",
-  langsmithApiKey:
-    process.env.NEXT_PUBLIC_LANGSMITH_API_KEY ||
-    rawConfig.langsmithApiKey ||
-    undefined,
-  defaultResourceId,
-  resources: configuredResources,
-  stream: normalizeStreamConfig(rawConfig.stream),
-};
+function readRuntimeConfig(): RuntimeConfig {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  return window.__INTERNAGENTS_RUNTIME_CONFIG__ || {};
+}
+
+function buildDefaultConfig(): StandaloneConfig {
+  const runtimeConfig = readRuntimeConfig();
+  const configuredResources = (
+    runtimeConfig.resources?.length
+      ? runtimeConfig.resources
+      : parseResourceEnv(process.env.NEXT_PUBLIC_INTERNAGENT_RESOURCES) ||
+        (rawConfig.resources?.length
+          ? rawConfig.resources
+          : [
+              {
+                id: "local",
+                label: "Current Machine",
+                assistantId:
+                  runtimeConfig.assistantId || rawConfig.assistantId || "agent",
+              },
+            ])
+  ) as ResourceConfig[];
+
+  const defaultResourceId =
+    runtimeConfig.defaultResourceId ||
+    process.env.NEXT_PUBLIC_INTERNAGENT_RESOURCE_ID ||
+    rawConfig.defaultResourceId ||
+    configuredResources[0]?.id ||
+    "local";
+
+  const selectedDefaultResource =
+    configuredResources.find((resource) => resource.id === defaultResourceId) ||
+    configuredResources[0];
+
+  return {
+    deploymentUrl:
+      runtimeConfig.deploymentUrl ||
+      process.env.NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL ||
+      rawConfig.deploymentUrl ||
+      "http://127.0.0.1:2024",
+    assistantId:
+      runtimeConfig.assistantId ||
+      process.env.NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID ||
+      selectedDefaultResource?.assistantId ||
+      rawConfig.assistantId ||
+      "agent",
+    langsmithApiKey:
+      runtimeConfig.langsmithApiKey ||
+      process.env.NEXT_PUBLIC_LANGSMITH_API_KEY ||
+      rawConfig.langsmithApiKey ||
+      undefined,
+    defaultResourceId,
+    resources: configuredResources,
+    stream: normalizeStreamConfig(runtimeConfig.stream || rawConfig.stream),
+  };
+}
 
 function readStoredConnectionConfig(): Partial<ConnectionConfig> {
   if (typeof window === "undefined") {
@@ -148,17 +189,18 @@ function readStoredConnectionConfig(): Partial<ConnectionConfig> {
 }
 
 export function getDefaultConfig(): StandaloneConfig {
-  return DEFAULT_CONFIG;
+  return buildDefaultConfig();
 }
 
 export function getConfig(): StandaloneConfig {
-  const stored = readStoredConnectionConfig();
+  const defaultConfig = buildDefaultConfig();
+  const stored = readRuntimeConfig().desktopMode ? {} : readStoredConnectionConfig();
   return {
-    ...DEFAULT_CONFIG,
+    ...defaultConfig,
     ...stored,
-    defaultResourceId: DEFAULT_CONFIG.defaultResourceId,
-    resources: DEFAULT_CONFIG.resources,
-    stream: DEFAULT_CONFIG.stream,
+    defaultResourceId: defaultConfig.defaultResourceId,
+    resources: defaultConfig.resources,
+    stream: defaultConfig.stream,
   };
 }
 

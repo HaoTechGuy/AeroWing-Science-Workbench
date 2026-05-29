@@ -7,6 +7,7 @@ from agent import (
     GOAL_CONTINUATION_TURNS_KEY,
     ImageContentCompatibilityMiddleware,
     _route_after_remote_runtime,
+    _sanitize_remote_runtime_config,
     _should_continue_goal,
     _normalize_remote_message,
     _normalize_state_for_remote_runtime,
@@ -98,6 +99,33 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
 
         self.assertNotIn(GOAL_CONTINUATION_TURNS_KEY, normalized)
         self.assertEqual(normalized["goal"]["status"], "active")
+
+    def test_remote_runtime_config_drops_parent_graph_metadata(self) -> None:
+        sanitized = _sanitize_remote_runtime_config(
+            {
+                "metadata": {
+                    "graph_id": "agent_local",
+                    "assistant_id": "parent-assistant",
+                    "run_id": "parent-run",
+                    "resource_id": "local",
+                    "internagents_workspace_path": "/tmp/workspace",
+                },
+                "configurable": {
+                    "graph_id": "agent_local",
+                    "assistant_id": "parent-assistant",
+                    "run_id": "parent-run",
+                    "thread_id": "thread-1",
+                    "resource_id": "local",
+                },
+            }
+        )
+
+        self.assertNotIn("graph_id", sanitized["metadata"])
+        self.assertNotIn("assistant_id", sanitized["metadata"])
+        self.assertEqual(sanitized["metadata"]["resource_id"], "local")
+        self.assertNotIn("graph_id", sanitized["configurable"])
+        self.assertNotIn("assistant_id", sanitized["configurable"])
+        self.assertEqual(sanitized["configurable"]["thread_id"], "thread-1")
 
     def test_tool_message_file_block_becomes_text_placeholder(self) -> None:
         message = ToolMessage(
