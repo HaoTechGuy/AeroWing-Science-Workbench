@@ -240,16 +240,16 @@ Open:
 http://127.0.0.1:3000/?assistantId=agent
 ```
 
-## macOS Desktop Packaging
+## Desktop Packaging
 
 The desktop packaging entrypoint lives in `desktop/`. It builds the Next.js UI
 as a standalone server, copies an InternAgents runtime template, bundles a
-Python runtime, and asks `electron-builder` to produce an Apple Silicon DMG.
+Python runtime, and asks `electron-builder` to produce a native desktop app.
 
 ```bash
 cd desktop
 npm install
-npm run build
+npm run build:mac
 ```
 
 By default `desktop/scripts/prepare-dist.mjs` copies `.conda` as the bundled
@@ -257,14 +257,32 @@ Python runtime, falling back to `.venv`. To use a prepared portable runtime,
 set:
 
 ```bash
-INTERNAGENTS_PYTHON_RUNTIME_SOURCE=/path/to/python-runtime npm run build
+INTERNAGENTS_PYTHON_RUNTIME_SOURCE=/path/to/python-runtime npm run build:mac
 ```
 
-The packaged app writes real user configuration under macOS Application Support
-and starts the UI with:
+On Windows, provide a Python runtime whose executable is available at
+`python.exe`, `Scripts/python.exe`, or `bin/python.exe`, then build the NSIS
+installer:
+
+```powershell
+cd desktop
+npm install
+$env:INTERNAGENTS_PYTHON_RUNTIME_SOURCE = "C:\path\to\python-runtime"
+npm run build:win
+```
+
+If the NSIS installer dependencies are unavailable on the build machine, create
+a distributable ZIP instead:
+
+```powershell
+npm run build:win:zip
+```
+
+The packaged app writes real user configuration under the platform application
+data directory and starts the UI with:
 
 ```text
-INTERNAGENTS_APP_ROOT=<Application Support>/InternAgents/runtime
+INTERNAGENTS_APP_ROOT=<app data>/InternAgents/runtime
 INTERNAGENTS_DESKTOP=1
 NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local

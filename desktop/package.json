@@ -2,13 +2,18 @@
   "name": "internagents-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "macOS desktop packaging for InternAgents.",
+  "description": "Desktop packaging for InternAgents.",
   "main": "electron/main.cjs",
   "scripts": {
     "prepare:dist": "node scripts/prepare-dist.mjs",
     "sign:adhoc": "codesign --force --deep --sign - release/mac-arm64/InternAgents.app",
-    "pack": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc",
-    "build": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc && electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64"
+    "pack": "npm run pack:mac",
+    "build": "npm run build:mac",
+    "pack:mac": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc",
+    "build:mac": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc && electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64",
+    "pack:win": "npm run prepare:dist && electron-builder --win dir --x64",
+    "build:win": "npm run prepare:dist && electron-builder --win nsis --x64",
+    "build:win:zip": "npm run prepare:dist && electron-builder --win zip --x64"
   },
   "build": {
     "appId": "com.internagents.desktop",
@@ -20,6 +25,23 @@
       "target": [
         "dmg"
       ]
+    },
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true
     },
     "directories": {
       "output": "release"

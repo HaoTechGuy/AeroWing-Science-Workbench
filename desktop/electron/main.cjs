@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const HOST = "127.0.0.1";
 const PRESERVED_RUNTIME_FILES = new Set([
@@ -20,6 +20,22 @@ let nextProcess = null;
 let runtimeRoot = "";
 
 app.setName("InternAgents");
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+app.on("second-instance", () => {
+  if (!mainWindow) {
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+});
 
 function resourcesRoot() {
   if (app.isPackaged) {
@@ -257,14 +273,27 @@ function ensureWorkspaceRecord(workspaces, workspacePath) {
 }
 
 function pythonBinary() {
-  const binDir = path.join(resourcesRoot(), "python-runtime", "bin");
-  for (const name of ["python3.12", "python3.11", "python3", "python"]) {
-    const candidate = path.join(binDir, name);
+  const runtimeDir = path.join(resourcesRoot(), "python-runtime");
+  const candidates =
+    process.platform === "win32"
+      ? [
+          path.join(runtimeDir, "pythonw.exe"),
+          path.join(runtimeDir, "python.exe"),
+          path.join(runtimeDir, "Scripts", "pythonw.exe"),
+          path.join(runtimeDir, "Scripts", "python.exe"),
+          path.join(runtimeDir, "bin", "pythonw.exe"),
+          path.join(runtimeDir, "bin", "python.exe"),
+        ]
+      : ["python3.12", "python3.11", "python3", "python"].map((name) =>
+          path.join(runtimeDir, "bin", name),
+        );
+
+  for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
       return candidate;
     }
   }
-  return "python3";
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 function nodeHostBinary() {
@@ -292,6 +321,13 @@ function runtimePidFile(name) {
 
 function terminatePid(pid) {
   if (!pid || pid <= 1) {
+    return;
+  }
+  if (process.platform === "win32") {
+    spawnSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
     return;
   }
   for (const target of [-pid, pid]) {
@@ -338,6 +374,7 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
     INTERNAGENTS_PYTHON_BIN: pythonBinary(),
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONNOUSERSITE: "1",
+    PYTHONUTF8: "1",
     NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL: `http://${HOST}:${backendPort}`,
     NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID: "agent_local",
   };
@@ -346,6 +383,7 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
     cwd: serverDir,
     env,
     stdio: "ignore",
+    windowsHide: true,
   });
 
   const ready = await waitForUrl(`http://${HOST}:${uiPort}`, 60000);
@@ -405,12 +443,14 @@ async function boot() {
   await createWindow(`http://${HOST}:${uiPort}${startPath}`);
 }
 
-app.whenReady().then(() => {
-  boot().catch((error) => {
-    dialog.showErrorBox("InternAgents failed to start", error.message);
-    app.quit();
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
+    boot().catch((error) => {
+      dialog.showErrorBox("InternAgents failed to start", error.message);
+      app.quit();
+    });
   });
-});
+}
 
 app.on("before-quit", cleanupServices);
 
