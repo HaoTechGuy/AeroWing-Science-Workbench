@@ -100,7 +100,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     href: WORKBENCH_HREF,
     target: '[data-tour="chat-input"]',
     title: "准备好了",
-    body: "导览结束后，可以先发送一个只读测试问题，例如：请简要说明当前项目结构。",
+    body: "导览结束后，可以先发送一个文献调研任务，例如：请帮我调研并下载大模型智能体相关文献。",
   },
 ];
 
