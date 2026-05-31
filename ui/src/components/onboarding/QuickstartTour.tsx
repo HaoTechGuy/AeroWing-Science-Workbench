@@ -36,7 +36,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     route: "/",
     href: WORKBENCH_HREF,
     title: "InternAgents 快速导览",
-    body: "这条导览会先介绍主工作台，再带你快速看连接服务器、技能广场、配置和关于与更新这些页面各自负责什么。",
+    body: "这条导览会先介绍主工作台，再带你快速看连接服务器、配置和关于与更新这些页面各自负责什么。",
   },
   {
     id: "local-agent",
@@ -77,14 +77,6 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     target: '[data-tour="nav-connect"]',
     title: "连接服务器",
     body: "连接服务器页面负责配置 InternAgents 要连接的本地或远程智能体服务。通常本机开发保留默认地址；需要连接云端或其他运行环境时再修改。",
-  },
-  {
-    id: "skills",
-    route: "/",
-    href: WORKBENCH_HREF,
-    target: '[data-tour="nav-skills"]',
-    title: "技能广场",
-    body: "这个页面负责管理本地技能。你可以选择项目技能、查看已添加来源，并把选中的技能应用到本机 InternAgents。",
   },
   {
     id: "config",

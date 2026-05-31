@@ -1,5 +1,5 @@
-import { SkillsMarketplace } from "@/app/skills/components/SkillsMarketplace";
+import { notFound } from "next/navigation";
 
 export default function SkillsPage() {
-  return <SkillsMarketplace />;
+  notFound();
 }

@@ -14,7 +14,6 @@ import {
   Loader2,
   Settings,
   Server,
-  Sparkles,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
@@ -303,20 +302,6 @@ function HomePageInner({
             >
               <Server className="h-4 w-4" />
               连接服务器
-            </Link>
-          </Button>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-8 border-border bg-card"
-          >
-            <Link
-              href="/skills"
-              data-tour="nav-skills"
-            >
-              <Sparkles className="h-4 w-4" />
-              技能广场
             </Link>
           </Button>
           <Button
