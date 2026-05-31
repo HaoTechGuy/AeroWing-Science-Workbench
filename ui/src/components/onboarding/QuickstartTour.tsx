@@ -84,7 +84,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     href: WORKBENCH_HREF,
     target: '[data-tour="nav-config"]',
     title: "配置",
-    body: "这个页面负责模型、工作区和授权模式等设置。模型和授权通常影响后端行为，工作区和界面相关设置会直接影响使用体验。",
+    body: "这个页面负责模型、工作区、授权模式、技能和界面风格等设置。模型、授权和技能通常影响后端行为，工作区和界面相关设置会直接影响使用体验。",
   },
   {
     id: "about",

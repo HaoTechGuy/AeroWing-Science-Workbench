@@ -25,6 +25,7 @@ import {
   type ThemeMode,
 } from "@/lib/theme";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
+import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
@@ -501,7 +502,7 @@ export default function ConfigPage() {
             <div className="truncate text-xs text-muted-foreground">
               {onboardingMode
                 ? "完成模型、工作区和授权设置后进入工作台"
-                : "模型、工作区、授权模式和界面风格"}
+                : "模型、工作区、授权模式、技能和界面风格"}
             </div>
           </div>
         </div>
@@ -597,7 +598,7 @@ export default function ConfigPage() {
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
-              模型和授权模式需要重启后端后生效；工作区和界面风格会立即生效。
+              模型和授权模式需要重启后端后生效；技能在技能卡片中单独应用；工作区和界面风格会立即生效。
             </span>
             {requiresRestart && !hasChanges && (
               <span className="text-amber-700">有配置等待应用。</span>
@@ -889,6 +890,8 @@ export default function ConfigPage() {
               })}
             </div>
           </section>
+
+          {!onboardingMode && <SkillsConfigCard />}
 
           <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
             <div className="mb-4 flex items-start gap-3">

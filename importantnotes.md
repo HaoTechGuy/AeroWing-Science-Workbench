@@ -11,7 +11,11 @@ for future reuse:
 
 For the current frontend, the skills page is not mounted as an active user-facing
 experience. The `/skills` route returns `notFound()`, and the workbench
-navigation and Quickstart tour no longer expose the skills entry.
+navigation and Quickstart tour do not expose the standalone skills entry.
+
+Current user-facing skills management lives in the configuration page card:
+
+- `ui/src/app/config/components/SkillsConfigCard.tsx`
 
 Do not delete or refactor the existing skills page implementation just because
 it is currently hidden. It is expected to be reused later.
