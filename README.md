@@ -21,6 +21,22 @@ The repository includes:
 - `ui/`: InternAgents Next.js web UI
 - `scripts/dev.sh`: one-command local development launcher
 
+## Guided Tour Update
+
+This branch updates the desktop first-run experience:
+
+- First launch now opens the local workbench directly instead of blocking on a
+  configuration page.
+- The committed desktop defaults use OpenRouter with
+  `deepseek/deepseek-v4-flash`.
+- A Quickstart tour introduces the workbench, project selector, workspace,
+  conversations, service connection, skills, configuration, and About/Updates.
+- The About/Updates page can restart the tour and exposes local update actions.
+- Workspace file/folder open routes and conversation title helpers support the
+  refreshed desktop workflow.
+- UI polish is intentionally light: tighter navigation, cleaner panels, and
+  more consistent buttons, inputs, selectors, and previews.
+
 ## Current UI Direction
 
 The web UI is moving toward a three-panel local research workspace:
