@@ -1,6 +1,7 @@
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
 import { QuickstartTour } from "@/components/onboarding/QuickstartTour";
+import { WaterRippleIntro } from "@/components/WaterRippleIntro";
 import "./globals.css";
 
 const themeBootstrapScript = `
@@ -37,6 +38,7 @@ export default function RootLayout({
       >
         <script src="/api/runtime/desktop-config" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        <WaterRippleIntro />
         <NuqsAdapter>
           <div className="min-h-[calc(100vh-var(--app-footer-height))]">
             {children}
