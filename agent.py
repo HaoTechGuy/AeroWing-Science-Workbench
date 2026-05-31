@@ -32,6 +32,7 @@ from goal_middleware import GoalContextMiddleware, goal_system_prompt
 from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
+from mineru_middleware import PdfMinerUMiddleware
 from ssh_backend import SshShellBackend
 
 load_dotenv(ROOT_DIR / ".env")
@@ -590,6 +591,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     backend = _create_backend_for_resource(resource)
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
+    middleware.append(PdfMinerUMiddleware(backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
@@ -653,6 +655,7 @@ def create_runtime_agent():  # noqa: ANN201
     middleware = list(agent_config.get("middleware") or [])
     if runtime_resource is not None and runtime_resource.kb_path:
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
+    middleware.append(PdfMinerUMiddleware(backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(

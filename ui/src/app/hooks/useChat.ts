@@ -28,6 +28,19 @@ type ParsedGoalCommand = {
   objective: string;
   tokenBudget?: number;
 };
+type RunLifecycleStatus =
+  | "idle"
+  | "running"
+  | "completed"
+  | "interrupted"
+  | "error"
+  | "stopped";
+type RunLifecycle = {
+  status: RunLifecycleStatus;
+  updatedAt?: number;
+  runId?: string;
+  threadId?: string;
+};
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4_000;
 
@@ -89,7 +102,9 @@ function messagesFromValues(values: unknown): Message[] {
   return Array.isArray(messages) ? messages : [];
 }
 
-function stateHasMessages(state?: ThreadState<StateType> | null): boolean {
+function stateHasMessages(
+  state?: ThreadState<StateType> | null
+): state is ThreadState<StateType> {
   return messagesFromValues(state?.values).length > 0;
 }
 
@@ -97,6 +112,22 @@ function findStateWithMessages(
   states: ThreadState<StateType>[]
 ): ThreadState<StateType> | undefined {
   return states.find((state) => stateHasMessages(state));
+}
+
+function stateHasInterrupts(state?: ThreadState<StateType> | null): boolean {
+  const values = state?.values as Record<string, unknown> | undefined;
+  if (
+    Array.isArray(values?.__interrupt__) &&
+    values.__interrupt__.length > 0
+  ) {
+    return true;
+  }
+
+  return (
+    state?.tasks?.some((task: any) => {
+      return Array.isArray(task?.interrupts) && task.interrupts.length > 0;
+    }) ?? false
+  );
 }
 
 function sanitizeThreadState(
@@ -132,9 +163,7 @@ function mergeStateValues(
     ...state,
     values: {
       ...nextValues,
-      messages: Array.isArray(nextValues.messages)
-        ? nextValues.messages
-        : [],
+      messages: Array.isArray(nextValues.messages) ? nextValues.messages : [],
     } as StateType,
   });
 }
@@ -215,7 +244,9 @@ async function loadThreadSnapshot({
 
   if (runtimeClient) {
     try {
-      const runtimeThread = await runtimeClient.threads.get<StateType>(threadId);
+      const runtimeThread = await runtimeClient.threads.get<StateType>(
+        threadId
+      );
       const runtimeState = threadToState(threadId, runtimeThread);
       if (stateHasMessages(runtimeState)) {
         return [
@@ -341,7 +372,13 @@ function useThreadSnapshot({
       isLoading: snapshot.isLoading,
       mutate,
     };
-  }, [externalThread, mutate, snapshot.data, snapshot.error, snapshot.isLoading]);
+  }, [
+    externalThread,
+    mutate,
+    snapshot.data,
+    snapshot.error,
+    snapshot.isLoading,
+  ]);
 }
 
 function formatAttachmentSize(size: number): string {
@@ -357,6 +394,8 @@ function attachmentMetadata(attachments: ChatAttachment[]) {
     mimeType: attachment.mimeType,
     size: attachment.size,
     kind: attachment.kind,
+    workspacePath: attachment.workspacePath,
+    pageCount: attachment.pageCount,
     truncated: attachment.truncated,
     error: attachment.error,
   }));
@@ -396,6 +435,38 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
           attachment.truncated
             ? `${attachment.text}\n\n[Attachment truncated before sending.]`
             : attachment.text,
+          "</attachment>",
+        ].join("\n"),
+      });
+      continue;
+    }
+
+    if (attachment.kind === "pdf") {
+      const pathHint = attachment.workspacePath
+        ? ` path="${attachment.workspacePath}"`
+        : "";
+      const pagesHint = attachment.pageCount
+        ? ` pages="${attachment.pageCount}"`
+        : "";
+      const extractedText = attachment.text?.trim();
+      const body = extractedText
+        ? attachment.truncated
+          ? `${extractedText}\n\n[PDF text truncated before sending. The original PDF is available at ${
+              attachment.workspacePath || "the workspace path above"
+            }.]`
+          : extractedText
+        : `[PDF uploaded. The original file is available at ${
+            attachment.workspacePath || "the workspace path above"
+          }. No extractable text was found in the uploaded PDF.]`;
+      blocks.push({
+        type: "text",
+        text: [
+          `<attachment name="${attachment.name}" mime_type="${
+            attachment.mimeType || "application/pdf"
+          }" size="${formatAttachmentSize(
+            attachment.size
+          )}"${pathHint}${pagesHint}>`,
+          body,
           "</attachment>",
         ].join("\n"),
       });
@@ -481,6 +552,9 @@ export function useChat({
   const [optimisticThreadTitle, setOptimisticThreadTitle] = useState<
     string | null
   >(null);
+  const [runLifecycle, setRunLifecycle] = useState<RunLifecycle>({
+    status: "idle",
+  });
   const previousThreadIdRef = useRef<string | null>(threadId ?? null);
   const pendingNewThreadTitleRef = useRef<string | null>(null);
   const pendingNewThreadTitleThreadIdRef = useRef<string | null>(null);
@@ -498,6 +572,12 @@ export function useChat({
   );
   const streamEventLayer = useStreamEventLayer(remoteAgent);
   const { clearStreamEvents } = streamEventLayer;
+  const markRunStarting = useCallback(() => {
+    setRunLifecycle({
+      status: "running",
+      updatedAt: Date.now(),
+    });
+  }, []);
   const threadSnapshot = useThreadSnapshot({
     client,
     runtimeClient,
@@ -541,7 +621,9 @@ export function useChat({
       ...(resourceLabel ? { resource_label: resourceLabel } : {}),
       ...(workspaceId ? { internagents_workspace_id: workspaceId } : {}),
       ...(workspacePath ? { internagents_workspace_path: workspacePath } : {}),
-      ...(workspaceLabel ? { internagents_workspace_label: workspaceLabel } : {}),
+      ...(workspaceLabel
+        ? { internagents_workspace_label: workspaceLabel }
+        : {}),
     }),
     [resourceId, resourceLabel, workspaceId, workspacePath, workspaceLabel]
   );
@@ -575,6 +657,56 @@ export function useChat({
     [streamSubmitOptions]
   );
 
+  const handleStreamCreated = useCallback(
+    (run?: { run_id?: string; thread_id?: string }) => {
+      setRunLifecycle({
+        status: "running",
+        updatedAt: Date.now(),
+        runId: run?.run_id,
+        threadId: run?.thread_id,
+      });
+      onHistoryRevalidate?.();
+    },
+    [onHistoryRevalidate]
+  );
+
+  const handleStreamFinish = useCallback(
+    (
+      state: ThreadState<StateType>,
+      run?: { run_id?: string; thread_id?: string }
+    ) => {
+      setRunLifecycle({
+        status: stateHasInterrupts(state) ? "interrupted" : "completed",
+        updatedAt: Date.now(),
+        runId: run?.run_id,
+        threadId: run?.thread_id,
+      });
+      onHistoryRevalidate?.();
+    },
+    [onHistoryRevalidate]
+  );
+
+  const handleStreamError = useCallback(
+    (_error: unknown, run?: { run_id?: string; thread_id?: string }) => {
+      setRunLifecycle({
+        status: "error",
+        updatedAt: Date.now(),
+        runId: run?.run_id,
+        threadId: run?.thread_id,
+      });
+      onHistoryRevalidate?.();
+    },
+    [onHistoryRevalidate]
+  );
+
+  const handleStreamStop = useCallback(() => {
+    setRunLifecycle((current) => ({
+      ...current,
+      status: "stopped",
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
   const stream = useStream<StateType>({
     assistantId: activeAssistant?.assistant_id || "",
     client: client ?? undefined,
@@ -585,9 +717,10 @@ export function useChat({
     // Enable fetching state history when switching to existing threads
     fetchStateHistory: true,
     // Revalidate thread list when stream finishes, errors, or creates new thread
-    onFinish: onHistoryRevalidate,
-    onError: onHistoryRevalidate,
-    onCreated: onHistoryRevalidate,
+    onFinish: handleStreamFinish,
+    onError: handleStreamError,
+    onCreated: handleStreamCreated,
+    onStop: handleStreamStop,
     experimental_thread: threadSnapshot,
   });
 
@@ -615,6 +748,7 @@ export function useChat({
     previousStreamScopeKey.current = streamScopeKey;
     if (!stream.isLoading) {
       clearStreamEvents();
+      setRunLifecycle({ status: "idle" });
     }
   }, [streamScopeKey, stream.isLoading, clearStreamEvents]);
 
@@ -662,6 +796,7 @@ export function useChat({
             : undefined,
       };
       clearStreamEvents();
+      markRunStarting();
       if (newThreadId && pendingNewThreadTitle) {
         pendingNewThreadTitleThreadIdRef.current = newThreadId;
       }
@@ -687,6 +822,7 @@ export function useChat({
     [
       stream,
       clearStreamEvents,
+      markRunStarting,
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
@@ -703,6 +839,7 @@ export function useChat({
       optimisticMessages?: Message[]
     ) => {
       clearStreamEvents();
+      markRunStarting();
       if (checkpoint) {
         stream.submit(
           undefined,
@@ -730,6 +867,7 @@ export function useChat({
     [
       stream,
       clearStreamEvents,
+      markRunStarting,
       withStreamSubmitOptions,
       buildRunConfig,
     ]
@@ -745,26 +883,23 @@ export function useChat({
     [remoteAgent, threadId]
   );
 
-  const threadTitle = useMemo(
-    () => {
-      if (optimisticThreadTitle) {
-        return optimisticThreadTitle;
-      }
-      return inferThreadTitle({
-        metadata: threadMetadata,
-        goal: stream.values.goal ?? null,
-        messages: stream.messages,
-        fallback: threadId ? `会话 ${threadId.slice(0, 8)}` : "新会话",
-      });
-    },
-    [
-      optimisticThreadTitle,
-      stream.messages,
-      stream.values.goal,
-      threadId,
-      threadMetadata,
-    ]
-  );
+  const threadTitle = useMemo(() => {
+    if (optimisticThreadTitle) {
+      return optimisticThreadTitle;
+    }
+    return inferThreadTitle({
+      metadata: threadMetadata,
+      goal: stream.values.goal ?? null,
+      messages: stream.messages,
+      fallback: threadId ? `会话 ${threadId.slice(0, 8)}` : "新会话",
+    });
+  }, [
+    optimisticThreadTitle,
+    stream.messages,
+    stream.values.goal,
+    threadId,
+    threadMetadata,
+  ]);
 
   const updateThreadTitle = useCallback(
     async (title: string) => {
@@ -790,7 +925,13 @@ export function useChat({
       await threadSnapshot?.mutate?.(threadId);
       onHistoryRevalidate?.();
     },
-    [client.threads, onHistoryRevalidate, threadId, threadMetadata, threadSnapshot]
+    [
+      client.threads,
+      onHistoryRevalidate,
+      threadId,
+      threadMetadata,
+      threadSnapshot,
+    ]
   );
 
   useEffect(() => {
@@ -834,11 +975,18 @@ export function useChat({
     return () => {
       cancelled = true;
     };
-  }, [client.threads, onHistoryRevalidate, threadId, threadMetadata, threadSnapshot]);
+  }, [
+    client.threads,
+    onHistoryRevalidate,
+    threadId,
+    threadMetadata,
+    threadSnapshot,
+  ]);
 
   const continueStream = useCallback(
     (hasTaskToolCall?: boolean) => {
       clearStreamEvents();
+      markRunStarting();
       stream.submit(
         undefined,
         withStreamSubmitOptions({
@@ -857,6 +1005,7 @@ export function useChat({
     [
       stream,
       clearStreamEvents,
+      markRunStarting,
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
@@ -872,6 +1021,7 @@ export function useChat({
   const resumeInterrupt = useCallback(
     (value: any) => {
       clearStreamEvents();
+      markRunStarting();
       stream.submit(
         null,
         withStreamSubmitOptions({
@@ -885,6 +1035,7 @@ export function useChat({
     [
       stream,
       clearStreamEvents,
+      markRunStarting,
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
@@ -892,8 +1043,22 @@ export function useChat({
   );
 
   const stopStream = useCallback(() => {
+    setRunLifecycle((current) => ({
+      ...current,
+      status: "stopped",
+      updatedAt: Date.now(),
+    }));
     stream.stop();
   }, [stream]);
+
+  const activeInterrupt = stream.interrupt ?? streamEventLayer.interrupt;
+  const runStatus: RunLifecycleStatus = stream.error
+    ? "error"
+    : activeInterrupt
+    ? "interrupted"
+    : stream.isLoading
+    ? "running"
+    : runLifecycle.status;
 
   return {
     stream,
@@ -903,6 +1068,8 @@ export function useChat({
     email: stream.values.email,
     ui: stream.values.ui,
     threadId,
+    resourceId,
+    workspaceId,
     threadTitle,
     threadMetadata,
     updateThreadTitle,
@@ -911,7 +1078,9 @@ export function useChat({
     error: stream.error,
     isLoading: stream.isLoading,
     isThreadLoading: stream.isThreadLoading,
-    interrupt: stream.interrupt ?? streamEventLayer.interrupt,
+    interrupt: activeInterrupt,
+    runStatus,
+    runUpdatedAt: runLifecycle.updatedAt,
     getMessagesMetadata: stream.getMessagesMetadata,
     streamEvents: streamEventLayer.streamEvents,
     clearStreamEvents: streamEventLayer.clearStreamEvents,

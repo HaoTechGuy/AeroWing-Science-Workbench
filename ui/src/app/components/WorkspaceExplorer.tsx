@@ -27,6 +27,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
+import {
+  WORKSPACE_FILE_DRAG_MIME,
+  createWorkspaceFileDragPayload,
+} from "@/app/utils/workspaceDrag";
 
 interface WorkspaceExplorerProps {
   selectedPath?: string | null;
@@ -148,22 +152,39 @@ export function WorkspaceExplorer({
       const isLoading = loadingPaths.has(entry.path);
       const isSelected = selectedPath === entry.path;
       const children = directories[entry.path] ?? [];
+      const dragPayload = createWorkspaceFileDragPayload(
+        entry,
+        resourceId,
+        workspaceId
+      );
 
       return (
         <div key={entry.path}>
           <button
             type="button"
+            draggable={Boolean(dragPayload)}
+            onDragStart={(event) => {
+              if (!dragPayload) return;
+              event.dataTransfer.effectAllowed = "copy";
+              event.dataTransfer.setData(
+                WORKSPACE_FILE_DRAG_MIME,
+                JSON.stringify(dragPayload)
+              );
+              event.dataTransfer.setData("text/plain", entry.path);
+            }}
             onClick={() =>
               isDirectory ? toggleDirectory(entry.path) : onFileSelect(entry)
             }
             className={cn(
               "grid h-8 w-full grid-cols-[20px_20px_minmax(0,1fr)_auto] items-center gap-1 rounded-md border border-transparent px-2 text-left text-sm transition-[background-color,border-color,color]",
               "hover:border-border hover:bg-card",
+              dragPayload && "cursor-grab active:cursor-grabbing",
               isSelected &&
                 "border-primary/25 bg-primary/10 text-primary hover:bg-primary/10"
             )}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             aria-expanded={isDirectory ? isExpanded : undefined}
+            title={dragPayload ? "拖拽到会话区添加为附件" : undefined}
           >
             <span className="flex h-5 w-5 items-center justify-center">
               {isDirectory &&
@@ -216,8 +237,10 @@ export function WorkspaceExplorer({
       loadingPaths,
       normalizedFilter,
       onFileSelect,
+      resourceId,
       selectedPath,
       toggleDirectory,
+      workspaceId,
     ]
   );
 

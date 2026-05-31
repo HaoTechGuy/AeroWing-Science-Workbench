@@ -32,6 +32,7 @@ interface ChatMessageProps {
   stream?: any;
   onResumeInterrupt?: (value: any) => void;
   graphId?: string;
+  runtimeMuted?: boolean;
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
@@ -46,6 +47,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     stream,
     onResumeInterrupt,
     graphId,
+    runtimeMuted,
   }) => {
     const isUser = message.type === "human";
     const messageContent = isUser
@@ -62,6 +64,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
         : [];
     }, [message.additional_kwargs]);
     const hasContent = messageContent && messageContent.trim() !== "";
+    const showMutedRuntime = Boolean(isLoading || runtimeMuted);
     const visibleFileAttachments = attachments.filter(
       (attachment) => attachment.kind !== "image"
     );
@@ -199,6 +202,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     reviewConfig={reviewConfig}
                     onResume={onResumeInterrupt}
                     isLoading={isLoading}
+                    muted={showMutedRuntime}
                   />
                 );
               })}
@@ -217,27 +221,52 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                         subAgent={subAgent}
                         onClick={() => toggleSubAgent(subAgent.id)}
                         isExpanded={isSubAgentExpanded(subAgent.id)}
+                        muted={showMutedRuntime}
                       />
                     </div>
                   </div>
                   {isSubAgentExpanded(subAgent.id) && (
                     <div className="w-full max-w-full">
-                      <div className="rounded-md border border-border bg-card p-4 shadow-sm shadow-black/[0.025]">
-                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70">
+                      <div
+                        className={cn(
+                          "rounded-md border border-border bg-card p-4 shadow-sm shadow-black/[0.025]",
+                          showMutedRuntime &&
+                            "border-border/30 bg-muted/5 text-muted-foreground/70 shadow-none"
+                        )}
+                      >
+                        <h4
+                          className={cn(
+                            "mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70",
+                            showMutedRuntime && "text-muted-foreground/70"
+                          )}
+                        >
                           Input
                         </h4>
                         <div className="mb-4">
                           <MarkdownContent
                             content={extractSubAgentContent(subAgent.input)}
+                            className={cn(
+                              showMutedRuntime &&
+                                "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"
+                            )}
                           />
                         </div>
                         {subAgent.output && (
                           <>
-                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70">
+                            <h4
+                              className={cn(
+                                "mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70",
+                                showMutedRuntime && "text-muted-foreground/70"
+                              )}
+                            >
                               Output
                             </h4>
                             <MarkdownContent
                               content={extractSubAgentContent(subAgent.output)}
+                              className={cn(
+                                showMutedRuntime &&
+                                  "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"
+                              )}
                             />
                           </>
                         )}
