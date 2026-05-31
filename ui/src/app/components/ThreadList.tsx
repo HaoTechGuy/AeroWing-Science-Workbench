@@ -367,12 +367,12 @@ export function ThreadList({
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent
-                            side="bottom"
+                            side="right"
                             align="center"
-                            sideOffset={6}
-                            className="whitespace-nowrap px-2 py-1"
+                            sideOffset={8}
+                            className="whitespace-nowrap"
                           >
-                            归档：隐藏，不删除
+                            归档会话
                           </TooltipContent>
                         </Tooltip>
                       </div>
