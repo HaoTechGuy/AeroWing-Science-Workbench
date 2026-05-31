@@ -4,7 +4,7 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
 
 interface MarkdownContentProps {
@@ -37,10 +37,10 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
               const match = /language-(\w+)/.exec(className || "");
               return !inline && match ? (
                 <SyntaxHighlighter
-                  style={oneDark}
+                  style={oneLight}
                   language={match[1]}
                   PreTag="div"
-                  className="max-w-full rounded-md text-sm"
+                  className="max-w-full rounded-md border border-border text-sm"
                   wrapLines={true}
                   wrapLongLines={true}
                   lineProps={{
@@ -55,6 +55,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                     maxWidth: "100%",
                     overflowX: "auto",
                     fontSize: "0.875rem",
+                    background: "hsl(var(--card))",
                   }}
                 >
                   {String(children).replace(/\n$/, "")}

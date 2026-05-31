@@ -15,28 +15,28 @@ interface SubAgentIndicatorProps {
 export const SubAgentIndicator = React.memo<SubAgentIndicatorProps>(
   ({ subAgent, onClick, isExpanded = true }) => {
     return (
-      <div className="w-fit max-w-[70vw] overflow-hidden rounded-lg border-none bg-card shadow-none outline-none">
+      <div className="w-fit max-w-[70vw] overflow-hidden rounded-md border border-border bg-card shadow-sm shadow-black/[0.025] outline-none">
         <Button
           variant="ghost"
           size="sm"
           onClick={onClick}
-          className="flex w-full items-center justify-between gap-2 border-none px-4 py-2 text-left shadow-none outline-none transition-colors duration-200"
+          className="flex w-full items-center justify-between gap-2 border-none px-4 py-2 text-left shadow-none outline-none transition-colors duration-200 hover:bg-accent/60"
         >
           <div className="flex w-full items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="font-sans text-[15px] font-bold leading-[140%] tracking-[-0.6px] text-[#3F3F46]">
+              <span className="font-sans text-sm font-semibold leading-[140%] text-foreground">
                 {getToolDisplayName(subAgent.subAgentName)}
               </span>
             </div>
             {isExpanded ? (
               <ChevronUp
                 size={14}
-                className="shrink-0 text-[#70707B]"
+                className="shrink-0 text-muted-foreground"
               />
             ) : (
               <ChevronDown
                 size={14}
-                className="shrink-0 text-[#70707B]"
+                className="shrink-0 text-muted-foreground"
               />
             )}
           </div>

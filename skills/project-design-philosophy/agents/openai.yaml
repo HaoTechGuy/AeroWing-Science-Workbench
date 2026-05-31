@@ -1,4 +1,4 @@
 interface:
   display_name: "Project Design Philosophy"
-  short_description: "Design principles for InternAgents UI and interaction work."
-  default_prompt: "Apply the InternAgents project design philosophy while making UI or interaction changes."
+  short_description: "Calm Laboratory Console style and reusable UI patterns for InternAgents."
+  default_prompt: "Apply the InternAgents Calm Laboratory Console design philosophy and reusable UI patterns."

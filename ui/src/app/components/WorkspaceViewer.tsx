@@ -8,8 +8,9 @@ import {
   Loader2,
   PanelRight,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
@@ -69,12 +70,11 @@ function EmptyViewer() {
   return (
     <div className="flex h-full items-center justify-center px-8 text-center">
       <div className="max-w-xs">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-border bg-muted">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-border bg-card shadow-sm shadow-black/[0.025]">
           <PanelRight className="h-5 w-5 text-muted-foreground" />
         </div>
-        <h2 className="text-sm font-semibold">No file selected</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          从工作区选择 Markdown、文本、图片或 PDF 文件后，会在这里预览。
+          从工作区选择代码、文本、图片或 PDF 文件后，会在这里预览。
         </p>
       </div>
     </div>
@@ -89,6 +89,7 @@ export function WorkspaceViewer({
   const [file, setFile] = useState<WorkspaceFileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isOpeningFile, setIsOpeningFile] = useState(false);
 
   useEffect(() => {
     if (!selectedPath) {
@@ -129,23 +130,54 @@ export function WorkspaceViewer({
     return file?.extension ? LANGUAGE_MAP[file.extension] || "text" : "text";
   }, [file?.extension]);
 
+  async function openFileInSystemViewer() {
+    if (!file || isOpeningFile) {
+      return;
+    }
+
+    setIsOpeningFile(true);
+    try {
+      const response = await fetch("/api/workspace/open-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: file.path,
+          resourceId,
+          workspaceId,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "无法打开本地文件。");
+      }
+    } catch (openError) {
+      const message =
+        openError instanceof Error ? openError.message : "无法打开本地文件。";
+      toast.error(message);
+    } finally {
+      setIsOpeningFile(false);
+    }
+  }
+
   if (!selectedPath) {
     return (
-      <div className="h-full bg-background">
+      <div className="h-full bg-card">
         <EmptyViewer />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      <div className="flex min-h-16 items-center justify-between gap-3 border-b border-border px-4 py-3">
+    <div className="flex h-full flex-col bg-card">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-border bg-card/80 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/70">
             {file?.previewKind === "pdf" ? (
               <FileText className="h-4 w-4 text-[#A83232]" />
             ) : (
-              <File className="h-4 w-4 text-[#2F6868]" />
+              <File className="h-4 w-4 text-primary" />
             )}
           </div>
           <div className="min-w-0">
@@ -160,19 +192,20 @@ export function WorkspaceViewer({
         </div>
         {file?.rawUrl && (
           <Button
+            type="button"
             variant="ghost"
             size="icon"
             className="h-8 w-8 shrink-0"
-            asChild
+            onClick={() => void openFileInSystemViewer()}
+            disabled={isOpeningFile}
+            aria-label="用系统查看器打开文件"
+            title="用系统查看器打开文件"
           >
-            <a
-              href={file.rawUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open raw file"
-            >
+            {isOpeningFile ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
               <ExternalLink className="h-4 w-4" />
-            </a>
+            )}
           </Button>
         )}
       </div>
@@ -204,7 +237,7 @@ export function WorkspaceViewer({
             <img
               src={file.rawUrl}
               alt={file.name}
-              className="max-h-full max-w-full rounded-md border border-border bg-background shadow-sm"
+              className="max-h-full max-w-full rounded-md border border-border bg-card shadow-sm shadow-black/[0.025]"
             />
           </div>
         )}
@@ -227,14 +260,16 @@ export function WorkspaceViewer({
               ) : (
                 <SyntaxHighlighter
                   language={language}
-                  style={oneDark}
+                  style={oneLight}
                   showLineNumbers
                   wrapLongLines
                   customStyle={{
                     margin: 0,
+                    border: "1px solid hsl(var(--border))",
                     borderRadius: "0.5rem",
                     fontSize: "0.8125rem",
                     minHeight: "100%",
+                    background: "hsl(var(--card))",
                   }}
                 >
                   {file.content || ""}

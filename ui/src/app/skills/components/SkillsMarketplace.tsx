@@ -409,7 +409,7 @@ export function SkillsMarketplace() {
   }, [autoRestart, data.requiresRestart, hasChanges, actionBusy]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="flex min-h-[calc(100vh-var(--app-footer-height))] flex-col bg-background text-foreground">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
         <div className="flex min-w-0 items-center gap-4">
           <Button
@@ -507,7 +507,10 @@ export function SkillsMarketplace() {
             )}
           </div>
 
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <section
+            className="rounded-lg border border-border bg-card p-5 shadow-sm"
+            data-tour="skills-marketplace"
+          >
             <SectionHeader
               icon={<Sparkles className="h-5 w-5" />}
               title="InternAgents 精选技能"

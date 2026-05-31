@@ -1,5 +1,6 @@
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
+import { QuickstartTour } from "@/components/onboarding/QuickstartTour";
 import "./globals.css";
 
 const themeBootstrapScript = `
@@ -31,11 +32,20 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body
+        className="min-h-screen bg-background text-foreground"
         suppressHydrationWarning
       >
         <script src="/api/runtime/desktop-config" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
-        <NuqsAdapter>{children}</NuqsAdapter>
+        <NuqsAdapter>
+          <div className="min-h-[calc(100vh-var(--app-footer-height))]">
+            {children}
+          </div>
+        </NuqsAdapter>
+        <footer className="flex h-[var(--app-footer-height)] items-center justify-center border-t border-border bg-background/95 px-4 text-[11px] text-muted-foreground">
+          上海人工智能实验室
+        </footer>
+        <QuickstartTour />
         <Toaster />
       </body>
     </html>

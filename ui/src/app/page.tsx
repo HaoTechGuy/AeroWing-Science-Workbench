@@ -8,7 +8,14 @@ import React, {
   Suspense,
 } from "react";
 import Link from "next/link";
-import { Settings, Server, Sparkles } from "lucide-react";
+import {
+  FolderOpen,
+  Info,
+  Loader2,
+  Settings,
+  Server,
+  Sparkles,
+} from "lucide-react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
 import {
@@ -25,9 +32,11 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   ResizableHandle,
@@ -40,6 +49,8 @@ import { ChatInterface } from "@/app/components/ChatInterface";
 import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
+
+const OPEN_WORKSPACE_VALUE = "__open_workspace__";
 
 interface HomePageInnerProps {
   config: StandaloneConfig;
@@ -70,6 +81,7 @@ function HomePageInner({
   const [interruptCount, setInterruptCount] = useState(0);
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
+  const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
 
   const fetchAssistant = useCallback(async () => {
     setAssistant(await remoteAgent.resolveAssistant());
@@ -116,6 +128,7 @@ function HomePageInner({
 
   const handleWorkspacePick = useCallback(async () => {
     try {
+      setIsPickingWorkspace(true);
       await setThreadId(null);
       await setSelectedFilePath(null);
       await onWorkspacePick();
@@ -124,42 +137,155 @@ function HomePageInner({
       const message =
         error instanceof Error ? error.message : "工作区选择失败";
       toast.error(message);
+    } finally {
+      setIsPickingWorkspace(false);
     }
   }, [mutateThreads, onWorkspacePick, setSelectedFilePath, setThreadId]);
+
+  const handleEnvironmentChange = useCallback(
+    async (value: string) => {
+      if (value === OPEN_WORKSPACE_VALUE) {
+        await handleWorkspacePick();
+        return;
+      }
+
+      if (value.startsWith("workspace:")) {
+        await handleWorkspaceChange(value.slice("workspace:".length));
+        return;
+      }
+
+      if (value.startsWith("resource:")) {
+        await handleResourceChange(value.slice("resource:".length));
+      }
+    },
+    [handleResourceChange, handleWorkspaceChange, handleWorkspacePick]
+  );
 
   const handleRunActivity = useCallback(() => {
     mutateThreads?.();
     setWorkspaceRefreshKey((key) => key + 1);
   }, [mutateThreads]);
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("internagents.quickstart.autostart"));
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  const isLocalResource = activeResource.id === "local";
+  const environmentValue =
+    isLocalResource && activeWorkspace
+      ? `workspace:${activeWorkspace.id}`
+      : `resource:${activeResource.id}`;
+  const remoteResources = config.resources.filter(
+    (resource) => resource.id !== "local"
+  );
+  const environmentLabel =
+    isLocalResource && activeWorkspace
+      ? activeWorkspace.label
+      : activeResource.label;
+
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex h-16 items-center justify-between border-b border-border px-6">
-        <div className="flex min-w-0 items-center gap-4">
-          <h1 className="text-xl font-semibold">InternAgents</h1>
+    <div className="flex h-[calc(100vh-var(--app-footer-height))] flex-col bg-background text-foreground">
+      <header className="flex h-14 items-center justify-between border-b border-border bg-card/95 px-5 shadow-[0_1px_0_rgba(23,36,36,0.03)]">
+        <div
+          className="flex min-w-0 items-center gap-3"
+          data-tour="local-agent"
+        >
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">
+            InternAgents
+          </h1>
           <Select
-            value={activeResource.id}
-            onValueChange={handleResourceChange}
+            value={environmentValue}
+            onValueChange={(value) => void handleEnvironmentChange(value)}
           >
-            <SelectTrigger className="w-[210px]">
-              <SelectValue placeholder="选择资源" />
+            <SelectTrigger className="h-9 w-[260px] border-border bg-background/80 text-sm">
+              <span className="flex min-w-0 items-center gap-2">
+                {isPickingWorkspace ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                ) : null}
+                <span className="min-w-0 truncate">{environmentLabel}</span>
+              </span>
             </SelectTrigger>
-            <SelectContent align="start">
-              {config.resources.map((resource) => (
-                <SelectItem
-                  key={resource.id}
-                  value={resource.id}
-                >
-                  {resource.label}
-                </SelectItem>
-              ))}
+            <SelectContent
+              align="start"
+              className="w-[340px]"
+            >
+              {isLocalResource && (
+                <SelectGroup>
+                  <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    本地
+                  </SelectLabel>
+                  {workspaces.map((workspace) => (
+                    <SelectItem
+                      key={workspace.id}
+                      value={`workspace:${workspace.id}`}
+                      textValue={workspace.label}
+                      className="py-2"
+                    >
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{workspace.label}</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {workspace.resolvedPath || workspace.path}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                  <SelectSeparator />
+                  <SelectItem
+                    value={OPEN_WORKSPACE_VALUE}
+                    textValue="打开或新增工作区"
+                    className="py-2"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      {isPickingWorkspace ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <FolderOpen className="h-4 w-4 shrink-0" />
+                      )}
+                      <span>打开或新增工作区</span>
+                    </span>
+                  </SelectItem>
+                </SelectGroup>
+              )}
+
+              {remoteResources.length > 0 && (
+                <>
+                  {isLocalResource && <SelectSeparator />}
+                  <SelectGroup>
+                    <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                      Agent 服务
+                    </SelectLabel>
+                    {remoteResources.map((resource) => (
+                      <SelectItem
+                        key={resource.id}
+                        value={`resource:${resource.id}`}
+                      >
+                        {resource.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </>
+              )}
+
+              {!isLocalResource && (
+                <SelectGroup>
+                  {config.resources.map((resource) => (
+                    <SelectItem
+                      key={resource.id}
+                      value={`resource:${resource.id}`}
+                    >
+                      {resource.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
             </SelectContent>
           </Select>
-          <div className="hidden truncate text-xs text-muted-foreground md:block">
-            Assistant: {activeAssistantId}
-          </div>
           {interruptCount > 0 && (
-            <div className="rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">
+            <div className="rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 shadow-sm shadow-orange-900/5">
               {interruptCount} interrupted
             </div>
           )}
@@ -169,9 +295,12 @@ function HomePageInner({
             asChild
             variant="outline"
             size="sm"
-            className="h-8"
+            className="h-8 border-border bg-card"
           >
-            <Link href="/connect">
+            <Link
+              href="/connect"
+              data-tour="nav-connect"
+            >
               <Server className="h-4 w-4" />
               连接服务器
             </Link>
@@ -180,9 +309,12 @@ function HomePageInner({
             asChild
             variant="outline"
             size="sm"
-            className="h-8"
+            className="h-8 border-border bg-card"
           >
-            <Link href="/skills">
+            <Link
+              href="/skills"
+              data-tour="nav-skills"
+            >
               <Sparkles className="h-4 w-4" />
               技能广场
             </Link>
@@ -191,17 +323,34 @@ function HomePageInner({
             asChild
             variant="outline"
             size="sm"
-            className="h-8"
+            className="h-8 border-border bg-card"
           >
-            <Link href="/config">
+            <Link
+              href="/config"
+              data-tour="nav-config"
+            >
               <Settings className="h-4 w-4" />
               配置
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-8 border-border bg-card"
+          >
+            <Link
+              href="/about"
+              data-tour="nav-about"
+            >
+              <Info className="h-4 w-4" />
+              关于与更新
             </Link>
           </Button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden bg-background">
         <ResizablePanelGroup
           direction="horizontal"
           autoSaveId="standalone-chat"
@@ -211,7 +360,8 @@ function HomePageInner({
             order={1}
             defaultSize={24}
             minSize={18}
-            className="relative min-w-[300px] border-r border-border"
+            className="relative min-w-[300px] border-r border-border bg-sidebar"
+            data-tour="workspace-panel"
           >
             <WorkspacePanel
               key={activeWorkspace?.id || activeResource.id}
@@ -229,16 +379,13 @@ function HomePageInner({
               workspaceId={activeWorkspace?.id}
               workspaceRefreshKey={workspaceRefreshKey}
               activeWorkspace={activeWorkspace}
-              workspaces={workspaces}
-              onWorkspaceChange={handleWorkspaceChange}
-              onWorkspacePick={handleWorkspacePick}
             />
           </ResizablePanel>
           <ResizableHandle />
 
           <ResizablePanel
             id="chat"
-            className="relative flex min-w-[420px] flex-col"
+            className="relative flex min-w-[420px] flex-col bg-card/70"
             order={2}
             defaultSize={45}
             minSize={32}
@@ -266,7 +413,7 @@ function HomePageInner({
             order={3}
             defaultSize={31}
             minSize={22}
-            className="relative min-w-[320px] border-l border-border"
+            className="relative min-w-[320px] border-l border-border bg-card"
           >
             <WorkspaceViewer
               key={activeWorkspace?.id || activeResource.id}
@@ -388,7 +535,7 @@ function HomePageContent() {
 
   if (!config) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
         <p className="text-muted-foreground">
           Connecting to local InternAgents...
         </p>
@@ -480,7 +627,7 @@ export default function HomePage() {
   return (
     <Suspense
       fallback={
-        <div className="flex h-screen items-center justify-center">
+        <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
           <p className="text-muted-foreground">Loading...</p>
         </div>
       }

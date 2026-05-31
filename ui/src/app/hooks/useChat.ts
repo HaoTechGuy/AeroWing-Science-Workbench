@@ -17,6 +17,11 @@ import type { StreamConfig } from "@/lib/config";
 import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import { useStreamEventLayer } from "@/app/hooks/useStreamEventLayer";
+import {
+  inferThreadTitle,
+  THREAD_TITLE_METADATA_KEY,
+  THREAD_TITLE_UPDATED_AT_METADATA_KEY,
+} from "@/app/utils/threadTitle";
 
 type RunConfig = Record<string, any>;
 type ParsedGoalCommand = {
@@ -134,6 +139,25 @@ function mergeStateValues(
   });
 }
 
+function mergeThreadRecord(
+  state: ThreadState<StateType>,
+  thread: Thread<StateType>
+): ThreadState<StateType> {
+  const mergedState = mergeStateValues(state, thread.values);
+  const threadMetadata =
+    thread.metadata && typeof thread.metadata === "object"
+      ? (thread.metadata as Record<string, unknown>)
+      : {};
+
+  return sanitizeThreadState({
+    ...mergedState,
+    metadata: {
+      ...(mergedState.metadata || {}),
+      ...threadMetadata,
+    },
+  });
+}
+
 async function loadThreadSnapshot({
   client,
   runtimeClient,
@@ -151,9 +175,6 @@ async function loadThreadSnapshot({
       await client.threads.getState<StateType>(threadId)
     );
     primaryState = mainState;
-    if (stateHasMessages(mainState)) {
-      return [mainState];
-    }
   } catch (error) {
     primaryError = error;
   }
@@ -161,7 +182,7 @@ async function loadThreadSnapshot({
   try {
     const threadRecord = await client.threads.get<StateType>(threadId);
     const threadState = primaryState
-      ? mergeStateValues(primaryState, threadRecord.values)
+      ? mergeThreadRecord(primaryState, threadRecord)
       : threadToState(threadId, threadRecord);
     if (stateHasMessages(threadState)) {
       return [sanitizeThreadState(threadState)];
@@ -169,6 +190,10 @@ async function loadThreadSnapshot({
     primaryState = threadState;
   } catch (error) {
     primaryError ??= error;
+  }
+
+  if (stateHasMessages(primaryState)) {
+    return [sanitizeThreadState(primaryState)];
   }
 
   try {
@@ -453,6 +478,12 @@ export function useChat({
   workspaceLabel?: string;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
+  const [optimisticThreadTitle, setOptimisticThreadTitle] = useState<
+    string | null
+  >(null);
+  const previousThreadIdRef = useRef<string | null>(threadId ?? null);
+  const pendingNewThreadTitleRef = useRef<string | null>(null);
+  const pendingNewThreadTitleThreadIdRef = useRef<string | null>(null);
   const remoteAgent = useRemoteAgent();
   const client = remoteAgent.client;
   const runtimeClient = useMemo(
@@ -473,6 +504,31 @@ export function useChat({
     threadId: threadId ?? null,
     externalThread: thread,
   });
+  const threadMetadata = useMemo(() => {
+    const metadata = threadSnapshot?.data?.[0]?.metadata;
+    return metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>)
+      : {};
+  }, [threadSnapshot?.data]);
+
+  useEffect(() => {
+    const previousThreadId = previousThreadIdRef.current;
+    const nextThreadId = threadId ?? null;
+
+    if (previousThreadId === nextThreadId) return;
+
+    previousThreadIdRef.current = nextThreadId;
+    const shouldCarryPendingTitle =
+      Boolean(nextThreadId) &&
+      pendingNewThreadTitleThreadIdRef.current === nextThreadId &&
+      Boolean(pendingNewThreadTitleRef.current);
+
+    if (!shouldCarryPendingTitle) {
+      pendingNewThreadTitleRef.current = null;
+      pendingNewThreadTitleThreadIdRef.current = null;
+      setOptimisticThreadTitle(null);
+    }
+  }, [threadId]);
 
   const streamSubmitOptions = useMemo(
     () => remoteAgent.getStreamSubmitOptions(streamConfig),
@@ -567,7 +623,14 @@ export function useChat({
       const goalCommand = parseGoalCommand(content);
       const existingGoal = threadId ? stream.values.goal : null;
       const shouldSeedGoal = Boolean(goalCommand && !existingGoal);
-      const seededGoalThreadId = shouldSeedGoal ? threadId ?? uuidv4() : null;
+      const pendingNewThreadTitle = pendingNewThreadTitleRef.current;
+      const newThreadId =
+        !threadId && (shouldSeedGoal || pendingNewThreadTitle)
+          ? uuidv4()
+          : null;
+      const seededGoalThreadId = shouldSeedGoal
+        ? threadId ?? newThreadId ?? uuidv4()
+        : null;
       const seededGoal =
         shouldSeedGoal && goalCommand && seededGoalThreadId
           ? createGoalState(goalCommand, seededGoalThreadId)
@@ -599,6 +662,9 @@ export function useChat({
             : undefined,
       };
       clearStreamEvents();
+      if (newThreadId && pendingNewThreadTitle) {
+        pendingNewThreadTitleThreadIdRef.current = newThreadId;
+      }
       stream.submit(
         {
           messages: [newMessage],
@@ -606,9 +672,7 @@ export function useChat({
         },
         withStreamSubmitOptions({
           metadata: workspaceMetadata,
-          ...(seededGoalThreadId && !threadId
-            ? { threadId: seededGoalThreadId }
-            : {}),
+          ...(newThreadId ? { threadId: newThreadId } : {}),
           optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
             ...(seededGoal ? { goal: seededGoal } : {}),
@@ -681,6 +745,97 @@ export function useChat({
     [remoteAgent, threadId]
   );
 
+  const threadTitle = useMemo(
+    () => {
+      if (optimisticThreadTitle) {
+        return optimisticThreadTitle;
+      }
+      return inferThreadTitle({
+        metadata: threadMetadata,
+        goal: stream.values.goal ?? null,
+        messages: stream.messages,
+        fallback: threadId ? `会话 ${threadId.slice(0, 8)}` : "新会话",
+      });
+    },
+    [
+      optimisticThreadTitle,
+      stream.messages,
+      stream.values.goal,
+      threadId,
+      threadMetadata,
+    ]
+  );
+
+  const updateThreadTitle = useCallback(
+    async (title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed) {
+        throw new Error("标题不能为空。");
+      }
+
+      if (!threadId) {
+        pendingNewThreadTitleRef.current = trimmed;
+        setOptimisticThreadTitle(trimmed);
+        return;
+      }
+
+      await client.threads.update(threadId, {
+        metadata: {
+          ...threadMetadata,
+          [THREAD_TITLE_METADATA_KEY]: trimmed,
+          [THREAD_TITLE_UPDATED_AT_METADATA_KEY]: new Date().toISOString(),
+        },
+      });
+      setOptimisticThreadTitle(trimmed);
+      await threadSnapshot?.mutate?.(threadId);
+      onHistoryRevalidate?.();
+    },
+    [client.threads, onHistoryRevalidate, threadId, threadMetadata, threadSnapshot]
+  );
+
+  useEffect(() => {
+    const pendingTitle = pendingNewThreadTitleRef.current;
+    if (
+      !threadId ||
+      !pendingTitle ||
+      pendingNewThreadTitleThreadIdRef.current !== threadId
+    ) {
+      return;
+    }
+
+    if (threadMetadata[THREAD_TITLE_METADATA_KEY] === pendingTitle) {
+      pendingNewThreadTitleRef.current = null;
+      pendingNewThreadTitleThreadIdRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+
+    void client.threads
+      .update(threadId, {
+        metadata: {
+          ...threadMetadata,
+          [THREAD_TITLE_METADATA_KEY]: pendingTitle,
+          [THREAD_TITLE_UPDATED_AT_METADATA_KEY]: new Date().toISOString(),
+        },
+      })
+      .then(async () => {
+        if (cancelled) return;
+        pendingNewThreadTitleRef.current = null;
+        pendingNewThreadTitleThreadIdRef.current = null;
+        setOptimisticThreadTitle(pendingTitle);
+        await threadSnapshot?.mutate?.(threadId);
+        onHistoryRevalidate?.();
+      })
+      .catch((error) => {
+        console.error("Failed to persist pending thread title", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client.threads, onHistoryRevalidate, threadId, threadMetadata, threadSnapshot]);
+
   const continueStream = useCallback(
     (hasTaskToolCall?: boolean) => {
       clearStreamEvents();
@@ -747,6 +902,10 @@ export function useChat({
     goal: stream.values.goal ?? null,
     email: stream.values.email,
     ui: stream.values.ui,
+    threadId,
+    threadTitle,
+    threadMetadata,
+    updateThreadTitle,
     setFiles,
     messages: stream.messages,
     error: stream.error,

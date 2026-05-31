@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 interface ChatMessageProps {
   message: Message;
   toolCalls: ToolCall[];
+  showAvatar?: boolean;
   isLoading?: boolean;
   actionRequestsMap?: Map<string, ActionRequest>;
   reviewConfigsMap?: Map<string, ReviewConfig>;
@@ -37,6 +38,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
   ({
     message,
     toolCalls,
+    showAvatar,
     isLoading,
     actionRequestsMap,
     reviewConfigsMap,
@@ -109,9 +111,22 @@ export const ChatMessage = React.memo<ChatMessageProps>(
       <div
         className={cn(
           "flex w-full max-w-full overflow-x-hidden",
-          isUser && "flex-row-reverse"
+          isUser ? "flex-row-reverse" : "gap-3"
         )}
       >
+        {!isUser && (
+          <div className="mt-4 flex h-7 w-7 shrink-0 items-start justify-center">
+            {showAvatar && (
+              <div
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/20 bg-primary text-[10px] font-semibold tracking-wide text-primary-foreground shadow-sm shadow-black/[0.035]"
+                title="InternAgents"
+                aria-label="InternAgents"
+              >
+                IA
+              </div>
+            )}
+          </div>
+        )}
         <div
           className={cn(
             "min-w-0 max-w-full",
@@ -124,8 +139,8 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 className={cn(
                   "mt-4 overflow-hidden break-words text-sm font-normal leading-[150%]",
                   isUser
-                    ? "rounded-xl rounded-br-none border border-border px-3 py-2 text-foreground"
-                    : "text-primary"
+                    ? "rounded-lg rounded-br-sm border border-primary/15 px-3 py-2 text-foreground shadow-sm shadow-black/[0.025]"
+                    : "text-foreground"
                 )}
                 style={
                   isUser
@@ -150,13 +165,13 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   key={`${message.id}-image-${index}`}
                   src={imageUrl}
                   alt=""
-                  className="max-h-44 max-w-56 rounded-md border border-border object-contain"
+                  className="max-h-44 max-w-56 rounded-md border border-border bg-card object-contain shadow-sm shadow-black/[0.025]"
                 />
               ))}
               {visibleFileAttachments.map((attachment) => (
                 <div
                   key={attachment.id}
-                  className="flex max-w-56 items-center gap-2 rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-muted-foreground"
+                  className="flex max-w-56 items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-xs text-muted-foreground shadow-sm shadow-black/[0.025]"
                 >
                   <FileIcon className="h-4 w-4 shrink-0" />
                   <span className="min-w-0 truncate">{attachment.name}</span>
@@ -207,8 +222,8 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   </div>
                   {isSubAgentExpanded(subAgent.id) && (
                     <div className="w-full max-w-full">
-                      <div className="bg-surface border-border-light rounded-md border p-4">
-                        <h4 className="text-primary/70 mb-2 text-xs font-semibold uppercase tracking-wider">
+                      <div className="rounded-md border border-border bg-card p-4 shadow-sm shadow-black/[0.025]">
+                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70">
                           Input
                         </h4>
                         <div className="mb-4">
@@ -218,7 +233,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                         </div>
                         {subAgent.output && (
                           <>
-                            <h4 className="text-primary/70 mb-2 text-xs font-semibold uppercase tracking-wider">
+                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70">
                               Output
                             </h4>
                             <MarkdownContent

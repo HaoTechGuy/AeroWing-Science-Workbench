@@ -9,6 +9,6 @@
   "authorization_mode": "auto",
   "model_selection_mode": "auto",
   "manual_model": "deepseek/deepseek-v4-flash",
-  "openrouter_direct_enabled": false,
+  "openrouter_direct_enabled": true,
   "openrouter_model": "deepseek/deepseek-v4-flash"
 }

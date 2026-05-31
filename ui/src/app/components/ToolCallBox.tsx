@@ -107,8 +107,8 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     return (
       <div
         className={cn(
-          "w-full overflow-hidden rounded-lg border-none shadow-none outline-none transition-colors duration-200 hover:bg-accent",
-          isExpanded && hasContent && "bg-accent"
+          "w-full overflow-hidden rounded-md border border-transparent outline-none transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/60",
+          isExpanded && hasContent && "border-border bg-accent/60"
         )}
       >
         <Button
@@ -123,7 +123,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
           <div className="flex w-full items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               {statusIcon}
-              <span className="text-[15px] font-medium tracking-[-0.6px] text-foreground">
+              <span className="text-sm font-medium text-foreground">
                 {displayName}
               </span>
             </div>

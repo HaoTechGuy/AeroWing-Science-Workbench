@@ -170,6 +170,31 @@ The browser talks to the LangGraph API through the LangGraph JavaScript SDK. It
 does not call a Python `RemoteAgent`, and it does not require LangSmith for
 local development.
 
+## Software Updates
+
+The configuration page includes a local software update panel. It checks the
+public GitHub Releases feed for:
+
+```text
+shuyuehu/InternAgents
+```
+
+The browser never receives a shell command or repository URL from the user. It
+calls local Next.js API routes under `/api/update/*`; those routes are the only
+place that can fetch the fixed release source, switch to the latest `vX.Y.Z`
+tag, restart the local backend, or roll back to the previously recorded
+checkout target.
+
+Publishing a new demo release is tag driven:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The release workflow validates Python files, lints and builds the UI, packages a
+source archive, writes a SHA-256 checksum, and creates the GitHub Release.
+
 ### Tool Display Names
 
 Backend tool names stay unchanged because LangGraph still needs the original
@@ -270,8 +295,9 @@ NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
 ```
 
-First launch opens the configuration onboarding flow when the app runtime has no
-OpenRouter API key yet.
+First launch opens the local workbench directly. The committed default model
+configuration uses `openrouter/auto`; real OpenRouter API keys still belong in
+the user's untracked `.env` or desktop runtime configuration.
 
 ## Smoke Tests
 

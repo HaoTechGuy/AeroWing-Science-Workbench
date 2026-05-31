@@ -5,10 +5,17 @@ import React, {
   useRef,
   useCallback,
   useMemo,
+  useEffect,
   FormEvent,
   Fragment,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Square,
   ArrowUp,
@@ -17,10 +24,13 @@ import {
   Circle,
   FileIcon,
   ImagePlus,
+  Loader2,
   Paperclip,
+  Pencil,
   Target,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
 import type {
@@ -128,7 +138,7 @@ function goalStatusClassName(status: GoalState["status"]): string {
     case "blocked":
       return "border-warning/30 bg-warning/10 text-warning";
     default:
-      return "border-[#2F6868]/30 bg-[#2F6868]/10 text-[#2F6868]";
+      return "border-primary/30 bg-primary/10 text-primary";
   }
 }
 
@@ -323,6 +333,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
   const { scrollRef, contentRef } = useStickToBottom();
 
   const {
@@ -338,6 +351,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     isLoading,
     isThreadLoading,
     interrupt,
+    threadTitle,
+    updateThreadTitle,
     sendMessage,
     stopStream,
     resumeInterrupt,
@@ -348,6 +363,43 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     (attachment) => !attachment.error
   );
   const errorMessage = formatChatError(error);
+
+  useEffect(() => {
+    if (!isEditingTitle) {
+      setTitleDraft(threadTitle);
+    }
+  }, [isEditingTitle, threadTitle]);
+
+  const startTitleEdit = useCallback(() => {
+    setTitleDraft(threadTitle);
+    setIsEditingTitle(true);
+  }, [threadTitle]);
+
+  const cancelTitleEdit = useCallback(() => {
+    setTitleDraft(threadTitle);
+    setIsEditingTitle(false);
+  }, [threadTitle]);
+
+  const saveTitleEdit = useCallback(async () => {
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle) {
+      toast.error("标题不能为空");
+      return;
+    }
+
+    setIsSavingTitle(true);
+    try {
+      await updateThreadTitle(nextTitle);
+      setIsEditingTitle(false);
+      toast.success("标题已更新");
+    } catch (titleError) {
+      toast.error(
+        titleError instanceof Error ? titleError.message : "标题更新失败"
+      );
+    } finally {
+      setIsSavingTitle(false);
+    }
+  }, [titleDraft, updateThreadTitle]);
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -607,9 +659,93 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   }, [actionRequests, hasVisibleInterruptToolCall]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col overflow-hidden bg-card/70">
+      <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-card/90 px-4 py-2">
+        <div className="min-w-0 flex-1">
+          {isEditingTitle ? (
+            <Input
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void saveTitleEdit();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelTitleEdit();
+                }
+              }}
+              disabled={isSavingTitle}
+              autoFocus
+              className="h-7 max-w-xl"
+              aria-label="会话标题"
+            />
+          ) : (
+            <h2 className="truncate text-sm font-semibold text-foreground">
+              {threadTitle}
+            </h2>
+          )}
+        </div>
+
+        {isEditingTitle ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void saveTitleEdit()}
+              disabled={isSavingTitle}
+              aria-label="保存会话标题"
+            >
+              {isSavingTitle ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={cancelTitleEdit}
+              disabled={isSavingTitle}
+              aria-label="取消更改标题"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                onClick={startTitleEdit}
+                disabled={isThreadLoading}
+                aria-label="更改会话标题"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              align="center"
+              sideOffset={6}
+              className="whitespace-nowrap"
+            >
+              更改会话标题
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+
       <div
-        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
+        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain bg-card/70"
         ref={scrollRef}
       >
         <div
@@ -623,9 +759,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
           ) : (
             <>
               {hasGoal && goal && (
-                <div className="mb-4 rounded-xl border border-border bg-sidebar px-4 py-3 shadow-sm">
+                <div className="mb-4 rounded-lg border border-border bg-card px-4 py-3 shadow-sm shadow-black/[0.03]">
                   <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    <Target className="h-4 w-4 text-[#2F6868]" />
+                    <Target className="h-4 w-4 text-primary" />
                     Goal
                     <span
                       className={cn(
@@ -644,7 +780,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       </span>
                     )}
                   </div>
-                  <div className="mt-2 text-sm leading-6 text-primary">
+                  <div className="mt-2 text-sm leading-6 text-foreground">
                     {goal.objective}
                   </div>
                 </div>
@@ -659,6 +795,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     key={data.message.id}
                     message={data.message}
                     toolCalls={data.toolCalls}
+                    showAvatar={data.showAvatar}
                     isLoading={isLoading}
                     actionRequestsMap={
                       isLastMessage ? actionRequestsMap : undefined
@@ -696,15 +833,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         </div>
       </div>
 
-      <div className="flex-shrink-0 bg-background">
+      <div className="flex-shrink-0 border-t border-border/70 bg-background/80">
         <div
           className={cn(
-            "mx-4 mb-6 flex flex-shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background",
+            "mx-4 mb-5 mt-3 flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-lg shadow-black/[0.04]",
             "mx-auto w-[calc(100%-32px)] max-w-[1024px] transition-colors duration-200 ease-in-out"
           )}
+          data-tour="chat-input"
         >
           {(hasGoal || hasTasks || hasFiles) && (
-            <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-sidebar empty:hidden">
+            <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-muted/50 empty:hidden">
               {!metaOpen && (
                 <>
                   {(() => {
@@ -727,7 +865,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "tasks" ? null : "tasks"
                             )
                           }
-                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left"
+                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "tasks"}
                         >
                           {(() => {
@@ -798,12 +936,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "goal" ? null : "goal"
                             )
                           }
-                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left"
+                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "goal"}
                         >
                           <Target
                             size={16}
-                            className="text-[#2F6868]"
+                            className="text-primary"
                           />
                           <span className="ml-[1px] min-w-0 truncate text-sm">
                             Goal · {goalStatusLabel(goal.status)}
@@ -825,12 +963,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "files" ? null : "files"
                             )
                           }
-                          className="flex flex-shrink-0 cursor-pointer items-center gap-2 px-[18px] py-3 text-left text-sm"
+                          className="flex flex-shrink-0 cursor-pointer items-center gap-2 px-[18px] py-3 text-left text-sm transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "files"}
                         >
                           <FileIcon size={16} />
                           Files (State)
-                          <span className="h-4 min-w-4 rounded-full bg-[#2F6868] px-0.5 text-center text-[10px] leading-[16px] text-white">
+                          <span className="h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-[10px] leading-[16px] text-primary-foreground">
                             {Object.keys(files).length}
                           </span>
                         </button>
@@ -850,11 +988,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
               {metaOpen && (
                 <>
-                  <div className="sticky top-0 flex items-stretch bg-sidebar text-sm">
+                  <div className="sticky top-0 flex items-stretch border-b border-border bg-card text-sm">
                     {hasGoal && (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 py-3 pr-4 first:pl-[18px] aria-expanded:font-semibold"
+                        className="inline-flex items-center gap-2 py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
                         onClick={() =>
                           setMetaOpen((prev) =>
                             prev === "goal" ? null : "goal"
@@ -862,14 +1000,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         }
                         aria-expanded={metaOpen === "goal"}
                       >
-                        <Target className="h-4 w-4 text-[#2F6868]" />
+                        <Target className="h-4 w-4 text-primary" />
                         Goal
                       </button>
                     )}
                     {hasTasks && (
                       <button
                         type="button"
-                        className="py-3 pr-4 first:pl-[18px] aria-expanded:font-semibold"
+                        className="py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
                         onClick={() =>
                           setMetaOpen((prev) =>
                             prev === "tasks" ? null : "tasks"
@@ -883,7 +1021,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     {hasFiles && (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 py-3 pr-4 first:pl-[18px] aria-expanded:font-semibold"
+                        className="inline-flex items-center gap-2 py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
                         onClick={() =>
                           setMetaOpen((prev) =>
                             prev === "files" ? null : "files"
@@ -892,7 +1030,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         aria-expanded={metaOpen === "files"}
                       >
                         Files (State)
-                        <span className="h-4 min-w-4 rounded-full bg-[#2F6868] px-0.5 text-center text-[10px] leading-[16px] text-white">
+                        <span className="h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-[10px] leading-[16px] text-primary-foreground">
                           {Object.keys(files).length}
                         </span>
                       </button>
@@ -908,7 +1046,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     className="px-[18px]"
                   >
                     {metaOpen === "goal" && goal && (
-                      <div className="mb-5 rounded-lg border border-border bg-background px-3 py-3">
+                      <div className="mb-5 rounded-md border border-border bg-card px-3 py-3">
                         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span
                             className={cn(
@@ -925,7 +1063,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                             </span>
                           )}
                         </div>
-                        <div className="text-sm leading-6 text-primary">
+                        <div className="text-sm leading-6 text-foreground">
                           {goal.objective}
                         </div>
                       </div>
@@ -1047,33 +1185,57 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={isLoading ? "正在运行..." : "你希望我做些什么？"}
-              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary/60"
+              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
               rows={2}
             />
-            <div className="flex items-center justify-between gap-2 p-3">
+            <div className="flex items-center justify-between gap-2 border-t border-border/60 p-3">
               <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={submitDisabled}
-                  aria-label="添加图片"
-                >
-                  <ImagePlus className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={submitDisabled}
-                  aria-label="添加附件"
-                >
-                  <Paperclip className="h-4 w-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={submitDisabled}
+                      aria-label="添加图片"
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="center"
+                    sideOffset={6}
+                    className="whitespace-nowrap"
+                  >
+                    添加图片
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={submitDisabled}
+                      aria-label="添加附件"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="center"
+                    sideOffset={6}
+                    className="whitespace-nowrap"
+                  >
+                    添加附件
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="flex justify-end gap-2">
                 <Button

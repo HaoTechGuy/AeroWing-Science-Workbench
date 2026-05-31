@@ -1,6 +1,6 @@
 # InternAgents 桌面版用户手册
 
-这份手册写给第一次使用 InternAgents 的 macOS 用户。你不需要懂命令行，只要按页面提示填好模型、API key 和工作区，就可以开始让它帮你做文献、文件和项目分析。
+这份手册写给第一次使用 InternAgents 的 macOS 用户。你不需要懂命令行，打开后会先进入工作台并显示快速导览；需要更换模型、API key、工作区或授权模式时，再进入配置页调整。
 
 ## 1. 安装和打开
 
@@ -10,13 +10,15 @@
 
 如果 macOS 提示“无法验证开发者”，可以在「应用程序」里按住 `Control` 点 `InternAgents`，选择「打开」。第一次打开后，以后通常就可以直接双击打开。
 
-## 2. 第一次设置
+## 2. 第一次打开
 
-第一次启动会进入「首次设置 InternAgents」页面。
+第一次启动会直接进入本地工作台，并显示 Quickstart 导览。
 
 ![首次设置](assets/desktop-user-guide/01-first-setup.png)
 
-你只需要确认 4 件事：
+默认模型配置已经写入应用配置，使用 `openrouter/auto`。真实 OpenRouter API key 不会提交到仓库；如果你需要手动填写或更换 key，可以稍后打开「配置」页面。
+
+配置页里可以调整 4 件事：
 
 ### 2.1 OpenRouter API key
 

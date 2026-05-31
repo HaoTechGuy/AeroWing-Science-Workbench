@@ -396,12 +396,9 @@ async function boot() {
 
   await startNextServer(uiPort, backendPort, runtimePort);
 
-  const configured = hasInitialConfig();
-  if (configured) {
-    await restartBackend(uiPort);
-  }
+  await restartBackend(uiPort);
 
-  const startPath = configured ? "/?assistantId=agent_local" : "/config?onboarding=1";
+  const startPath = "/?assistantId=agent_local";
   await createWindow(`http://${HOST}:${uiPort}${startPath}`);
 }
 

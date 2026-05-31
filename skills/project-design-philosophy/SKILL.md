@@ -1,6 +1,6 @@
 ---
 name: project-design-philosophy
-description: Apply InternAgents project design philosophy and reusable UI implementation patterns. Use when changing the web UI, interaction details, hover states, icon buttons, tooltips, sidebars, workspace panels, chat controls, or any visual polish in ui/src.
+description: Apply InternAgents project design philosophy and reusable UI implementation patterns, especially the Calm Laboratory Console visual style. Use when changing the web UI, interaction details, hover states, icon buttons, tooltips, sidebars, workspace panels, chat controls, file previews, or any visual polish in ui/src.
 ---
 
 # Project Design Philosophy
@@ -25,6 +25,127 @@ behavior changes, and restrained interaction details over one-off styling.
   short tooltips rather than long visible helper copy.
 - Preserve existing state and API behavior when polishing visuals. Visual
   cleanup should not alter thread, workspace, runtime, or agent semantics.
+
+## Calm Laboratory Console Style
+
+Use this as the default visual direction for the InternAgents workspace.
+
+Visual tone:
+
+- Treat the app as a local research console, not a marketing AI product. The UI
+  should feel like a precise lab bench for files, threads, previews, and agent
+  activity.
+- Use off-white and pale gray surfaces, fine borders, soft shadows, and sparse
+  deep-teal accents.
+- Keep the three-column workspace visible and legible: workspace/files on the
+  left, chat in the center, file preview/inspector on the right.
+- Avoid large hero typography, decorative gradients, large cards, heavy dark
+  blocks, oversized empty states, or one-note saturated palettes.
+- Use density deliberately. Lists, headers, toolbars, and status indicators
+  should be compact enough for repeated work.
+
+Color and surface rules:
+
+- Put global color decisions in `ui/src/app/globals.css` by adjusting Tailwind
+  tokens such as `--background`, `--foreground`, `--card`, `--popover`,
+  `--primary`, `--muted`, `--accent`, `--border`, `--input`, `--ring`, and
+  `--sidebar`.
+- Prefer deep teal through semantic classes (`text-primary`, `bg-primary`,
+  `border-primary/30`) instead of repeating hex values like `#2F6868`.
+- Use `bg-card` for primary white work surfaces, `bg-sidebar` for the left
+  workspace rail, `bg-muted` or `bg-muted/50` for subtle metadata bands, and
+  `border-border` for panel boundaries.
+- Use shadows sparingly: `shadow-sm shadow-black/[0.025]` for small raised
+  affordances and `shadow-lg shadow-black/[0.04]` only for the chat composer or
+  similarly important floating surfaces.
+- Keep code and markdown previews light by default. Prefer `oneLight` and a
+  `border-border bg-card` code surface over a large dark block unless a specific
+  dark preview is required.
+
+Layout rules:
+
+- Keep the top bar short and quiet. It should contain the product name, resource
+  selector, assistant/runtime status, and compact navigation buttons.
+- Keep panel dividers thin. Use the shared `ResizableHandle`; do not create
+  custom draggable separators for one-off panels.
+- Make the center chat column calm and mostly white. The composer may float
+  slightly with a small border and soft shadow, but it should not become a
+  dominant card.
+- Keep file preview headers inspector-like: small file icon, filename, size,
+  kind, and raw/open action.
+- Let empty states stay small and centered. They should explain state without
+  competing with the workspace.
+
+## Calm Console Implementation Map
+
+When applying or extending this style, reuse these implementation locations:
+
+- `ui/src/app/globals.css`: semantic color tokens, background, typography,
+  scrollbar, and shared base styles.
+- `ui/src/components/ui/button.tsx`: button border, hover, focus, and default
+  deep-teal action styling.
+- `ui/src/components/ui/input.tsx`, `select.tsx`, `textarea.tsx`: form surface,
+  focus ring, border, and subtle shadows.
+- `ui/src/components/ui/resizable.tsx`: thin draggable panel handles and hover
+  affordance.
+- `ui/src/components/ui/tooltip.tsx`: shared hover hints.
+- `ui/src/app/page.tsx`: main three-panel shell and top bar.
+- `ui/src/app/components/WorkspaceExplorer.tsx`: file-tree density, selected
+  row, filter input, and workspace header.
+- `ui/src/app/components/ThreadList.tsx`: thread row density, selected row,
+  row action buttons, and archive tooltip behavior.
+- `ui/src/app/components/ChatInterface.tsx`: chat canvas, goal/tasks/files
+  metadata band, attachments, and composer surface.
+- `ui/src/app/components/ChatMessage.tsx`: user bubble, tool result spacing,
+  subagent panels, and attachment chips.
+- `ui/src/app/components/WorkspaceViewer.tsx` and `MarkdownContent.tsx`:
+  inspector header, markdown surface, and light code previews.
+- `ui/src/app/components/ToolCallBox.tsx`,
+  `ToolApprovalInterrupt.tsx`, and `SubAgentIndicator.tsx`: agent activity
+  should look like compact console rows, not large decorative cards.
+
+Prefer improving these shared primitives before adding local utility-class
+patches. Use local classes only for placement, density, or component-specific
+state.
+
+## Component Styling Patterns
+
+Top bar:
+
+- Use `h-14`, `bg-card/95`, `border-b border-border`, and compact `outline`
+  buttons.
+- Keep the assistant identifier as a non-shrinking rounded status pill with
+  `border-border bg-background px-2.5 py-1 text-xs text-muted-foreground`.
+
+Left workspace rail:
+
+- Use `bg-sidebar` for the whole rail.
+- Use a subtle `bg-card/60` header.
+- File rows should be `h-8`, rounded, bordered only on hover/selected states,
+  and selected with `border-primary/25 bg-primary/10 text-primary`.
+- Keep file sizes at `text-[11px] text-muted-foreground`.
+
+Thread rows:
+
+- Keep row actions at the edge and icon-only.
+- Use transparent borders normally, `hover:border-border hover:bg-card`, and
+  `border-primary/30 bg-primary/10` for selected rows.
+- Keep section labels small uppercase with restrained tracking.
+
+Chat and composer:
+
+- Keep the chat canvas `bg-card/70` or similarly light.
+- Give the composer `rounded-lg border border-border bg-card shadow-lg
+  shadow-black/[0.04]`.
+- Add a subtle top border to the composer action row.
+- Use `text-foreground` in the textarea and semantic muted placeholder color.
+
+Preview pane:
+
+- Use `bg-card` for the pane and `bg-card/80` for the preview header.
+- Use light syntax highlighting (`oneLight`) and add `border: 1px solid
+  hsl(var(--border))` plus `background: hsl(var(--card))` in custom code block
+  styles.
 
 ## Reusable Hover Tooltip Pattern
 
@@ -131,6 +252,7 @@ After UI polish:
 - Open the relevant local page in the browser and hover the target control.
 - Confirm the tooltip does not cover the content the user is inspecting.
 - Confirm disabled and loading states keep stable button dimensions.
+- Verify the three major surfaces: file tree, chat composer, and preview pane.
 - Check browser console errors.
 - If a shared primitive changed, spot-check at least one other tooltip call
   site so the global style still works.
