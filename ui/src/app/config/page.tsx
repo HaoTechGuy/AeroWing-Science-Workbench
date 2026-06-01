@@ -881,10 +881,6 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
-                  集思会使用 OpenAI-compatible 接口请求模型服务，真实
-                  DeepSeek key 保留在服务端。
-                </div>
               </div>
             )}
           </section>
