@@ -24,6 +24,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { ResourceConfig } from "@/lib/config";
 
+type ConnectionMode = "sshConfig" | "sshCommand";
+
 interface SshHostEntry {
   host: string;
   source: string;
@@ -67,13 +69,24 @@ function defaultWorkspaceForHost(host: string): string {
   return `~/internagents-workspaces/${host.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
 }
 
+function labelFromSshCommand(command: string): string {
+  const parts = command.trim().split(/\s+/);
+  const target = [...parts]
+    .reverse()
+    .find((part) => !part.startsWith("-") && part !== "ssh");
+  return target ? labelFromHost(target) : "";
+}
+
 export function RemoteConnectionDialog({
   open,
   onOpenChange,
   onConfigured,
 }: RemoteConnectionDialogProps) {
   const [hosts, setHosts] = useState<SshHostEntry[]>([]);
+  const [connectionMode, setConnectionMode] =
+    useState<ConnectionMode>("sshConfig");
   const [selectedHost, setSelectedHost] = useState<string>("");
+  const [sshCommand, setSshCommand] = useState("");
   const [label, setLabel] = useState("");
   const [workspace, setWorkspace] = useState("");
   const [localPort, setLocalPort] = useState("");
@@ -106,12 +119,20 @@ export function RemoteConnectionDialog({
       .finally(() => setLoadingHosts(false));
   }, [open]);
 
+  const connectionReady =
+    connectionMode === "sshConfig" ? selectedHost.trim() : sshCommand.trim();
   const canSubmit = useMemo(
     () =>
-      Boolean(selectedHost.trim() && label.trim() && workspace.trim()) &&
+      Boolean(connectionReady && label.trim() && workspace.trim()) &&
       !settingUp,
-    [label, selectedHost, settingUp, workspace]
+    [connectionReady, label, settingUp, workspace]
   );
+
+  function switchConnectionMode(mode: ConnectionMode) {
+    setConnectionMode(mode);
+    setTestResult(null);
+    setSetupLog([]);
+  }
 
   function applyHost(host: string) {
     setSelectedHost(host);
@@ -125,6 +146,19 @@ export function RemoteConnectionDialog({
     setSetupLog([]);
   }
 
+  function applySshCommand(command: string) {
+    setSshCommand(command);
+    const derivedLabel = labelFromSshCommand(command);
+    if (derivedLabel && !label.trim()) {
+      setLabel(derivedLabel);
+    }
+    if (derivedLabel && !workspace.trim()) {
+      setWorkspace(defaultWorkspaceForHost(derivedLabel));
+    }
+    setTestResult(null);
+    setSetupLog([]);
+  }
+
   async function testConnection() {
     setTesting(true);
     setTestResult(null);
@@ -132,7 +166,11 @@ export function RemoteConnectionDialog({
       const response = await fetch("/api/remote-connections/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ host: selectedHost }),
+        body: JSON.stringify({
+          connectionMode,
+          host: connectionMode === "sshConfig" ? selectedHost : undefined,
+          sshCommand: connectionMode === "sshCommand" ? sshCommand : undefined,
+        }),
       });
       const payload = (await response.json()) as TestResult;
       setTestResult(payload);
@@ -158,7 +196,9 @@ export function RemoteConnectionDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          host: selectedHost,
+          connectionMode,
+          host: connectionMode === "sshConfig" ? selectedHost : undefined,
+          sshCommand: connectionMode === "sshCommand" ? sshCommand : undefined,
           label,
           workspace,
           localPort: Number.isFinite(port) && port > 0 ? port : undefined,
@@ -248,46 +288,92 @@ export function RemoteConnectionDialog({
         <DialogHeader>
           <DialogTitle>添加远程工作区</DialogTitle>
           <DialogDescription>
-            从本机 SSH config 选择可连接的 Host，测试通过后会通过 SSH 安装并启动
-            InternAgents runtime，并把远端工作区路径加入工作区列表。
+            选择 SSH config Host 或粘贴 SSH 连接指令，测试通过后会通过 SSH
+            安装并启动 InternAgents runtime，并把远端工作区路径加入工作区列表。
           </DialogDescription>
         </DialogHeader>
 
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => switchConnectionMode("sshConfig")}
+            className={`rounded-lg border p-3 text-left transition ${
+              connectionMode === "sshConfig"
+                ? "border-[#2F6868] bg-[#F1F7F5] text-[#24595A]"
+                : "border-border bg-background hover:bg-accent"
+            }`}
+          >
+            <div className="text-sm font-semibold">通过 SSH config 新建</div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+              适合已经在 ~/.ssh/config 配好 Host、端口和私钥的机器。
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => switchConnectionMode("sshCommand")}
+            className={`rounded-lg border p-3 text-left transition ${
+              connectionMode === "sshCommand"
+                ? "border-[#2F6868] bg-[#F1F7F5] text-[#24595A]"
+                : "border-border bg-background hover:bg-accent"
+            }`}
+          >
+            <div className="text-sm font-semibold">通过 SSH 连接指令新建</div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+              适合直接粘贴 ssh -p 2222 user@example.com 这类连接命令。
+            </div>
+          </button>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
-          <div className="space-y-2">
-            <Label>SSH config Host</Label>
-            <Select
-              value={selectedHost}
-              onValueChange={applyHost}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={
-                    loadingHosts ? "读取 SSH config..." : "选择 SSH Host"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {hosts.length === 0 && (
-                  <div className="px-2 py-2 text-sm text-muted-foreground">
-                    未在 ~/.ssh/config 读取到 Host
-                  </div>
-                )}
-                {hosts.map((host) => (
-                  <SelectItem
-                    key={host.host}
-                    value={host.host}
-                  >
-                    {host.host}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              只使用本机 ~/.ssh/config 的 Host；私钥和 HostName 由本机 ssh
-              读取。
-            </p>
-          </div>
+          {connectionMode === "sshConfig" ? (
+            <div className="space-y-2">
+              <Label>SSH config Host</Label>
+              <Select
+                value={selectedHost}
+                onValueChange={applyHost}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      loadingHosts ? "读取 SSH config..." : "选择 SSH Host"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {hosts.length === 0 && (
+                    <div className="px-2 py-2 text-sm text-muted-foreground">
+                      未在 ~/.ssh/config 读取到 Host
+                    </div>
+                  )}
+                  {hosts.map((host) => (
+                    <SelectItem
+                      key={host.host}
+                      value={host.host}
+                    >
+                      {host.host}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                只使用本机 ~/.ssh/config 的 Host；私钥和 HostName 由本机 ssh
+                读取。
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="ssh-command">SSH 连接指令</Label>
+              <Input
+                id="ssh-command"
+                value={sshCommand}
+                onChange={(event) => applySshCommand(event.target.value)}
+                placeholder="ssh -p 2222 user@example.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                填写能在本机终端直接连通的单行 ssh 命令；不要附加远端命令。
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="remote-label">工作区名称</Label>
@@ -389,7 +475,7 @@ export function RemoteConnectionDialog({
             type="button"
             variant="outline"
             onClick={testConnection}
-            disabled={!selectedHost.trim() || testing || settingUp}
+            disabled={!connectionReady || testing || settingUp}
           >
             {testing && <Loader2 className="h-4 w-4 animate-spin" />}
             测试连接

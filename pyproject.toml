@@ -15,5 +15,8 @@ dependencies = [
 requires = ["setuptools>=73.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+internagents-backend = "internagents_backend_cli:main"
+
 [tool.setuptools]
-py-modules = ["agent", "main", "internagent_resources", "ssh_backend", "dynamic_local_backend", "kb_sync_middleware", "goal_state", "goal_tools", "goal_middleware", "mineru_middleware"]
+py-modules = ["agent", "main", "internagent_resources", "ssh_backend", "dynamic_local_backend", "kb_sync_middleware", "goal_state", "goal_tools", "goal_middleware", "mineru_middleware", "internagents_backend_cli"]
