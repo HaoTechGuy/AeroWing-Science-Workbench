@@ -29,7 +29,7 @@ import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type OnboardingMissing = "workspacePath";
+type OnboardingMissing = "openrouterApiKey" | "workspacePath";
 
 interface ConfigResponse {
   configPath: string;
@@ -39,6 +39,11 @@ interface ConfigResponse {
   workspaceResolvedPath: string;
   model: string;
   modelSelectionMode: ModelSelectionMode;
+  openrouterDirectEnabled: boolean;
+  openrouterModel: string;
+  openrouterApiKey: string;
+  openrouterApiKeySet: boolean;
+  openrouterApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
   desktopMode: boolean;
   needsOnboarding: boolean;
@@ -72,6 +77,11 @@ const DEFAULT_CONFIG: ConfigResponse = {
   workspaceResolvedPath: "",
   model: "deepseek/deepseek-v4-flash",
   modelSelectionMode: "auto",
+  openrouterDirectEnabled: false,
+  openrouterModel: "deepseek/deepseek-v4-flash",
+  openrouterApiKey: "",
+  openrouterApiKeySet: false,
+  openrouterApiKeyPreview: "",
   authorizationMode: "auto",
   desktopMode: false,
   needsOnboarding: false,
@@ -201,6 +211,7 @@ const THEME_OPTIONS: Array<{
 ];
 
 const ONBOARDING_MISSING_LABELS: Record<OnboardingMissing, string> = {
+  openrouterApiKey: "OpenRouter API Key",
   workspacePath: "本机工作区",
 };
 
@@ -228,6 +239,9 @@ export default function ConfigPage() {
     return (
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
+      config.openrouterApiKey.trim().length > 0 ||
+      config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
+      config.openrouterModel !== savedConfig.openrouterModel ||
       config.authorizationMode !== savedConfig.authorizationMode ||
       config.workspacePath !== savedConfig.workspacePath
     );
@@ -235,10 +249,15 @@ export default function ConfigPage() {
     config.authorizationMode,
     config.model,
     config.modelSelectionMode,
+    config.openrouterApiKey,
+    config.openrouterDirectEnabled,
+    config.openrouterModel,
     config.workspacePath,
     savedConfig.authorizationMode,
     savedConfig.model,
     savedConfig.modelSelectionMode,
+    savedConfig.openrouterDirectEnabled,
+    savedConfig.openrouterModel,
     savedConfig.workspacePath,
   ]);
   const selectedJisiModel = useMemo(
@@ -249,15 +268,23 @@ export default function ConfigPage() {
     return (
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
+      config.openrouterApiKey.trim().length > 0 ||
+      config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
+      config.openrouterModel !== savedConfig.openrouterModel ||
       config.authorizationMode !== savedConfig.authorizationMode
     );
   }, [
     config.authorizationMode,
     config.model,
     config.modelSelectionMode,
+    config.openrouterApiKey,
+    config.openrouterDirectEnabled,
+    config.openrouterModel,
     savedConfig.authorizationMode,
     savedConfig.model,
     savedConfig.modelSelectionMode,
+    savedConfig.openrouterDirectEnabled,
+    savedConfig.openrouterModel,
   ]);
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
@@ -307,6 +334,9 @@ export default function ConfigPage() {
         body: JSON.stringify({
           model: config.model,
           modelSelectionMode: config.modelSelectionMode,
+          openrouterDirectEnabled: config.openrouterDirectEnabled,
+          openrouterModel: config.openrouterModel,
+          openrouterApiKey: config.openrouterApiKey.trim() || undefined,
           authorizationMode: config.authorizationMode,
           workspacePath: config.workspacePath,
         }),
@@ -697,6 +727,52 @@ export default function ConfigPage() {
                     已启用自动模型选择。集思会根据问题自动匹配合适模型。
                   </div>
                 ) : null}
+
+                <div className="rounded-md border border-border bg-background p-4">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <Label htmlFor="openrouter-api-key">
+                        OpenRouter API Key
+                      </Label>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        用于访问 OpenRouter；保存后写入本机 `.env`，页面不会回显完整 key。
+                      </div>
+                    </div>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-1 text-xs font-medium",
+                        config.openrouterApiKeySet
+                          ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {config.openrouterApiKeySet
+                        ? config.openrouterApiKeyPreview || "已保存"
+                        : "未设置"}
+                    </span>
+                  </div>
+                  <Input
+                    id="openrouter-api-key"
+                    type="password"
+                    autoComplete="new-password"
+                    value={config.openrouterApiKey}
+                    disabled={loading}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        openrouterApiKey: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      config.openrouterApiKeySet
+                        ? "粘贴新的 key；留空则保留已保存 key"
+                        : "sk-or-v1-..."
+                    }
+                  />
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    只在需要新增或替换 key 时填写；不填写不会覆盖已有 key。
+                  </div>
+                </div>
 
                 {config.modelSelectionMode !== "auto" && (
                     <>
