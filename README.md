@@ -109,8 +109,10 @@ DEEPAGENT_MODEL=openai:deepseek-v4-flash
 ```
 
 集思 writes an OpenAI-compatible base URL and user virtual key into the local
-`.env`. Real keys should stay in an untracked `.env` or in the desktop app's
-Application Support runtime directory; they should not be committed.
+`.env`. The UI keeps the model mode configurable: automatic selection writes
+`jisi/auto`, while manual selection writes the chosen model ID. Real keys should
+stay in an untracked `.env` or in the desktop app's Application Support runtime
+directory; they should not be committed.
 
 ## DeepAgent Configuration
 

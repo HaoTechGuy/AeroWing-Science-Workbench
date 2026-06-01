@@ -34,19 +34,15 @@ interface UpdateConfigRequest {
   modelProvider?: unknown;
   model?: unknown;
   modelSelectionMode?: unknown;
-  openrouterDirectEnabled?: unknown;
-  openrouterModel?: unknown;
-  openrouterApiKey?: unknown;
   gatewayEmail?: unknown;
   gatewayBaseUrl?: unknown;
   authorizationMode?: unknown;
   workspacePath?: unknown;
 }
 
-const AUTO_MODEL = "openrouter/auto";
+const AUTO_MODEL = "jisi/auto";
 const DEFAULT_MANUAL_MODEL = "deepseek/deepseek-v4-flash";
 const DEFAULT_GATEWAY_URL = "https://jisi.example.com";
-const DEFAULT_GATEWAY_MODEL = "deepseek-v4-flash";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
 const COMMON_TOOLS = [
@@ -166,7 +162,7 @@ async function writeEnvValues(updates: Record<string, string>) {
   await fs.writeFile(envPath(), nextContent);
 }
 
-function stripOpenRouterPrefix(model: string | undefined) {
+function stripModelProviderPrefix(model: string | undefined) {
   if (!model) {
     return DEFAULT_MANUAL_MODEL;
   }
@@ -183,7 +179,7 @@ function normalizeModel(model: unknown) {
     return DEFAULT_MANUAL_MODEL;
   }
 
-  const trimmed = stripOpenRouterPrefix(model.trim());
+  const trimmed = stripModelProviderPrefix(model.trim());
   if (!trimmed) {
     throw new Error("请选择或填写模型。");
   }
@@ -245,8 +241,10 @@ function inferModelProvider(): ModelProvider {
   return "gateway";
 }
 
-function inferOpenRouterDirectEnabled(config: AgentConfig) {
-  return config.openrouter_direct_enabled === true;
+function selectedGatewayModel(config: AgentConfig) {
+  return inferModelSelectionMode(config) === "auto"
+    ? AUTO_MODEL
+    : normalizeModel(config.manual_model || DEFAULT_MANUAL_MODEL);
 }
 
 function inferAuthorizationMode(config: AgentConfig): AuthorizationMode {
@@ -302,22 +300,12 @@ async function normalizedResponse(config: AgentConfig) {
   );
   const modelProvider = inferModelProvider();
   const modelSelectionMode = inferModelSelectionMode(config);
-  const openrouterDirectEnabled = inferOpenRouterDirectEnabled(config);
   const manualModel = normalizeModel(
     config.manual_model ||
       (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
   );
-  const openrouterModel = normalizeModel(
-    config.openrouter_model ||
-      (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
-  );
   const effectiveModel =
-    openrouterDirectEnabled
-      ? openrouterModel
-      : modelSelectionMode === "auto"
-      ? AUTO_MODEL
-      : manualModel;
-  const openrouterApiKey = env.OPENROUTER_API_KEY;
+    modelSelectionMode === "auto" ? AUTO_MODEL : manualModel;
   const gatewayKey = env.INTERNAGENTS_GATEWAY_KEY || env.OPENAI_API_KEY;
   const gatewayEmail = env.INTERNAGENTS_USER_EMAIL || "";
   const gatewayBaseUrl = normalizeGatewayUrl(
@@ -327,11 +315,7 @@ async function normalizedResponse(config: AgentConfig) {
       process.env.INTERNAGENTS_GATEWAY_URL ||
       DEFAULT_GATEWAY_URL
   );
-  const gatewayModel =
-    env.INTERNAGENTS_GATEWAY_MODEL ||
-    (typeof config.gateway_model === "string" && config.gateway_model.trim()
-      ? config.gateway_model.trim()
-      : DEFAULT_GATEWAY_MODEL);
+  const gatewayModel = effectiveModel;
   let workspacePath = ".";
   let workspaceResolvedPath = "";
   let workspaceError: string | undefined;
@@ -364,12 +348,8 @@ async function normalizedResponse(config: AgentConfig) {
     modelProvider,
     model: manualModel,
     modelSelectionMode,
-    openrouterDirectEnabled,
-    openrouterModel,
     effectiveModel,
     autoModel: AUTO_MODEL,
-    openrouterApiKeySet: Boolean(openrouterApiKey),
-    openrouterApiKeyPreview: previewApiKey(openrouterApiKey),
     gatewayEmail,
     gatewayBaseUrl,
     gatewayApiBaseUrl: gatewayApiBaseUrl(gatewayBaseUrl),
@@ -404,7 +384,6 @@ export async function PUT(request: NextRequest) {
     const currentConfig = await readConfig();
     const currentEnv = await readEnvValues();
     const modelProvider: ModelProvider = "gateway";
-    const openrouterDirectEnabled = body.openrouterDirectEnabled === true;
     const modelSelectionMode = isModelSelectionMode(body.modelSelectionMode)
       ? body.modelSelectionMode
       : "auto";
@@ -416,11 +395,6 @@ export async function PUT(request: NextRequest) {
               ? body.model
               : DEFAULT_MANUAL_MODEL
           );
-    const openrouterModel = normalizeModel(
-      typeof body.openrouterModel === "string" && body.openrouterModel.trim()
-        ? body.openrouterModel
-        : currentConfig.openrouter_model || DEFAULT_MANUAL_MODEL
-    );
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
@@ -441,9 +415,9 @@ export async function PUT(request: NextRequest) {
       model_provider: modelProvider,
       model_selection_mode: modelSelectionMode,
       manual_model: model,
-      openrouter_direct_enabled: openrouterDirectEnabled,
-      openrouter_model: openrouterModel,
     };
+    delete nextConfig.openrouter_direct_enabled;
+    delete nextConfig.openrouter_model;
     const interruptOn = buildInterruptOn(authorizationMode);
     if (interruptOn) {
       nextConfig.interrupt_on = interruptOn;
@@ -521,11 +495,6 @@ async function buildGatewayEnvUpdates({
     env.INTERNAGENTS_GATEWAY_BASE_URL ||
     env.OPENAI_BASE_URL ||
     gatewayApiBaseUrl(gatewayUrl);
-  let model =
-    env.INTERNAGENTS_GATEWAY_MODEL ||
-    (typeof config.gateway_model === "string" && config.gateway_model.trim()
-      ? config.gateway_model.trim()
-      : DEFAULT_GATEWAY_MODEL);
   let creditRmb = env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "";
   let remainingRmb = env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "";
 
@@ -537,7 +506,6 @@ async function buildGatewayEnvUpdates({
     });
     apiKey = bootstrap.apiKey;
     apiBaseUrl = bootstrap.baseUrl;
-    model = bootstrap.model;
     creditRmb =
       typeof bootstrap.creditRmb === "number"
         ? String(bootstrap.creditRmb)
@@ -551,6 +519,8 @@ async function buildGatewayEnvUpdates({
   if (!apiKey) {
     throw new Error("集思 key 不存在，请重新绑定邮箱。");
   }
+
+  const model = selectedGatewayModel(config);
 
   config.gateway_base_url = gatewayUrl;
   config.gateway_model = model;
