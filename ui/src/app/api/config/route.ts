@@ -14,8 +14,8 @@ export const runtime = "nodejs";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type ModelProvider = "gateway" | "openrouter";
-type OnboardingMissing = "gatewayEmail" | "openrouterApiKey" | "workspacePath";
+type ModelProvider = "gateway";
+type OnboardingMissing = "gatewayEmail" | "workspacePath";
 
 interface AgentConfig {
   interrupt_on?: Record<string, unknown>;
@@ -45,8 +45,7 @@ interface UpdateConfigRequest {
 
 const AUTO_MODEL = "openrouter/auto";
 const DEFAULT_MANUAL_MODEL = "deepseek/deepseek-v4-flash";
-const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-const DEFAULT_GATEWAY_URL = "https://gateway.example.com";
+const DEFAULT_GATEWAY_URL = "https://jisi.example.com";
 const DEFAULT_GATEWAY_MODEL = "deepseek-v4-flash";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
@@ -206,10 +205,6 @@ function isModelSelectionMode(value: unknown): value is ModelSelectionMode {
   return value === "auto" || value === "manual";
 }
 
-function isModelProvider(value: unknown): value is ModelProvider {
-  return value === "gateway" || value === "openrouter";
-}
-
 function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -246,22 +241,7 @@ function inferModelSelectionMode(config: AgentConfig): ModelSelectionMode {
     : "auto";
 }
 
-function inferModelProvider(
-  config: AgentConfig,
-  env: Record<string, string>
-): ModelProvider {
-  if (isModelProvider(config.model_provider)) {
-    return config.model_provider;
-  }
-  if (isModelProvider(env.INTERNAGENTS_MODEL_PROVIDER)) {
-    return env.INTERNAGENTS_MODEL_PROVIDER;
-  }
-  if (env.INTERNAGENTS_GATEWAY_KEY?.trim()) {
-    return "gateway";
-  }
-  if (env.OPENROUTER_API_KEY?.trim()) {
-    return "openrouter";
-  }
+function inferModelProvider(): ModelProvider {
   return "gateway";
 }
 
@@ -320,7 +300,7 @@ async function normalizedResponse(config: AgentConfig) {
   const envModel = normalizeModel(
     env.DEEPAGENT_MODEL || env.LLM_MODEL || AUTO_MODEL
   );
-  const modelProvider = inferModelProvider(config, env);
+  const modelProvider = inferModelProvider();
   const modelSelectionMode = inferModelSelectionMode(config);
   const openrouterDirectEnabled = inferOpenRouterDirectEnabled(config);
   const manualModel = normalizeModel(
@@ -368,9 +348,6 @@ async function normalizedResponse(config: AgentConfig) {
   const missing: OnboardingMissing[] = [];
   if (modelProvider === "gateway" && !gatewayKey?.trim()) {
     missing.push("gatewayEmail");
-  }
-  if (modelProvider === "openrouter" && !openrouterApiKey?.trim()) {
-    missing.push("openrouterApiKey");
   }
   if (workspaceError) {
     missing.push("workspacePath");
@@ -426,9 +403,7 @@ export async function PUT(request: NextRequest) {
     const body = (await request.json()) as UpdateConfigRequest;
     const currentConfig = await readConfig();
     const currentEnv = await readEnvValues();
-    const modelProvider = isModelProvider(body.modelProvider)
-      ? body.modelProvider
-      : inferModelProvider(currentConfig, currentEnv);
+    const modelProvider: ModelProvider = "gateway";
     const openrouterDirectEnabled = body.openrouterDirectEnabled === true;
     const modelSelectionMode = isModelSelectionMode(body.modelSelectionMode)
       ? body.modelSelectionMode
@@ -446,19 +421,9 @@ export async function PUT(request: NextRequest) {
         ? body.openrouterModel
         : currentConfig.openrouter_model || DEFAULT_MANUAL_MODEL
     );
-    const effectiveModel =
-      openrouterDirectEnabled
-        ? openrouterModel
-        : modelSelectionMode === "auto"
-        ? AUTO_MODEL
-        : model;
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
-    const apiKey =
-      typeof body.openrouterApiKey === "string"
-        ? body.openrouterApiKey.trim()
-        : "";
     const workspacePath =
       typeof body.workspacePath === "string"
         ? body.workspacePath.trim()
@@ -486,23 +451,11 @@ export async function PUT(request: NextRequest) {
       delete nextConfig.interrupt_on;
     }
 
-    const envUpdates: Record<string, string> =
-      modelProvider === "gateway"
-        ? await buildGatewayEnvUpdates({
-            body,
-            config: nextConfig,
-            env: currentEnv,
-          })
-        : {
-            INTERNAGENTS_MODEL_PROVIDER: "openrouter",
-            OPENROUTER_BASE_URL,
-            LLM_PROVIDER: "openrouter",
-            LLM_MODEL: effectiveModel,
-            DEEPAGENT_MODEL: `openrouter:${effectiveModel}`,
-          };
-    if (modelProvider === "openrouter" && apiKey) {
-      envUpdates.OPENROUTER_API_KEY = apiKey;
-    }
+    const envUpdates = await buildGatewayEnvUpdates({
+      body,
+      config: nextConfig,
+      env: currentEnv,
+    });
     await writeConfig(nextConfig);
     await writeEnvValues(envUpdates);
     if (shouldUpdateWorkspace) {
@@ -545,7 +498,7 @@ async function buildGatewayEnvUpdates({
     normalizeEmail(body.gatewayEmail) ||
     normalizeEmail(env.INTERNAGENTS_USER_EMAIL);
   if (!gatewayEmail || !isValidEmail(gatewayEmail)) {
-    throw new Error("请填写有效的邮箱，用于领取 InternAgents 网关 key。");
+    throw new Error("请填写有效的邮箱，用于领取集思 key。");
   }
 
   const gatewayUrl = normalizeGatewayUrl(
@@ -596,7 +549,7 @@ async function buildGatewayEnvUpdates({
   }
 
   if (!apiKey) {
-    throw new Error("InternAgents 网关 key 不存在，请重新绑定邮箱。");
+    throw new Error("集思 key 不存在，请重新绑定邮箱。");
   }
 
   config.gateway_base_url = gatewayUrl;
@@ -651,7 +604,7 @@ async function requestGatewayBootstrap({
       throw new Error(
         typeof payload.error === "string"
           ? payload.error
-          : "网关绑定失败，请检查邮箱和网关地址。"
+          : "集思绑定失败，请检查邮箱和集思地址。"
       );
     }
     if (
@@ -659,7 +612,7 @@ async function requestGatewayBootstrap({
       typeof payload.baseUrl !== "string" ||
       typeof payload.model !== "string"
     ) {
-      throw new Error("网关返回格式不完整。");
+      throw new Error("集思返回格式不完整。");
     }
     return {
       apiKey: payload.apiKey,
@@ -674,7 +627,7 @@ async function requestGatewayBootstrap({
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("网关绑定超时，请稍后重试。");
+      throw new Error("集思绑定超时，请稍后重试。");
     }
     throw error;
   } finally {
