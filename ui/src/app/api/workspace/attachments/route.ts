@@ -1,7 +1,6 @@
 import crypto from "crypto";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
-import { PDFParse } from "pdf-parse";
 import { writeWorkspaceRawFile } from "../_lib/workspace";
 
 export const runtime = "nodejs";
@@ -50,22 +49,27 @@ async function extractPdfText(data: Buffer): Promise<{
   truncated: boolean;
   extractionError?: string;
 }> {
-  const parser = new PDFParse({ data: new Uint8Array(data) });
   try {
-    const result = await parser.getText({ first: MAX_PDF_EXTRACT_PAGES });
-    const normalizedText = normalizeExtractedText(result.text || "");
-    const text =
-      normalizedText.length > MAX_PDF_EXTRACT_CHARS
-        ? normalizedText.slice(0, MAX_PDF_EXTRACT_CHARS).trimEnd()
-        : normalizedText;
+    const { PDFParse } = await import("pdf-parse");
+    const parser = new PDFParse({ data: new Uint8Array(data) });
+    try {
+      const result = await parser.getText({ first: MAX_PDF_EXTRACT_PAGES });
+      const normalizedText = normalizeExtractedText(result.text || "");
+      const text =
+        normalizedText.length > MAX_PDF_EXTRACT_CHARS
+          ? normalizedText.slice(0, MAX_PDF_EXTRACT_CHARS).trimEnd()
+          : normalizedText;
 
-    return {
-      text,
-      pageCount: result.total,
-      truncated:
-        result.total > MAX_PDF_EXTRACT_PAGES ||
-        normalizedText.length > MAX_PDF_EXTRACT_CHARS,
-    };
+      return {
+        text,
+        pageCount: result.total,
+        truncated:
+          result.total > MAX_PDF_EXTRACT_PAGES ||
+          normalizedText.length > MAX_PDF_EXTRACT_CHARS,
+      };
+    } finally {
+      await parser.destroy();
+    }
   } catch (error) {
     return {
       text: "",
@@ -73,8 +77,6 @@ async function extractPdfText(data: Buffer): Promise<{
       extractionError:
         error instanceof Error ? error.message : "Unable to extract PDF text.",
     };
-  } finally {
-    await parser.destroy();
   }
 }
 

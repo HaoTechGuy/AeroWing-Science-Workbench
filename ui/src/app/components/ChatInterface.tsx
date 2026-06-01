@@ -259,14 +259,30 @@ async function uploadPdfAttachment(
     method: "POST",
     body: form,
   });
-  const payload = (await response.json()) as {
+  const payload = (await parsePdfUploadResponse(response)) as {
     attachment?: Partial<ChatAttachment> & { extractionError?: string };
     error?: string;
   };
   if (!response.ok || !payload.attachment) {
-    throw new Error(payload.error || "PDF 上传失败");
+    throw new Error(payload.error || `PDF 上传失败（${response.status}）`);
   }
   return payload.attachment;
+}
+
+async function parsePdfUploadResponse(response: Response): Promise<unknown> {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
+  }
+
+  const text = (await response.text().catch(() => "")).trim();
+  return {
+    error: text && text !== "Internal Server Error" ? text : "PDF 上传失败",
+  };
 }
 
 async function prepareAttachment(
