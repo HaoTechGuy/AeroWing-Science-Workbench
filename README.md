@@ -215,9 +215,9 @@ git push origin v0.1.1
 ```
 
 The workflow uses that tag as the App version, runs on macOS, validates Python
-files, lints and builds the UI, builds the DMG, and uploads only the DMG
-artifacts to `shuyuehu/InternAgents`. If the workflow runs in a private source
-repository, set:
+files, lints and builds the UI, builds the DMG, clears any existing uploaded
+release assets, and uploads one DMG asset to `shuyuehu/InternAgents`. If the
+workflow runs in a private source repository, set:
 
 ```text
 Repository secret:   INTERNAGENTS_RELEASE_TOKEN=<PAT with contents:write on that repo>

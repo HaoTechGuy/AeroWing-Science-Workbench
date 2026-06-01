@@ -100,15 +100,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
         run: |
-          NOTES="InternAgents macOS App release ${INTERNAGENTS_RELEASE_TAG}
+          shopt -s nullglob
+          dmg_assets=(desktop/release/InternAgents-*.dmg)
+          if [ "${#dmg_assets[@]}" -ne 1 ]; then
+            printf 'Expected exactly one DMG, found %s:\n' "${#dmg_assets[@]}"
+            printf '  %s\n' "${dmg_assets[@]}"
+            exit 1
+          fi
 
-          Source tag: ${GITHUB_REF_NAME}
-          Source commit: ${GITHUB_SHA}"
+          DMG_PATH="${dmg_assets[0]}"
+          NOTES="InternAgents macOS App release ${INTERNAGENTS_RELEASE_TAG}"
 
           if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
+            existing_assets="$(gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" --json assets --jq '.assets[].name')"
+            while IFS= read -r asset; do
+              [ -z "$asset" ] && continue
+              gh release delete-asset "$INTERNAGENTS_RELEASE_TAG" "$asset" --repo "$INTERNAGENTS_RELEASE_REPO" --yes
+            done <<< "$existing_assets"
+
             gh release upload "$INTERNAGENTS_RELEASE_TAG" \
-              desktop/release/InternAgents-*.dmg \
-              desktop/release/InternAgents-*.dmg.blockmap \
+              "$DMG_PATH" \
               --repo "$INTERNAGENTS_RELEASE_REPO" \
               --clobber
             gh release edit "$INTERNAGENTS_RELEASE_TAG" \
@@ -118,8 +129,7 @@ jobs:
               --latest
           else
             gh release create "$INTERNAGENTS_RELEASE_TAG" \
-              desktop/release/InternAgents-*.dmg \
-              desktop/release/InternAgents-*.dmg.blockmap \
+              "$DMG_PATH" \
               --repo "$INTERNAGENTS_RELEASE_REPO" \
               --title "$INTERNAGENTS_RELEASE_TAG" \
               --notes "$NOTES" \
