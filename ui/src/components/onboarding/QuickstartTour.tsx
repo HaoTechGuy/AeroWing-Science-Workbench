@@ -37,7 +37,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     route: "/",
     href: WORKBENCH_HREF,
     title: "InternAgents 快速导览",
-    body: "这条导览会先介绍主工作台，再带你快速看连接服务器、配置和关于与更新这些页面各自负责什么。",
+    body: "这条导览会先介绍主工作台，再带你快速看配置和关于与更新这些页面各自负责什么。",
   },
   {
     id: "local-agent",
@@ -60,7 +60,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     route: "/",
     href: WORKBENCH_HREF,
     target: '[data-tour="chat-input"]',
-    title: "项目会话",
+    title: "当前会话",
     body: "中间是当前会话。你可以向智能体提问、交代任务、附加图片或文件，并在顶部修改会话标题。",
   },
   {
@@ -70,14 +70,6 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     target: '[data-tour="thread-list"]',
     title: "项目会话记录",
     body: "这里保留当前项目的会话历史。你可以切换旧会话、新建会话，也可以归档不常用的对话。",
-  },
-  {
-    id: "connect",
-    route: "/",
-    href: WORKBENCH_HREF,
-    target: '[data-tour="nav-connect"]',
-    title: "连接服务器",
-    body: "连接服务器页面负责配置 InternAgents 要连接的本地或远程智能体服务。通常本机开发保留默认地址；需要连接云端或其他运行环境时再修改。",
   },
   {
     id: "config",

@@ -13,7 +13,6 @@ import {
   Info,
   Loader2,
   Settings,
-  Server,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
@@ -290,20 +289,6 @@ function HomePageInner({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-8 border-border bg-card"
-          >
-            <Link
-              href="/connect"
-              data-tour="nav-connect"
-            >
-              <Server className="h-4 w-4" />
-              连接服务器
-            </Link>
-          </Button>
           <Button
             asChild
             variant="outline"
