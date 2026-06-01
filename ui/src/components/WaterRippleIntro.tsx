@@ -4,6 +4,17 @@ import { useEffect, useState } from "react";
 
 const INTRO_DURATION_MS = 1850;
 const REDUCED_MOTION_DURATION_MS = 280;
+const INTRO_COMPLETE_EVENT = "internagents.intro.complete";
+
+type IntroWindow = Window & {
+  __internagentsIntroComplete?: boolean;
+};
+
+function markIntroComplete() {
+  const introWindow = window as IntroWindow;
+  introWindow.__internagentsIntroComplete = true;
+  window.dispatchEvent(new Event(INTRO_COMPLETE_EVENT));
+}
 
 export function WaterRippleIntro() {
   const [visible, setVisible] = useState(false);
@@ -13,15 +24,20 @@ export function WaterRippleIntro() {
       "navigation"
     )[0] as PerformanceNavigationTiming | undefined;
     if (navigationEntry?.type === "reload") {
+      markIntroComplete();
       return;
     }
 
     const prefersReducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)"
     ).matches;
+    (window as IntroWindow).__internagentsIntroComplete = false;
     setVisible(true);
     const timeout = window.setTimeout(
-      () => setVisible(false),
+      () => {
+        setVisible(false);
+        markIntroComplete();
+      },
       prefersReducedMotion ? REDUCED_MOTION_DURATION_MS : INTRO_DURATION_MS
     );
 

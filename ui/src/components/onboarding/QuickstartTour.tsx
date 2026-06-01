@@ -28,8 +28,13 @@ type TourEventDetail = {
 
 const QUICKSTART_COMPLETED_KEY = "internagents.quickstart.completed.v1";
 const QUICKSTART_STEP_KEY = "internagents.quickstart.step.v1";
+const INTRO_COMPLETE_EVENT = "internagents.intro.complete";
 const WORKBENCH_HREF = "/?assistantId=agent";
 const WORKBENCH_PARAM_KEYS = ["resourceId", "assistantId", "workspaceId"];
+
+type IntroWindow = Window & {
+  __internagentsIntroComplete?: boolean;
+};
 
 const QUICKSTART_STEPS: QuickstartStep[] = [
   {
@@ -141,6 +146,10 @@ function removeStoredStep() {
   }
 }
 
+function hasIntroCompleted() {
+  return Boolean((window as IntroWindow).__internagentsIntroComplete);
+}
+
 function clampCardPosition(left: number, top: number) {
   const cardWidth = Math.min(360, window.innerWidth - 32);
   const cardHeight = 260;
@@ -189,6 +198,10 @@ export function QuickstartTour() {
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [targetMissing, setTargetMissing] = useState(false);
+  const [introComplete, setIntroComplete] = useState(false);
+  const [pendingStart, setPendingStart] = useState<TourEventDetail | null>(
+    null
+  );
 
   const step = QUICKSTART_STEPS[stepIndex] ?? QUICKSTART_STEPS[0];
   const totalSteps = QUICKSTART_STEPS.length;
@@ -201,6 +214,11 @@ export function QuickstartTour() {
   );
 
   const startTour = useCallback((detail?: TourEventDetail) => {
+    if (!introComplete) {
+      setPendingStart(detail || {});
+      return;
+    }
+
     if (!detail?.restart && readCompleted()) {
       return;
     }
@@ -221,14 +239,44 @@ export function QuickstartTour() {
     writeCompleted(false);
     setStepIndex(nextIndex);
     setActive(true);
+  }, [introComplete]);
+
+  useEffect(() => {
+    if (hasIntroCompleted()) {
+      setIntroComplete(true);
+      return;
+    }
+
+    function handleIntroComplete() {
+      setIntroComplete(true);
+    }
+
+    window.addEventListener(INTRO_COMPLETE_EVENT, handleIntroComplete);
+    return () => {
+      window.removeEventListener(INTRO_COMPLETE_EVENT, handleIntroComplete);
+    };
   }, []);
 
   useEffect(() => {
+    if (!introComplete || pendingStart === null) {
+      return;
+    }
+
+    const detail = pendingStart;
+    setPendingStart(null);
+    startTour(detail);
+  }, [introComplete, pendingStart, startTour]);
+
+  useEffect(() => {
+    if (!introComplete || pendingStart !== null) {
+      return;
+    }
+
     if (!active && !readCompleted() && !isConfigSetupRoute()) {
       setStepIndex(readStoredStepIndex());
       setActive(true);
     }
-  }, [active, pathname]);
+  }, [active, introComplete, pathname, pendingStart]);
 
   const endTour = useCallback(() => {
     writeCompleted(true);
