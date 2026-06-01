@@ -155,7 +155,11 @@ function readEnvValues(filePath) {
 
 function hasInitialConfig() {
   const values = readEnvValues(envPath());
-  return Boolean(values.OPENROUTER_API_KEY && values.OPENROUTER_API_KEY.trim());
+  return Boolean(
+    (values.INTERNAGENTS_GATEWAY_KEY &&
+      values.INTERNAGENTS_GATEWAY_KEY.trim()) ||
+      (values.OPENROUTER_API_KEY && values.OPENROUTER_API_KEY.trim())
+  );
 }
 
 async function defaultDesktopWorkspace() {

@@ -7,6 +7,7 @@ import {
   Cpu,
   FolderOpen,
   Loader2,
+  Mail,
   Moon,
   Save,
   ServerCog,
@@ -29,7 +30,8 @@ import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type OnboardingMissing = "openrouterApiKey" | "workspacePath";
+type ModelProvider = "gateway" | "openrouter";
+type OnboardingMissing = "gatewayEmail" | "openrouterApiKey" | "workspacePath";
 
 interface ConfigResponse {
   configPath: string;
@@ -37,6 +39,7 @@ interface ConfigResponse {
   resourcesPath: string;
   workspacePath: string;
   workspaceResolvedPath: string;
+  modelProvider: ModelProvider;
   model: string;
   modelSelectionMode: ModelSelectionMode;
   openrouterDirectEnabled: boolean;
@@ -44,6 +47,14 @@ interface ConfigResponse {
   openrouterApiKey: string;
   openrouterApiKeySet: boolean;
   openrouterApiKeyPreview: string;
+  gatewayEmail: string;
+  gatewayBaseUrl: string;
+  gatewayApiBaseUrl: string;
+  gatewayModel: string;
+  gatewayApiKeySet: boolean;
+  gatewayApiKeyPreview: string;
+  gatewayCreditRmb: string;
+  gatewayRemainingRmb: string;
   authorizationMode: AuthorizationMode;
   desktopMode: boolean;
   needsOnboarding: boolean;
@@ -75,6 +86,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   resourcesPath: "",
   workspacePath: ".",
   workspaceResolvedPath: "",
+  modelProvider: "gateway",
   model: "deepseek/deepseek-v4-flash",
   modelSelectionMode: "auto",
   openrouterDirectEnabled: false,
@@ -82,11 +94,38 @@ const DEFAULT_CONFIG: ConfigResponse = {
   openrouterApiKey: "",
   openrouterApiKeySet: false,
   openrouterApiKeyPreview: "",
+  gatewayEmail: "",
+  gatewayBaseUrl: "https://gateway.example.com",
+  gatewayApiBaseUrl: "https://gateway.example.com/v1",
+  gatewayModel: "deepseek-v4-flash",
+  gatewayApiKeySet: false,
+  gatewayApiKeyPreview: "",
+  gatewayCreditRmb: "",
+  gatewayRemainingRmb: "",
   authorizationMode: "auto",
   desktopMode: false,
   needsOnboarding: false,
   missing: [],
 };
+
+const MODEL_PROVIDER_OPTIONS: Array<{
+  id: ModelProvider;
+  title: string;
+  badge?: string;
+  description: string;
+}> = [
+  {
+    id: "gateway",
+    title: "InternAgents 网关",
+    badge: "推荐",
+    description: "使用邮箱领取绑定 key，注册获得 100 RMB 一次性额度。",
+  },
+  {
+    id: "openrouter",
+    title: "自备 OpenRouter",
+    description: "继续使用本机保存的 OpenRouter API Key 和模型配置。",
+  },
+];
 
 const MODEL_SELECTION_OPTIONS: Array<{
   id: ModelSelectionMode;
@@ -211,6 +250,7 @@ const THEME_OPTIONS: Array<{
 ];
 
 const ONBOARDING_MISSING_LABELS: Record<OnboardingMissing, string> = {
+  gatewayEmail: "网关绑定邮箱",
   openrouterApiKey: "OpenRouter API Key",
   workspacePath: "本机工作区",
 };
@@ -237,6 +277,9 @@ export default function ConfigPage() {
   const isBusy = actionBusy || checkingStatus;
   const hasChanges = useMemo(() => {
     return (
+      config.modelProvider !== savedConfig.modelProvider ||
+      config.gatewayEmail !== savedConfig.gatewayEmail ||
+      config.gatewayBaseUrl !== savedConfig.gatewayBaseUrl ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.openrouterApiKey.trim().length > 0 ||
@@ -247,14 +290,20 @@ export default function ConfigPage() {
     );
   }, [
     config.authorizationMode,
+    config.gatewayBaseUrl,
+    config.gatewayEmail,
     config.model,
+    config.modelProvider,
     config.modelSelectionMode,
     config.openrouterApiKey,
     config.openrouterDirectEnabled,
     config.openrouterModel,
     config.workspacePath,
     savedConfig.authorizationMode,
+    savedConfig.gatewayBaseUrl,
+    savedConfig.gatewayEmail,
     savedConfig.model,
+    savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
     savedConfig.openrouterDirectEnabled,
     savedConfig.openrouterModel,
@@ -266,6 +315,9 @@ export default function ConfigPage() {
   );
   const restartSensitiveChanged = useMemo(() => {
     return (
+      config.modelProvider !== savedConfig.modelProvider ||
+      config.gatewayEmail !== savedConfig.gatewayEmail ||
+      config.gatewayBaseUrl !== savedConfig.gatewayBaseUrl ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.openrouterApiKey.trim().length > 0 ||
@@ -275,13 +327,19 @@ export default function ConfigPage() {
     );
   }, [
     config.authorizationMode,
+    config.gatewayBaseUrl,
+    config.gatewayEmail,
     config.model,
+    config.modelProvider,
     config.modelSelectionMode,
     config.openrouterApiKey,
     config.openrouterDirectEnabled,
     config.openrouterModel,
     savedConfig.authorizationMode,
+    savedConfig.gatewayBaseUrl,
+    savedConfig.gatewayEmail,
     savedConfig.model,
+    savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
     savedConfig.openrouterDirectEnabled,
     savedConfig.openrouterModel,
@@ -333,10 +391,13 @@ export default function ConfigPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: config.model,
+          modelProvider: config.modelProvider,
           modelSelectionMode: config.modelSelectionMode,
           openrouterDirectEnabled: config.openrouterDirectEnabled,
           openrouterModel: config.openrouterModel,
           openrouterApiKey: config.openrouterApiKey.trim() || undefined,
+          gatewayEmail: config.gatewayEmail.trim() || undefined,
+          gatewayBaseUrl: config.gatewayBaseUrl.trim() || undefined,
           authorizationMode: config.authorizationMode,
           workspacePath: config.workspacePath,
         }),
@@ -531,7 +592,7 @@ export default function ConfigPage() {
             </h1>
             <div className="truncate text-xs text-muted-foreground">
               {onboardingMode
-                ? "完成模型、工作区和授权设置后进入工作台"
+                ? "绑定模型网关、选择工作区并设置授权后进入工作台"
                 : "模型、工作区、授权模式、技能和界面风格"}
             </div>
           </div>
@@ -670,7 +731,7 @@ export default function ConfigPage() {
               <div className="min-w-0">
                 <h2 className="text-base font-semibold">模型</h2>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  默认使用上海人工智能实验室研发的集思系统，为每个问题自动选择最佳模型进行回答。
+                  选择模型供应方式。推荐使用 InternAgents 网关统一管理 key 和额度。
                 </div>
               </div>
             </div>
@@ -682,6 +743,135 @@ export default function ConfigPage() {
               </div>
             ) : (
               <div className="space-y-5">
+                <div className="space-y-3">
+                  <Label>模型供应</Label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {MODEL_PROVIDER_OPTIONS.map((option) => {
+                      const active = config.modelProvider === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() =>
+                            setConfig((current) => ({
+                              ...current,
+                              modelProvider: option.id,
+                            }))
+                          }
+                          className={cn(
+                            "rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                            active
+                              ? "border-primary ring-2 ring-primary/20"
+                              : "border-border"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold">
+                              {option.title}
+                            </div>
+                            {option.badge && (
+                              <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
+                                {option.badge}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {option.description}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {config.modelProvider === "gateway" ? (
+                  <div className="rounded-md border border-border bg-background p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <Label htmlFor="gateway-email">网关绑定邮箱</Label>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          保存时会用这个邮箱领取或复用网关 key，并写入本机 `.env`。
+                        </div>
+                      </div>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-1 text-xs font-medium",
+                          config.gatewayApiKeySet
+                            ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {config.gatewayApiKeySet
+                          ? config.gatewayApiKeyPreview || "已绑定"
+                          : "未绑定"}
+                      </span>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <Mail className="h-3.5 w-3.5" />
+                          邮箱
+                        </div>
+                        <Input
+                          id="gateway-email"
+                          type="email"
+                          autoComplete="email"
+                          value={config.gatewayEmail}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              gatewayEmail: event.target.value,
+                            }))
+                          }
+                          placeholder="you@example.com"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <ServerCog className="h-3.5 w-3.5" />
+                          网关地址
+                        </div>
+                        <Input
+                          id="gateway-base-url"
+                          value={config.gatewayBaseUrl}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              gatewayBaseUrl: event.target.value,
+                            }))
+                          }
+                          placeholder="https://gateway.example.com"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                      <div className="min-w-0 truncate">
+                        模型：{config.gatewayModel || "deepseek-v4-flash"}
+                      </div>
+                      <div className="min-w-0 truncate">
+                        API：{config.gatewayApiBaseUrl || "-"}
+                      </div>
+                      <div className="min-w-0 truncate">
+                        额度：
+                        {config.gatewayRemainingRmb
+                          ? `剩余 ¥${config.gatewayRemainingRmb}`
+                          : config.gatewayCreditRmb
+                          ? `总额 ¥${config.gatewayCreditRmb}`
+                          : "绑定后显示"}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
+                      网关模式会使用 OpenAI-compatible 接口请求 InternAgents
+                      Gateway，真实 DeepSeek key 保留在网关服务端。
+                    </div>
+                  </div>
+                ) : (
+                  <>
                 <div className="space-y-3">
                   <div className="grid gap-2 sm:grid-cols-2">
                     {MODEL_SELECTION_OPTIONS.map((option) => {
@@ -861,6 +1051,8 @@ export default function ConfigPage() {
                       </div>
                     </>
                   )}
+                  </>
+                )}
               </div>
             )}
           </section>

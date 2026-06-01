@@ -25,10 +25,11 @@ The repository includes:
 
 This branch updates the desktop first-run experience:
 
-- First launch now opens the local workbench directly instead of blocking on a
-  configuration page.
-- The committed desktop defaults use OpenRouter with
-  `deepseek/deepseek-v4-flash`.
+- First launch opens the local workbench and redirects to setup only when the
+  selected model provider still needs credentials.
+- The preferred desktop setup uses InternAgents Gateway: the user enters an
+  email, receives a user-scoped virtual key, and the real DeepSeek key stays on
+  the gateway server.
 - A Quickstart tour introduces the workbench, project selector, workspace,
   conversations, service connection, skills, configuration, and About/Updates.
 - The About/Updates page can restart the tour and exposes local update actions.
@@ -93,6 +94,12 @@ file, or from process environment variables supplied by a packaged desktop
 launcher:
 
 ```env
+INTERNAGENTS_MODEL_PROVIDER=gateway
+INTERNAGENTS_GATEWAY_URL=https://gateway.example.com
+INTERNAGENTS_USER_EMAIL=
+INTERNAGENTS_GATEWAY_KEY=
+OPENAI_API_KEY=
+OPENAI_BASE_URL=
 OPENROUTER_API_KEY=
 DEEPAGENT_MODEL=
 ```
@@ -100,14 +107,16 @@ DEEPAGENT_MODEL=
 Set `DEEPAGENT_MODEL` to override the model explicitly:
 
 ```env
+DEEPAGENT_MODEL=openai:deepseek-v4-flash
 DEEPAGENT_MODEL=openrouter:deepseek/deepseek-v4-flash
 ```
 
-If `DEEPAGENT_MODEL` is empty, InternAgents falls back to
-`LLM_PROVIDER=openrouter` plus `LLM_MODEL`, and finally to
-`openrouter:openrouter/auto`. Real keys should stay in an untracked `.env` or in
-the desktop app's Application Support runtime directory; they should not be
-committed.
+Gateway mode writes an OpenAI-compatible base URL and user virtual key into the
+local `.env`. OpenRouter remains available for users who bring their own key. If
+`DEEPAGENT_MODEL` is empty, InternAgents falls back to `LLM_PROVIDER=openrouter`
+plus `LLM_MODEL`, and finally to `openrouter:openrouter/auto`. Real keys should
+stay in an untracked `.env` or in the desktop app's Application Support runtime
+directory; they should not be committed.
 
 ## DeepAgent Configuration
 
@@ -323,9 +332,10 @@ NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
 ```
 
-First launch opens the local workbench directly. The committed default model
-configuration uses `openrouter/auto`; real OpenRouter API keys still belong in
-the user's untracked `.env` or desktop runtime configuration.
+First launch opens the local workbench and redirects to setup if the selected
+provider is missing credentials. In gateway mode, the user's virtual key belongs
+in the desktop runtime `.env`; real DeepSeek and LiteLLM master keys belong only
+in the separate `internagents-gateway` deployment.
 
 ### Publishing Desktop Releases
 
