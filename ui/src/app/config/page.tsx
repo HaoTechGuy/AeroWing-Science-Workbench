@@ -1214,7 +1214,7 @@ export default function ConfigPage() {
             </div>
           </section>
 
-          <ArchivedThreadsCard />
+          {!onboardingMode && <ArchivedThreadsCard />}
 
           <div className="flex justify-end text-xs text-muted-foreground">
             <div className="truncate">配置文件：{config.configPath || "-"}</div>
