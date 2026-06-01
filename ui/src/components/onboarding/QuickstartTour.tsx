@@ -50,7 +50,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     href: WORKBENCH_HREF,
     target: '[data-tour="local-agent"]',
     title: "当前项目",
-    body: "这里确认当前使用的项目或资源。切换项目会影响左侧文件、项目会话和智能体运行上下文。",
+    body: "这里确认当前使用的项目或资源。打开下拉菜单可以切换已有工作区，也可以打开或新增本地工作区、接入远程工作区。",
   },
   {
     id: "workspace",
@@ -83,6 +83,13 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     target: '[data-tour="nav-config"]',
     title: "配置",
     body: "这个页面负责模型、工作区、授权模式和界面风格等设置。模型和授权通常影响后端行为，工作区和界面相关设置会直接影响使用体验。",
+  },
+  {
+    id: "config-model",
+    route: "/config",
+    target: '[data-tour="config-model"]',
+    title: "模型",
+    body: "这里设置模型调用方式。默认可以使用集思自动选择合适模型，也可以改为手动指定模型，并在这里配置 OpenRouter API Key。",
   },
   {
     id: "about",

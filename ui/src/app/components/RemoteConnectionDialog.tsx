@@ -286,10 +286,10 @@ export function RemoteConnectionDialog({
     >
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>添加远程工作区</DialogTitle>
+          <DialogTitle>接入远程工作区</DialogTitle>
           <DialogDescription>
-            选择 SSH config Host 或粘贴 SSH 连接指令，测试通过后会通过 SSH
-            安装并启动 InternAgents runtime，并把远端工作区路径加入工作区列表。
+            连接一台可以通过 SSH 登录的远端机器。InternAgents
+            会在远端准备运行环境，并把你指定的目录加入工作区列表，之后可以像本地工作区一样切换使用。
           </DialogDescription>
         </DialogHeader>
 
@@ -303,9 +303,9 @@ export function RemoteConnectionDialog({
                 : "border-border bg-background hover:bg-accent"
             }`}
           >
-            <div className="text-sm font-semibold">通过 SSH config 新建</div>
+            <div className="text-sm font-semibold">从 SSH config 选择</div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              适合已经在 ~/.ssh/config 配好 Host、端口和私钥的机器。
+              适合已经在本机 SSH config 里配置好 Host、端口和私钥的机器。
             </div>
           </button>
           <button
@@ -317,9 +317,10 @@ export function RemoteConnectionDialog({
                 : "border-border bg-background hover:bg-accent"
             }`}
           >
-            <div className="text-sm font-semibold">通过 SSH 连接指令新建</div>
+            <div className="text-sm font-semibold">粘贴 SSH 连接命令</div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              适合直接粘贴 ssh -p 2222 user@example.com 这类连接命令。
+              适合直接粘贴能在本机终端运行的 ssh 命令，例如 ssh -p 2222
+              user@example.com。
             </div>
           </button>
         </div>
@@ -376,7 +377,7 @@ export function RemoteConnectionDialog({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="remote-label">工作区名称</Label>
+            <Label htmlFor="remote-label">显示名称</Label>
             <Input
               id="remote-label"
               value={label}
@@ -386,7 +387,7 @@ export function RemoteConnectionDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="remote-workspace">远端工作区路径</Label>
+            <Label htmlFor="remote-workspace">远端项目目录</Label>
             <Input
               id="remote-workspace"
               value={workspace}
@@ -394,12 +395,13 @@ export function RemoteConnectionDialog({
               placeholder="~/internagents-workspaces/volcano"
             />
             <p className="text-xs text-muted-foreground">
-              这里只放项目文件；runtime 会安装到远端独立目录，不会复制到工作区。
+              这是远端机器上的项目目录。InternAgents
+              会把它作为文件浏览和任务执行的工作区；运行环境会安装到独立目录，不会放进这里。
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="local-port">本地 tunnel 端口（可选）</Label>
+            <Label htmlFor="local-port">本机连接端口（可选）</Label>
             <Input
               id="local-port"
               value={localPort}
@@ -407,6 +409,9 @@ export function RemoteConnectionDialog({
               placeholder="自动选择，例如 22025"
               inputMode="numeric"
             />
+            <p className="text-xs text-muted-foreground">
+              通常无需填写，系统会自动选择可用端口。只有需要固定端口时再手动填写。
+            </p>
           </div>
         </div>
 
@@ -415,11 +420,11 @@ export function RemoteConnectionDialog({
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <ShieldCheck className="h-4 w-4 text-[#2F6868]" />
-                同步本机 .env 到远端 runtime
+                同步模型配置到远端
               </div>
               <p className="text-xs leading-5 text-muted-foreground">
-                可能包含模型 API Key。关闭时远端需要自己已有可用 .env，否则
-                runtime 能启动但模型调用可能失败。
+                开启后，会把本机用于模型调用的配置同步到远端，让远端也能直接使用模型。
+                这些配置可能包含 API Key，请只在信任的远端机器上开启。关闭后，远端需要自己配置好模型环境，否则运行任务时可能无法调用模型。
               </p>
             </div>
             <Switch
@@ -447,7 +452,7 @@ export function RemoteConnectionDialog({
           <div className="overflow-hidden rounded-md border border-zinc-800 bg-zinc-950 text-xs shadow-inner">
             <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-2 font-medium text-zinc-100">
               <Terminal className="h-4 w-4" />
-              配置日志
+              接入日志
             </div>
             <div className="max-h-56 overflow-auto px-3 py-3 font-mono leading-5 text-emerald-100">
               {setupLog.map((line, index) => (
@@ -491,7 +496,7 @@ export function RemoteConnectionDialog({
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            配置并选择
+            接入并启动
           </Button>
         </DialogFooter>
       </DialogContent>

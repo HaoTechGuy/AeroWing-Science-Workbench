@@ -329,12 +329,12 @@ function HomePageInner({
                 <SelectSeparator />
                 <SelectItem
                   value={ADD_REMOTE_WORKSPACE_VALUE}
-                  textValue="添加远程工作区"
+                  textValue="接入远程工作区"
                   className="py-2"
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <Plus className="h-4 w-4 shrink-0" />
-                    <span>添加远程工作区</span>
+                    <span>接入远程工作区</span>
                   </span>
                 </SelectItem>
               </SelectGroup>
