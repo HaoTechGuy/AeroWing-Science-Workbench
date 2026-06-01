@@ -659,6 +659,15 @@ export default function ConfigPage() {
             )}
           </div>
 
+          <section className="rounded-lg border border-[#BFD9D4] bg-[#F1F7F5] p-4 text-sm text-[#24595A] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
+            <div className="font-medium">配置指引</div>
+            <div className="mt-2 grid gap-2 md:grid-cols-3">
+              <div>1. 先填写 OpenRouter API Key，或保留已经保存的 key。</div>
+              <div>2. 选择本机工作区；远程工作区在工作台左上角添加。</div>
+              <div>3. 改完后点“空闲时应用”；需要马上生效再点“立即应用”。</div>
+            </div>
+          </section>
+
           <section
             className="rounded-lg border border-border bg-card p-5 shadow-sm"
             data-tour="config-model"

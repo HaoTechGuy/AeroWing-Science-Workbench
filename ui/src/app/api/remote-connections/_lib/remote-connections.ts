@@ -43,7 +43,9 @@ export interface SshHostEntry {
 
 export interface RemoteConnectionSetupRequest {
   label: string;
-  host: string;
+  connectionMode?: "sshConfig" | "sshCommand";
+  host?: string;
+  sshCommand?: string;
   workspace: string;
   resourceId?: string;
   localPort?: number;
@@ -90,20 +92,162 @@ function sshCommandForHost(host: string): string {
   return `ssh ${host}`;
 }
 
+function splitShellWords(value: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaping = false;
+
+  for (const char of value.trim()) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping) {
+    throw new Error("SSH 连接指令不能以转义符结尾。");
+  }
+  if (quote) {
+    throw new Error("SSH 连接指令里的引号未闭合。");
+  }
+  if (current) {
+    words.push(current);
+  }
+  return words;
+}
+
+function assertSshCommand(value: unknown): string {
+  const command = typeof value === "string" ? value.trim() : "";
+  if (!command) {
+    throw new Error("请填写 SSH 连接指令。");
+  }
+  if (/[\r\n]/.test(command)) {
+    throw new Error("SSH 连接指令只能是一行命令。");
+  }
+  const words = splitShellWords(command);
+  if (words[0] !== "ssh") {
+    throw new Error("SSH 连接指令必须以 ssh 开头。");
+  }
+  if (words.length < 2) {
+    throw new Error(
+      "SSH 连接指令需要包含目标主机，例如 ssh user@example.com。"
+    );
+  }
+  const shellOperators = new Set(["|", ";", "&&", "||", ">", ">>", "<", "&"]);
+  if (words.some((word) => shellOperators.has(word))) {
+    throw new Error("SSH 连接指令不能包含管道、重定向或串联命令。");
+  }
+  const optionsWithValue = new Set([
+    "-B",
+    "-b",
+    "-c",
+    "-D",
+    "-E",
+    "-e",
+    "-F",
+    "-I",
+    "-i",
+    "-J",
+    "-L",
+    "-l",
+    "-m",
+    "-O",
+    "-o",
+    "-p",
+    "-Q",
+    "-R",
+    "-S",
+    "-W",
+    "-w",
+  ]);
+  let destinationIndex = -1;
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index];
+    if (word === "--") {
+      destinationIndex = index + 1;
+      break;
+    }
+    if (word.startsWith("-")) {
+      if (optionsWithValue.has(word)) {
+        index += 1;
+      }
+      continue;
+    }
+    destinationIndex = index;
+    break;
+  }
+  if (destinationIndex < 0 || destinationIndex >= words.length) {
+    throw new Error(
+      "SSH 连接指令需要包含目标主机，例如 ssh user@example.com。"
+    );
+  }
+  if (destinationIndex !== words.length - 1) {
+    throw new Error("SSH 连接指令只填写连接部分，不要附加远端命令。");
+  }
+  return command;
+}
+
+function sshArgsFromCommand(
+  sshCommand: string,
+  extraOptions: string[] = []
+): string[] {
+  const [binary, ...args] = splitShellWords(assertSshCommand(sshCommand));
+  return [binary, ...extraOptions, ...args];
+}
+
+async function resolveSshConnection(request: {
+  connectionMode?: unknown;
+  host?: unknown;
+  sshCommand?: unknown;
+}): Promise<{ sshCommand: string; displayName: string }> {
+  if (
+    request.connectionMode === "sshCommand" ||
+    (typeof request.sshCommand === "string" && request.sshCommand.trim())
+  ) {
+    const sshCommand = assertSshCommand(request.sshCommand);
+    return { sshCommand, displayName: sshCommand };
+  }
+
+  const host = await assertKnownSshHost(request.host);
+  return { sshCommand: sshCommandForHost(host), displayName: host };
+}
+
 function defaultRemoteInstallDir(resourceId: string): string {
   return `${REMOTE_INSTALL_ROOT}/${safeId(resourceId) || "runtime"}`;
 }
 
-function sshArgs(host: string, extraOptions: string[] = []): string[] {
-  return ["ssh", ...extraOptions, host];
-}
-
 async function runSshCommand(
-  host: string,
+  sshCommand: string,
   script: string,
   timeoutMs: number
 ): Promise<{ stdout: string; stderr: string }> {
-  const [binary, ...args] = sshArgs(host, [
+  const [binary, ...args] = sshArgsFromCommand(sshCommand, [
     "-o",
     "BatchMode=yes",
     "-o",
@@ -191,7 +335,11 @@ export async function assertKnownSshHost(value: unknown): Promise<string> {
   return host;
 }
 
-export async function testSshConnection(hostValue: string): Promise<{
+export async function testSshConnection(
+  request:
+    | string
+    | { connectionMode?: unknown; host?: unknown; sshCommand?: unknown }
+): Promise<{
   ok: boolean;
   stdout: string;
   stderr: string;
@@ -204,8 +352,11 @@ export async function testSshConnection(hostValue: string): Promise<{
     "printf 'pwd=%s\\n' \"$(pwd)\"",
   ].join("\n");
   try {
-    const host = await assertKnownSshHost(hostValue);
-    const result = await runSshCommand(host, script, 15_000);
+    const connection =
+      typeof request === "string"
+        ? await resolveSshConnection({ host: request })
+        : await resolveSshConnection(request);
+    const result = await runSshCommand(connection.sshCommand, script, 15_000);
     return { ok: true, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
     const err = error as Error & { stdout?: string; stderr?: string };
@@ -334,7 +485,7 @@ async function commandExists(command: string): Promise<boolean> {
 }
 
 async function syncSourceToRemote(
-  host: string,
+  sshCommand: string,
   installDir: string,
   copyEnv: boolean,
   log: string[],
@@ -371,7 +522,7 @@ async function syncSourceToRemote(
     ...excludes.map((item) => `--exclude=${item}`),
     ".",
   ];
-  const [sshBinary, ...baseSshArgs] = sshArgs(host, [
+  const [sshBinary, ...baseSshArgs] = sshArgsFromCommand(sshCommand, [
     "-o",
     "BatchMode=yes",
     "-o",
@@ -383,7 +534,11 @@ async function syncSourceToRemote(
     `tar -xzf - -C ${shellQuote(installDir)}`,
   ].join(" && ");
 
-  pushLog(log, `同步当前 InternAgents runtime 到远端安装目录: ${installDir}`, onLog);
+  pushLog(
+    log,
+    `同步当前 InternAgents runtime 到远端安装目录: ${installDir}`,
+    onLog
+  );
   await new Promise<void>((resolve, reject) => {
     const tar = spawn("tar", tarArgs, {
       cwd: root,
@@ -428,7 +583,7 @@ async function syncSourceToRemote(
 }
 
 async function configureRemoteRuntime(
-  host: string,
+  sshCommand: string,
   installDir: string,
   resource: ResourceRecord,
   log: string[],
@@ -522,12 +677,12 @@ PY
     "安装远端 Python 依赖并启动 runtime，这一步可能需要几分钟...",
     onLog
   );
-  const result = await runSshCommand(host, script, 180_000);
+  const result = await runSshCommand(sshCommand, script, 180_000);
   pushLog(log, result.stdout.trim() || "远端 runtime 已启动。", onLog);
 }
 
 async function ensureRuntimeTunnel(
-  host: string,
+  sshCommand: string,
   resourceId: string,
   localPort: number,
   log: string[],
@@ -555,7 +710,7 @@ async function ensureRuntimeTunnel(
     // No previous tunnel to stop.
   }
 
-  const [sshBinary, ...baseSshArgs] = sshArgs(host, [
+  const [sshBinary, ...baseSshArgs] = sshArgsFromCommand(sshCommand, [
     "-N",
     "-L",
     `${localPort}:127.0.0.1:${REMOTE_RUNTIME_PORT}`,
@@ -581,7 +736,7 @@ async function ensureRuntimeTunnel(
 }
 
 async function resolveRemotePath(
-  host: string,
+  sshCommand: string,
   remotePath: string,
   description: string,
   log: string[],
@@ -596,7 +751,7 @@ async function resolveRemotePath(
     )}).expanduser().resolve(strict=False))`,
     "PY",
   ].join("\n");
-  const result = await runSshCommand(host, script, 15_000);
+  const result = await runSshCommand(sshCommand, script, 15_000);
   const resolved = result.stdout.trim().split(/\r?\n/).pop()?.trim() || "";
   if (!resolved.startsWith("/")) {
     throw new Error(
@@ -624,7 +779,8 @@ export async function setupRemoteConnection(
   if (!label) {
     throw new Error("机器名称不能为空。");
   }
-  const host = await assertKnownSshHost(request.host);
+  const connection = await resolveSshConnection(request);
+  const sshCommand = connection.sshCommand;
   const requestedWorkspace = assertRemoteWorkspace(request.workspace);
   const { configPath, config } = await getWritableResourcesConfig();
   const resources = config.resources || [];
@@ -632,20 +788,20 @@ export async function setupRemoteConnection(
   const localPort = await chooseLocalPort(request.localPort);
   const log: string[] = [];
 
-  const test = await testSshConnection(host);
+  const test = await testSshConnection(request);
   if (!test.ok) {
     throw new Error(`SSH 连接失败: ${test.stderr || test.stdout}`);
   }
-  pushLog(log, "SSH 连接可用。", onLog);
+  pushLog(log, `SSH 连接可用: ${connection.displayName}`, onLog);
   const workspace = await resolveRemotePath(
-    host,
+    sshCommand,
     requestedWorkspace,
     "远端工作区路径",
     log,
     onLog
   );
   const installDir = await resolveRemotePath(
-    host,
+    sshCommand,
     defaultRemoteInstallDir(resourceId),
     "远端 runtime 安装目录",
     log,
@@ -658,7 +814,7 @@ export async function setupRemoteConnection(
   }
 
   await syncSourceToRemote(
-    host,
+    sshCommand,
     installDir,
     request.copyEnv === true,
     log,
@@ -669,15 +825,15 @@ export async function setupRemoteConnection(
     id: resourceId,
     label,
     backend: "ssh_shell",
-    ssh_command: sshCommandForHost(host),
+    ssh_command: sshCommand,
     workspace,
     remote_url: `http://127.0.0.1:${localPort}`,
     remote_assistant_id: "agent",
     enabled: true,
   };
-  await configureRemoteRuntime(host, installDir, resource, log, onLog);
+  await configureRemoteRuntime(sshCommand, installDir, resource, log, onLog);
   const remoteUrl = await ensureRuntimeTunnel(
-    host,
+    sshCommand,
     resourceId,
     localPort,
     log,
