@@ -257,9 +257,17 @@ function ensureWorkspaceRecord(workspaces, workspacePath) {
 }
 
 function pythonBinary() {
-  const binDir = path.join(resourcesRoot(), "python-runtime", "bin");
-  for (const name of ["python3.12", "python3.11", "python3", "python"]) {
-    const candidate = path.join(binDir, name);
+  const runtimeDir = path.join(resourcesRoot(), "python-runtime");
+  const candidates = [
+    path.join(runtimeDir, "venv", "bin", "python"),
+    path.join(runtimeDir, ".venv", "bin", "python"),
+    path.join(runtimeDir, "bin", "python3.12"),
+    path.join(runtimeDir, "bin", "python3.11"),
+    path.join(runtimeDir, "bin", "python3"),
+    path.join(runtimeDir, "bin", "python"),
+  ];
+
+  for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
       return candidate;
     }

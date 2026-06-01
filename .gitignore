@@ -2,11 +2,13 @@
 .env
 internagent.resources.local.json
 .venv/
+.desktop-python-runtime/
 .langgraph_api/
 .internagents/
 __pycache__/
 *.py[cod]
 *.egg-info/
+build/
 
 # Local vendored SDK checkout; the app depends on deepagents via pyproject.toml.
 deepagents/

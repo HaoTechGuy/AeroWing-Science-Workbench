@@ -72,13 +72,26 @@ jobs:
 
       - name: Prepare bundled Python runtime
         run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install .
+          python -m pip install --upgrade pip uv
+          rm -rf .desktop-python-runtime
+          export UV_PYTHON_INSTALL_DIR="$PWD/.desktop-python-runtime/python"
+          uv python install 3.11 --managed-python --no-bin
+          uv venv "$PWD/.desktop-python-runtime/venv" \
+            --python 3.11 \
+            --managed-python \
+            --seed \
+            --relocatable
+          uv pip install \
+            --python "$PWD/.desktop-python-runtime/venv/bin/python" \
+            --link-mode copy \
+            --compile-bytecode \
+            .
+          "$PWD/.desktop-python-runtime/venv/bin/python" -c "import langgraph_cli; print(langgraph_cli.__file__)"
+          echo "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$PWD/.desktop-python-runtime" >> "$GITHUB_ENV"
 
       - name: Validate Python files
         run: |
-          .venv/bin/python -m compileall \
+          .desktop-python-runtime/venv/bin/python -m compileall \
             agent.py \
             internagent_resources.py \
             ssh_backend.py \

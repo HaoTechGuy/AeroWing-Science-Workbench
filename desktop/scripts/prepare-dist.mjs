@@ -172,6 +172,7 @@ async function preparePythonRuntime() {
   });
   await rewriteRuntimeSymlinks(path.resolve(pythonSource));
   await normalizePythonLinks();
+  await assertNoExternalRuntimeSymlinks();
 }
 
 async function relink(linkPath, targetName) {
@@ -233,6 +234,27 @@ async function rewriteRuntimeSymlinks(sourceRoot) {
     const relativeTarget = path.relative(path.dirname(entryPath), bundledTarget);
     await fs.rm(entryPath, { force: true });
     await fs.symlink(relativeTarget || path.basename(bundledTarget), entryPath);
+  });
+}
+
+async function assertNoExternalRuntimeSymlinks() {
+  const bundledRoot = path.resolve(pythonRuntimeDir);
+  await walk(pythonRuntimeDir, async (entryPath, entry) => {
+    if (!entry.isSymbolicLink()) {
+      return;
+    }
+
+    const linkTarget = await fs.readlink(entryPath);
+    if (!path.isAbsolute(linkTarget)) {
+      return;
+    }
+
+    const resolvedTarget = path.resolve(linkTarget);
+    if (!resolvedTarget.startsWith(`${bundledRoot}${path.sep}`)) {
+      throw new Error(
+        `Bundled Python runtime contains an external symlink: ${entryPath} -> ${linkTarget}`
+      );
+    }
   });
 }
 
