@@ -136,46 +136,16 @@ const JISI_MODEL_OPTIONS: Array<{
     badge: "默认",
   },
   {
-    id: "deepseek/deepseek-r1",
-    title: "DeepSeek R1",
+    id: "deepseek/deepseek-v4-pro",
+    title: "DeepSeek V4 Pro",
     vendor: "DeepSeek",
-    description: "推理能力更强，适合复杂规划、数学推导和多步骤分析。",
-  },
-  {
-    id: "deepseek/deepseek-chat",
-    title: "DeepSeek Chat",
-    vendor: "DeepSeek",
-    description: "通用中文对话和代码任务，输出稳定，成本友好。",
-  },
-  {
-    id: "qwen/Qwen3-235B",
-    title: "通义千问 Qwen3 235B",
-    vendor: "Qwen",
-    description: "大参数通用模型，适合中文写作、知识问答和研究整理。",
-  },
-  {
-    id: "moonshot/kimi-k2.5",
-    title: "Kimi K2.5",
-    vendor: "Moonshot",
-    description: "长文本理解和中文材料处理友好，适合文档阅读场景。",
+    description: "能力优先，适合复杂规划、代码协作和多步骤分析。",
   },
   {
     id: "shlab/intern-s1-pro",
     title: "Intern S1 Pro",
     vendor: "SH-Lab",
     description: "上海人工智能实验室模型，适合科研分析和科学问答。",
-  },
-  {
-    id: "zhipu/glm-5",
-    title: "GLM-5",
-    vendor: "Zhipu",
-    description: "国产通用模型，适合中文知识问答和结构化生成。",
-  },
-  {
-    id: "minimax/minimax2.5",
-    title: "MiniMax 2.5",
-    vendor: "MiniMax",
-    description: "轻量通用模型，适合快速对话、摘要和改写任务。",
   },
 ];
 
