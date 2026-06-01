@@ -1,5 +1,5 @@
 import { execFile, spawn } from "child_process";
-import { constants, createWriteStream } from "fs";
+import { constants, createWriteStream, readFileSync } from "fs";
 import { promises as fs } from "fs";
 import type { FileHandle } from "fs/promises";
 import path from "path";
@@ -129,8 +129,44 @@ function updatePaths() {
   };
 }
 
+function parseEnvValue(rawValue: string) {
+  const trimmed = rawValue.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function readRuntimeEnvValues(): Record<string, string> {
+  try {
+    const content = readFileSync(path.join(getWorkspaceRoot(), ".env"), "utf8");
+    const values: Record<string, string> = {};
+    for (const line of content.split(/\r?\n/)) {
+      const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (!match || line.trim().startsWith("#")) {
+        continue;
+      }
+      values[match[1]] = parseEnvValue(match[2]);
+    }
+    return values;
+  } catch {
+    return {};
+  }
+}
+
+function updateEnvValue(name: string) {
+  const processValue = process.env[name]?.trim();
+  if (processValue) {
+    return processValue;
+  }
+  return readRuntimeEnvValues()[name]?.trim() || "";
+}
+
 function releaseRepoSlug() {
-  const raw = (process.env.INTERNAGENTS_UPDATE_REPO || DEFAULT_RELEASE_REPO).trim();
+  const raw = (updateEnvValue("INTERNAGENTS_UPDATE_REPO") || DEFAULT_RELEASE_REPO).trim();
   return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(raw)
     ? raw
     : DEFAULT_RELEASE_REPO;
@@ -138,7 +174,7 @@ function releaseRepoSlug() {
 
 function releaseApiUrl() {
   return (
-    process.env.INTERNAGENTS_UPDATE_API_URL ||
+    updateEnvValue("INTERNAGENTS_UPDATE_API_URL") ||
     `https://api.github.com/repos/${releaseRepoSlug()}/releases/latest`
   );
 }
@@ -355,10 +391,14 @@ export async function getCurrentVersionInfo(): Promise<UpdateVersionInfo> {
 function githubHeaders(extra: Record<string, string> = {}) {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
     "User-Agent": "InternAgents-Updater",
     ...extra,
   };
-  const token = process.env.INTERNAGENTS_UPDATE_GITHUB_TOKEN?.trim();
+  const token =
+    updateEnvValue("INTERNAGENTS_UPDATE_GITHUB_TOKEN") ||
+    updateEnvValue("GH_TOKEN") ||
+    updateEnvValue("GITHUB_TOKEN");
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -375,7 +415,7 @@ function parseAssets(value: unknown): GitHubAssetPayload[] {
 }
 
 function assetRegexOverride() {
-  const raw = process.env.INTERNAGENTS_UPDATE_ASSET_REGEX?.trim();
+  const raw = updateEnvValue("INTERNAGENTS_UPDATE_ASSET_REGEX");
   if (!raw) {
     return undefined;
   }
@@ -440,6 +480,126 @@ function selectReleaseAsset(assets: GitHubAssetPayload[], tagName: string): Upda
   };
 }
 
+function releaseTagFromUrl(value: string | undefined) {
+  if (!value) {
+    return "";
+  }
+  try {
+    const parsed = new URL(value, `https://github.com/${releaseRepoSlug()}/`);
+    const match = parsed.pathname.match(/\/releases\/tag\/([^/]+)$/);
+    return match?.[1] ? decodeURIComponent(match[1]) : "";
+  } catch {
+    return "";
+  }
+}
+
+function publicAssetCandidates(tagName: string) {
+  const version = normalizeVersion(tagName);
+  const archTokens = process.arch === "arm64" ? ["arm64"] : ["x64", "x86_64"];
+  const versionTokens = Array.from(new Set([version, tagName]));
+  const names = new Set<string>();
+
+  for (const versionToken of versionTokens) {
+    for (const archToken of archTokens) {
+      names.add(`InternAgents-${versionToken}-${archToken}.dmg`);
+    }
+    names.add(`InternAgents-${versionToken}.dmg`);
+  }
+
+  return [...names];
+}
+
+function publicLatestDownloadUrl(assetName: string) {
+  return `https://github.com/${releaseRepoSlug()}/releases/latest/download/${encodeURIComponent(assetName)}`;
+}
+
+async function selectPublicReleaseAsset(tagName: string, signal: AbortSignal) {
+  for (const name of publicAssetCandidates(tagName)) {
+    const response = await fetch(publicLatestDownloadUrl(name), {
+      method: "HEAD",
+      redirect: "manual",
+      cache: "no-store",
+      headers: {
+        "User-Agent": "InternAgents-Updater",
+      },
+      signal,
+    });
+    if ((response.status >= 200 && response.status < 400) || response.status === 405) {
+      const size = Number(response.headers.get("content-length") || "");
+      return {
+        name,
+        size: Number.isFinite(size) && size > 0 ? size : undefined,
+        downloadUrl: publicLatestDownloadUrl(name),
+      };
+    }
+  }
+
+  return undefined;
+}
+
+async function fetchLatestPublicRelease(signal: AbortSignal): Promise<UpdateReleaseInfo> {
+  const response = await fetch(releasePageUrl(), {
+    redirect: "manual",
+    cache: "no-store",
+    headers: {
+      "User-Agent": "InternAgents-Updater",
+    },
+    signal,
+  });
+  const location = response.headers.get("location") || response.url;
+  const tagName = releaseTagFromUrl(location);
+  if (!tagName || !isSafeReleaseTag(tagName)) {
+    throw new Error("公开 Release 页面没有返回有效的 latest tag。");
+  }
+
+  return {
+    tagName,
+    name: tagName,
+    htmlUrl: `https://github.com/${releaseRepoSlug()}/releases/tag/${encodeURIComponent(tagName)}`,
+    asset: await selectPublicReleaseAsset(tagName, signal),
+  };
+}
+
+function githubRateLimitResetMessage(response: Response) {
+  const reset = response.headers.get("x-ratelimit-reset");
+  if (!reset) {
+    return "";
+  }
+  const resetAt = new Date(Number(reset) * 1000);
+  if (Number.isNaN(resetAt.getTime())) {
+    return "";
+  }
+  return `，限制将在 ${resetAt.toLocaleString()} 后重置`;
+}
+
+async function githubResponseError(response: Response) {
+  const payload = (await response.json().catch(() => ({}))) as {
+    message?: unknown;
+  };
+  const message = typeof payload.message === "string" ? payload.message : "";
+  const rateLimited =
+    response.status === 403 &&
+    (response.headers.get("x-ratelimit-remaining") === "0" ||
+      /rate limit/i.test(message));
+
+  if (rateLimited) {
+    return [
+      "GitHub Release 读取失败：HTTP 403（GitHub API 访问频率限制）。",
+      `当前更新源是 ${releaseRepoSlug()}${githubRateLimitResetMessage(response)}。`,
+      "公开 Release 不需要权限 token；如果频繁检查或共享出口 IP 被限流，可以等待重置或在桌面运行时 .env 中设置 INTERNAGENTS_UPDATE_GITHUB_TOKEN 提高限额。",
+    ].join("");
+  }
+
+  if (response.status === 404) {
+    return [
+      "GitHub Release 读取失败：HTTP 404。",
+      `没有找到 ${releaseRepoSlug()} 的 latest release，或当前仓库/Release 不公开。`,
+    ].join("");
+  }
+
+  return `GitHub Release 读取失败：HTTP ${response.status}${message ? `：${message}` : ""}`;
+}
+
 async function fetchLatestRelease(): Promise<UpdateReleaseInfo> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -451,7 +611,19 @@ async function fetchLatestRelease(): Promise<UpdateReleaseInfo> {
     });
 
     if (!response.ok) {
-      throw new Error(`GitHub Release 读取失败：HTTP ${response.status}`);
+      const apiError = await githubResponseError(response);
+      if (response.status === 403 || response.status === 404) {
+        try {
+          return await fetchLatestPublicRelease(controller.signal);
+        } catch (fallbackError) {
+          const fallbackMessage =
+            fallbackError instanceof Error
+              ? fallbackError.message
+              : "公开 Release 页面回退检查失败。";
+          throw new Error(`${apiError} 公开 Release 回退也失败：${fallbackMessage}`);
+        }
+      }
+      throw new Error(apiError);
     }
 
     const payload = (await response.json()) as GitHubReleasePayload;

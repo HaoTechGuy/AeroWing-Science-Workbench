@@ -205,6 +205,12 @@ a public release-only repository. The source repository can stay private; the
 release repository only needs GitHub Releases with assets named like
 `InternAgents-0.1.1-arm64.dmg`.
 
+Public release repositories do not require a token. The updater first tries the
+GitHub Releases API and, if the unauthenticated API is rate-limited, falls back
+to the public release page plus `releases/latest/download/...`. Set
+`INTERNAGENTS_UPDATE_GITHUB_TOKEN` only when you want a higher GitHub API rate
+limit or when you intentionally check a private release repository.
+
 The browser never receives a shell command or user-provided repository URL. It
 calls local Next.js API routes under `/api/update/*`; those routes are the only
 place that can query the fixed release feed, download the matching DMG, mount
