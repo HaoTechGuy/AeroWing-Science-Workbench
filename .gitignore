@@ -31,3 +31,6 @@ tmp/
 
 # Local backup files
 *.bak
+
+# Generated local docs
+docs/desktop-user-guide.pdf

@@ -21,6 +21,7 @@ type UpdateState =
   | "checking"
   | "available"
   | "up-to-date"
+  | "downloading"
   | "applying"
   | "applied"
   | "rolling-back"
@@ -38,6 +39,8 @@ interface UpdateStatusResult {
     commit?: string;
     dirty: boolean;
     dirtyReason?: string;
+    appPath?: string;
+    installMode: "desktop-app" | "source";
   };
   latest?: {
     tagName: string;
@@ -45,8 +48,15 @@ interface UpdateStatusResult {
     htmlUrl: string;
     publishedAt?: string;
     notes?: string;
+    asset?: {
+      name: string;
+      size?: number;
+      downloadUrl: string;
+    };
   };
   updateAvailable: boolean;
+  canApply: boolean;
+  blockReason?: string;
   message: string;
   previous?: {
     checkoutTarget: string;
@@ -56,6 +66,7 @@ interface UpdateStatusResult {
   backendRestart?: {
     message: string;
   };
+  installLogPath?: string;
   log: Array<{
     at: string;
     message: string;
@@ -139,7 +150,7 @@ export default function AboutPage() {
           ? `即将从 shuyuehu/InternAgents 更新到 ${latestTag}。`
           : "即将从 shuyuehu/InternAgents 更新到最新 release。",
         "",
-        "更新会拒绝有未提交改动的安装目录；成功后会尝试重启本机后台，并刷新当前页面。",
+        "更新会下载最新 DMG，退出当前 App，替换本机 .app 后重新打开。",
         "",
         "确认继续？",
       ].join("\n")
@@ -153,8 +164,6 @@ export default function AboutPage() {
     try {
       const response = await fetch("/api/update/apply", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ restartLocalBackend: true }),
       });
       const payload = (await response.json()) as UpdateStatusResult & {
         error?: string;
@@ -185,7 +194,7 @@ export default function AboutPage() {
           ? `即将回滚到 ${previousLabel}。`
           : "即将回滚到上一版本。",
         "",
-        "回滚会拒绝有未提交改动的安装目录；成功后会尝试重启本机后台，并刷新当前页面。",
+        "当前 App 安装器模式不支持自动回滚；如需回滚，请下载上一版 DMG 手动安装。",
         "",
         "确认继续？",
       ].join("\n")
@@ -199,8 +208,6 @@ export default function AboutPage() {
     try {
       const response = await fetch("/api/update/rollback", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ restartLocalBackend: true }),
       });
       const payload = (await response.json()) as UpdateStatusResult & {
         error?: string;
@@ -338,7 +345,7 @@ export default function AboutPage() {
                   disabled={
                     actionBusy ||
                     !updateStatus?.updateAvailable ||
-                    updateStatus.current.dirty
+                    !updateStatus.canApply
                   }
                   className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
                 >
@@ -370,7 +377,7 @@ export default function AboutPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => void rollbackSoftwareUpdate()}
-                    disabled={actionBusy || updateStatus.current.dirty}
+                    disabled={actionBusy}
                     className="h-9"
                   >
                     {rollingBackUpdate ? (
@@ -389,6 +396,11 @@ export default function AboutPage() {
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
                   {updateStatus.current.dirtyReason ||
                     "当前安装目录有未提交改动，暂不能一键更新。"}
+                </div>
+              )}
+              {updateStatus?.blockReason && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                  {updateStatus.blockReason}
                 </div>
               )}
 
@@ -418,7 +430,8 @@ export default function AboutPage() {
                   </div>
                   <div className="mt-1 truncate text-xs text-muted-foreground">
                     {updateStatus?.backendRestart?.message ||
-                      (updateStatus ? "GitHub Release" : "等待状态读取")}
+                      updateStatus?.latest?.asset?.name ||
+                      (updateStatus ? "GitHub Release DMG" : "等待状态读取")}
                   </div>
                 </div>
               </div>

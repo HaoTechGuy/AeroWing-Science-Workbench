@@ -188,28 +188,40 @@ local development.
 
 ## Software Updates
 
-The configuration page includes a local software update panel. It checks the
-public GitHub Releases feed for:
+The About page includes a local software update panel. The installed macOS app
+checks a GitHub Releases feed for binary DMG assets. By default it reads:
 
 ```text
 shuyuehu/InternAgents
 ```
 
-The browser never receives a shell command or repository URL from the user. It
-calls local Next.js API routes under `/api/update/*`; those routes are the only
-place that can fetch the fixed release source, switch to the latest `vX.Y.Z`
-tag, restart the local backend, or roll back to the previously recorded
-checkout target.
+Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
+a public release-only repository. The source repository can stay private; the
+release repository only needs GitHub Releases with assets named like
+`InternAgents-0.1.1-arm64.dmg`.
 
-Publishing a new demo release is tag driven:
+The browser never receives a shell command or user-provided repository URL. It
+calls local Next.js API routes under `/api/update/*`; those routes are the only
+place that can query the fixed release feed, download the matching DMG, mount
+it, verify the `.app`, and launch the local installer script that replaces the
+current app and reopens InternAgents.
+
+Publishing a new desktop release is tag driven. Create the tag on the branch or
+commit you want to ship, then push that tag:
 
 ```bash
 git tag v0.1.1
 git push origin v0.1.1
 ```
 
-The release workflow validates Python files, lints and builds the UI, packages a
-source archive, writes a SHA-256 checksum, and creates the GitHub Release.
+The workflow uses that tag as the App version, runs on macOS, validates Python
+files, lints and builds the UI, builds the DMG, and uploads only the DMG
+artifacts to `shuyuehu/InternAgents`. If the workflow runs in a private source
+repository, set:
+
+```text
+Repository secret:   INTERNAGENTS_RELEASE_TOKEN=<PAT with contents:write on that repo>
+```
 
 ### Tool Display Names
 

@@ -286,6 +286,13 @@ function nodeHostBinary() {
   return process.execPath;
 }
 
+function appBundlePath() {
+  if (!app.isPackaged) {
+    return "";
+  }
+  return path.resolve(path.dirname(process.execPath), "..", "..");
+}
+
 function runtimePidFile(name) {
   return path.join(runtimeRoot, ".internagents", "pids", `${name}.pid`);
 }
@@ -336,6 +343,9 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
     INTERNAGENTS_BACKEND_PORT: String(backendPort),
     INTERNAGENTS_LOCAL_RUNTIME_PORT: String(runtimePort),
     INTERNAGENTS_PYTHON_BIN: pythonBinary(),
+    INTERNAGENTS_APP_BUNDLE_PATH: appBundlePath(),
+    INTERNAGENTS_APP_PID: String(process.pid),
+    INTERNAGENTS_APP_VERSION: app.getVersion(),
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONNOUSERSITE: "1",
     NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL: `http://${HOST}:${backendPort}`,

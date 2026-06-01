@@ -8,12 +8,17 @@ on:
 permissions:
   contents: write
 
+env:
+  # Public release-only repository. The private source repository is only used
+  # by this workflow runner; release assets are published here.
+  INTERNAGENTS_RELEASE_REPO: shuyuehu/InternAgents
+
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: macos-14
 
     steps:
-      - name: Checkout
+      - name: Checkout private source
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -21,39 +26,102 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            ui/package-lock.json
+            desktop/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      - name: Install UI dependencies
+        run: npm --prefix ui ci
+
+      - name: Install desktop dependencies
+        run: npm --prefix desktop ci
+
+      - name: Set desktop release version
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const tag = process.env.GITHUB_REF_NAME || "";
+          const match = tag.match(/^v(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/);
+          if (!match) {
+            throw new Error(`Release tag must look like vX.Y.Z, got: ${tag}`);
+          }
+          const version = match[1];
+          const packagePath = "desktop/package.json";
+          const lockPath = "desktop/package-lock.json";
+          const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+          pkg.version = version;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+          if (fs.existsSync(lockPath)) {
+            const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+            lock.version = version;
+            if (lock.packages && lock.packages[""]) {
+              lock.packages[""].version = version;
+            }
+            fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_DESKTOP_VERSION=${version}\n`);
+          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_RELEASE_TAG=${tag}\n`);
+          NODE
+
+      - name: Prepare bundled Python runtime
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install .
+
       - name: Validate Python files
         run: |
-          python -m compileall agent.py internagent_resources.py ssh_backend.py kb_sync_middleware.py
+          .venv/bin/python -m compileall \
+            agent.py \
+            internagent_resources.py \
+            ssh_backend.py \
+            kb_sync_middleware.py \
+            goal_middleware.py \
+            goal_state.py \
+            goal_tools.py \
+            mineru_middleware.py
 
       - name: Validate UI
         run: |
-          npm --prefix ui ci
           npm --prefix ui run lint
           npm --prefix ui run build
 
-      - name: Package source release
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p dist
-          git archive \
-            --format=tar.gz \
-            --prefix="internagents-${VERSION}/" \
-            --output="dist/internagents-v${VERSION}.tar.gz" \
-            HEAD
-          sha256sum "dist/internagents-v${VERSION}.tar.gz" > "dist/internagents-v${VERSION}.sha256"
+      - name: Build macOS DMG
+        run: npm --prefix desktop run build
 
-      - name: Create GitHub Release
+      - name: Publish binary release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            dist/* \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes
+          NOTES="InternAgents macOS App release ${INTERNAGENTS_RELEASE_TAG}
+
+          Source tag: ${GITHUB_REF_NAME}
+          Source commit: ${GITHUB_SHA}"
+
+          if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
+            gh release upload "$INTERNAGENTS_RELEASE_TAG" \
+              desktop/release/InternAgents-*.dmg \
+              desktop/release/InternAgents-*.dmg.blockmap \
+              --repo "$INTERNAGENTS_RELEASE_REPO" \
+              --clobber
+            gh release edit "$INTERNAGENTS_RELEASE_TAG" \
+              --repo "$INTERNAGENTS_RELEASE_REPO" \
+              --title "$INTERNAGENTS_RELEASE_TAG" \
+              --notes "$NOTES" \
+              --latest
+          else
+            gh release create "$INTERNAGENTS_RELEASE_TAG" \
+              desktop/release/InternAgents-*.dmg \
+              desktop/release/InternAgents-*.dmg.blockmap \
+              --repo "$INTERNAGENTS_RELEASE_REPO" \
+              --title "$INTERNAGENTS_RELEASE_TAG" \
+              --notes "$NOTES" \
+              --latest
+          fi
