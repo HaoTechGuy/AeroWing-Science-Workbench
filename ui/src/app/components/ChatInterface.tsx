@@ -1193,7 +1193,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     Goal
                     <span
                       className={cn(
-                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal",
+                        "rounded-full border px-2 py-0.5 text-xs font-semibold normal-case tracking-normal",
                         goalStatusClassName(goal.status)
                       )}
                     >
@@ -1448,7 +1448,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         >
                           <FileIcon size={16} />
                           Files (State)
-                          <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-[10px] leading-[16px]">
+                          <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-xs leading-[16px]">
                             {Object.keys(files).length}
                           </span>
                         </button>
@@ -1510,7 +1510,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         aria-expanded={metaOpen === "files"}
                       >
                         Files (State)
-                        <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-[10px] leading-[16px]">
+                        <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-xs leading-[16px]">
                           {Object.keys(files).length}
                         </span>
                       </button>
@@ -1530,7 +1530,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span
                             className={cn(
-                              "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                              "rounded-full border px-2 py-0.5 text-xs font-semibold",
                               goalStatusClassName(goal.status)
                             )}
                           >
@@ -1559,7 +1559,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                             key={status}
                             className="mb-4"
                           >
-                            <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-tertiary">
+                            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-tertiary">
                               {todoStatusLabel(status as TodoItem["status"])}
                             </h3>
                             <div className="grid grid-cols-[auto_1fr] gap-3 rounded-sm p-1 pl-0 text-sm">

@@ -419,6 +419,65 @@ button {
   border-width: 0;
 }
 
+.internagents-home {
+  --internagents-home-text-size: 0.875rem;
+  --internagents-home-caption-size: 0.75rem;
+  font-size: var(--internagents-home-text-size);
+}
+
+.internagents-home :where(
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  span,
+  a,
+  button,
+  input,
+  textarea,
+  select,
+  label,
+  li,
+  div,
+  pre,
+  code,
+  kbd,
+  samp,
+  small,
+  strong,
+  em,
+  th,
+  td
+) {
+  font-size: inherit;
+}
+
+.internagents-home.text-xs,
+.internagents-home.text-\[10px\],
+.internagents-home.text-\[11px\],
+.internagents-home.text-\[12px\],
+.internagents-home.text-\[0\.9em\],
+.internagents-home :where(.text-xs, .text-\[10px\], .text-\[11px\], .text-\[12px\], .text-\[0\.9em\]) {
+  font-size: var(--internagents-home-caption-size);
+}
+
+.internagents-home.text-sm,
+.internagents-home.text-base,
+.internagents-home.text-lg,
+.internagents-home.text-xl,
+.internagents-home.text-2xl,
+.internagents-home.text-3xl,
+.internagents-home.text-\[13px\],
+.internagents-home.text-\[14px\],
+.internagents-home.text-\[15px\],
+.internagents-home.text-\[16px\],
+.internagents-home :where(.text-sm, .text-base, .text-lg, .text-xl, .text-2xl, .text-3xl, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) {
+  font-size: var(--internagents-home-text-size);
+}
+
 /* Optimization Window animations */
 @keyframes fadeIn {
   from {

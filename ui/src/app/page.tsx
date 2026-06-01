@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
+import type { ImperativePanelHandle } from "react-resizable-panels";
 import {
   getConfig,
   getResource,
@@ -101,6 +102,10 @@ function HomePageInner({
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
   const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
+  const [workspacePanelCompact, setWorkspacePanelCompact] = useState(false);
+  const workspacePanelRef = useRef<ImperativePanelHandle>(null);
+  const [viewerPanelCompact, setViewerPanelCompact] = useState(false);
+  const viewerPanelRef = useRef<ImperativePanelHandle>(null);
 
   const fetchAssistant = useCallback(async () => {
     setAssistant(await remoteAgent.resolveAssistant());
@@ -189,6 +194,20 @@ function HomePageInner({
     setWorkspaceRefreshKey((key) => key + 1);
   }, [mutateThreads]);
 
+  const handleWorkspacePanelCompactChange = useCallback((compact: boolean) => {
+    setWorkspacePanelCompact(compact);
+    window.requestAnimationFrame(() => {
+      workspacePanelRef.current?.resize(compact ? 4 : 24);
+    });
+  }, []);
+
+  const handleViewerPanelCompactChange = useCallback((compact: boolean) => {
+    setViewerPanelCompact(compact);
+    window.requestAnimationFrame(() => {
+      viewerPanelRef.current?.resize(compact ? 4 : 31);
+    });
+  }, []);
+
   const handleRemoteConfigured = useCallback(
     async (resource: ResourceConfig, resources: ResourceConfig[]) => {
       await setThreadId(null);
@@ -224,13 +243,13 @@ function HomePageInner({
   const environmentLabel = activeWorkspace?.label || activeResource.label;
 
   return (
-    <div className="flex h-[calc(100vh-var(--app-footer-height))] flex-col bg-background text-foreground">
+    <div className="internagents-home flex h-[calc(100vh-var(--app-footer-height))] flex-col bg-background text-foreground">
       <header className="flex h-14 items-center justify-between border-b border-border bg-card/95 px-5 shadow-[0_1px_0_rgba(23,36,36,0.03)]">
         <div
           className="flex min-w-0 items-center gap-3"
           data-tour="local-agent"
         >
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">
+          <h1 className="text-sm font-semibold tracking-tight text-foreground">
             InternAgents
           </h1>
           <Select
@@ -247,7 +266,7 @@ function HomePageInner({
             </SelectTrigger>
             <SelectContent
               align="start"
-              className="w-[340px]"
+              className="internagents-home w-[340px]"
             >
               <SelectGroup>
                 <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
@@ -365,11 +384,17 @@ function HomePageInner({
           autoSaveId="standalone-chat"
         >
           <ResizablePanel
+            ref={workspacePanelRef}
             id="workspace"
             order={1}
-            defaultSize={24}
-            minSize={18}
-            className="relative min-w-[300px] border-r border-border bg-sidebar"
+            defaultSize={workspacePanelCompact ? 4 : 24}
+            minSize={workspacePanelCompact ? 4 : 18}
+            maxSize={workspacePanelCompact ? 6 : undefined}
+            className={
+              workspacePanelCompact
+                ? "relative min-w-[44px] max-w-[56px] border-r border-border bg-sidebar"
+                : "relative min-w-[300px] border-r border-border bg-sidebar"
+            }
             data-tour="workspace-panel"
           >
             <WorkspacePanel
@@ -390,6 +415,7 @@ function HomePageInner({
               }
               workspaceRefreshKey={workspaceRefreshKey}
               activeWorkspace={activeWorkspace}
+              onCompactChange={handleWorkspacePanelCompactChange}
             />
           </ResizablePanel>
           <ResizableHandle />
@@ -428,11 +454,17 @@ function HomePageInner({
           </ResizablePanel>
           <ResizableHandle />
           <ResizablePanel
+            ref={viewerPanelRef}
             id="viewer"
             order={3}
-            defaultSize={31}
-            minSize={22}
-            className="relative min-w-[320px] border-l border-border bg-card"
+            defaultSize={viewerPanelCompact ? 4 : 31}
+            minSize={viewerPanelCompact ? 4 : 22}
+            maxSize={viewerPanelCompact ? 6 : undefined}
+            className={
+              viewerPanelCompact
+                ? "relative min-w-[44px] max-w-[56px] border-l border-border bg-card"
+                : "relative min-w-[320px] border-l border-border bg-card"
+            }
           >
             <WorkspaceViewer
               key={activeWorkspace?.id || activeResource.id}
@@ -441,6 +473,9 @@ function HomePageInner({
               workspaceId={
                 isActiveLocalResource ? activeWorkspace?.id : undefined
               }
+              compact={viewerPanelCompact}
+              onCollapse={() => handleViewerPanelCompactChange(true)}
+              onExpand={() => handleViewerPanelCompactChange(false)}
             />
           </ResizablePanel>
         </ResizablePanelGroup>

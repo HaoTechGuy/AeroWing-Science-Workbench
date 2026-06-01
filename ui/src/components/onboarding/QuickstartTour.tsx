@@ -407,7 +407,7 @@ export function QuickstartTour() {
             </div>
             <h2
               id="quickstart-tour-title"
-              className="text-base font-semibold leading-6"
+              className="text-sm font-semibold leading-6"
             >
               {step.title}
             </h2>

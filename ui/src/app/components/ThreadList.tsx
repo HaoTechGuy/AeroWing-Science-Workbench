@@ -9,7 +9,14 @@ import {
   useState,
 } from "react";
 import { format } from "date-fns";
-import { Archive, Loader2, MessageSquare, SquarePen, X } from "lucide-react";
+import {
+  Archive,
+  Loader2,
+  MessageSquare,
+  PanelLeftClose,
+  SquarePen,
+  X,
+} from "lucide-react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -90,6 +97,7 @@ interface ThreadListProps {
   onNewThread?: () => void;
   onMutateReady?: (mutate: () => void) => void;
   onClose?: () => void;
+  onCollapse?: () => void;
   onInterruptCountChange?: (count: number) => void;
   resourceId?: string;
   runtimeUrl?: string;
@@ -102,6 +110,7 @@ export function ThreadList({
   onNewThread,
   onMutateReady,
   onClose,
+  onCollapse,
   onInterruptCountChange,
   resourceId,
   runtimeUrl,
@@ -230,7 +239,31 @@ export function ThreadList({
     <div className="absolute inset-0 flex flex-col bg-sidebar">
       {/* Header with title and actions */}
       <div className="flex min-h-11 flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-card/60 px-4 py-2">
-        <div className="flex min-w-0 items-center">
+        <div className="flex min-w-0 items-center gap-2">
+          {onCollapse && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={onCollapse}
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                  aria-label="缩小会话"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="center"
+                sideOffset={6}
+                className="whitespace-nowrap"
+              >
+                缩小会话
+              </TooltipContent>
+            </Tooltip>
+          )}
           <h2 className="truncate text-sm font-semibold leading-none tracking-tight text-foreground">
             项目会话
           </h2>
@@ -295,7 +328,7 @@ export function ThreadList({
                   key={group}
                   className="mb-2"
                 >
-                  <h4 className="m-0 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <h4 className="m-0 px-2 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     {GROUP_LABELS[group]}
                   </h4>
                   <div className="flex flex-col gap-0.5">
@@ -319,10 +352,10 @@ export function ThreadList({
                           <div className="w-full min-w-0 overflow-hidden">
                             {/* Title + Timestamp Row */}
                             <div className="mb-0.5 flex min-w-0 items-center justify-between gap-2">
-                              <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-foreground">
+                              <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-5 text-foreground">
                                 {thread.title}
                               </h3>
-                              <span className="shrink-0 text-[11px] text-muted-foreground">
+                              <span className="shrink-0 text-xs text-muted-foreground">
                                 {formatTime(thread.updatedAt)}
                               </span>
                             </div>
