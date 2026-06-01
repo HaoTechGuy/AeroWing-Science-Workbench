@@ -239,7 +239,7 @@ export function readWorkspaceResourcesConfig(): ResourcesFile {
   return readResourcesConfig();
 }
 
-async function writeResourcesConfigAtPath(
+export async function writeResourcesConfigAtPath(
   configPath: string,
   config: ResourcesFile
 ) {
@@ -289,7 +289,7 @@ async function writeRootEnvValues(updates: Record<string, string>) {
   await fs.writeFile(envPath, nextContent);
 }
 
-async function getWritableResourcesConfig(): Promise<{
+export async function getWritableResourcesConfig(): Promise<{
   configPath: string;
   config: ResourcesFile;
 }> {

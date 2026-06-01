@@ -24,6 +24,8 @@ export interface LocalWorkspace {
   label: string;
   path: string;
   resolvedPath: string;
+  resourceId?: string;
+  isRemote?: boolean;
 }
 
 export interface WorkspaceListResponse {

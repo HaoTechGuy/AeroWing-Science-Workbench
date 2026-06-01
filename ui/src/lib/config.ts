@@ -11,6 +11,7 @@ export interface ResourceConfig {
   label: string;
   assistantId: string;
   runtimeUrl?: string;
+  workspacePath?: string;
 }
 
 export interface StandaloneConfig {
@@ -75,6 +76,10 @@ function parseResourceEnv(value: string | undefined): ResourceConfig[] | null {
           runtimeUrl:
             typeof record.runtimeUrl === "string"
               ? record.runtimeUrl
+              : undefined,
+          workspacePath:
+            typeof record.workspacePath === "string"
+              ? record.workspacePath
               : undefined,
         };
       })
@@ -194,7 +199,9 @@ export function getDefaultConfig(): StandaloneConfig {
 
 export function getConfig(): StandaloneConfig {
   const defaultConfig = buildDefaultConfig();
-  const stored = readRuntimeConfig().desktopMode ? {} : readStoredConnectionConfig();
+  const stored = readRuntimeConfig().desktopMode
+    ? {}
+    : readStoredConnectionConfig();
   return {
     ...defaultConfig,
     ...stored,
