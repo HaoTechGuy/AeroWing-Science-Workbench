@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Cpu,
   FolderOpen,
-  KeyRound,
   Loader2,
   Moon,
   Save,
@@ -19,7 +18,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   applyTheme,
@@ -27,6 +25,7 @@ import {
   type ThemeMode,
 } from "@/lib/theme";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
+import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
@@ -42,8 +41,7 @@ interface ConfigResponse {
   modelSelectionMode: ModelSelectionMode;
   openrouterDirectEnabled: boolean;
   openrouterModel: string;
-  effectiveModel?: string;
-  autoModel?: string;
+  openrouterApiKey: string;
   openrouterApiKeySet: boolean;
   openrouterApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
@@ -81,8 +79,7 @@ const DEFAULT_CONFIG: ConfigResponse = {
   modelSelectionMode: "auto",
   openrouterDirectEnabled: false,
   openrouterModel: "deepseek/deepseek-v4-flash",
-  effectiveModel: "openrouter/auto",
-  autoModel: "openrouter/auto",
+  openrouterApiKey: "",
   openrouterApiKeySet: false,
   openrouterApiKeyPreview: "",
   authorizationMode: "auto",
@@ -152,7 +149,7 @@ const JISI_MODEL_OPTIONS: Array<{
     id: "shlab/intern-s1-pro",
     title: "Intern S1 Pro",
     vendor: "SH-Lab",
-    description: "上海人工智能实验室模型，适合科研分析和多模态工作流。",
+    description: "上海人工智能实验室模型，适合科研分析和科学问答。",
   },
   {
     id: "zhipu/glm-5",
@@ -214,7 +211,7 @@ const THEME_OPTIONS: Array<{
 ];
 
 const ONBOARDING_MISSING_LABELS: Record<OnboardingMissing, string> = {
-  openrouterApiKey: "OpenRouter API key",
+  openrouterApiKey: "OpenRouter API Key",
   workspacePath: "本机工作区",
 };
 
@@ -222,7 +219,6 @@ export default function ConfigPage() {
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] =
     useState<ConfigResponse>(DEFAULT_CONFIG);
-  const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -243,17 +239,17 @@ export default function ConfigPage() {
     return (
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
+      config.openrouterApiKey.trim().length > 0 ||
       config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
       config.openrouterModel !== savedConfig.openrouterModel ||
       config.authorizationMode !== savedConfig.authorizationMode ||
-      config.workspacePath !== savedConfig.workspacePath ||
-      apiKeyDraft.trim().length > 0
+      config.workspacePath !== savedConfig.workspacePath
     );
   }, [
-    apiKeyDraft,
     config.authorizationMode,
     config.model,
     config.modelSelectionMode,
+    config.openrouterApiKey,
     config.openrouterDirectEnabled,
     config.openrouterModel,
     config.workspacePath,
@@ -272,16 +268,16 @@ export default function ConfigPage() {
     return (
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
+      config.openrouterApiKey.trim().length > 0 ||
       config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
       config.openrouterModel !== savedConfig.openrouterModel ||
-      config.authorizationMode !== savedConfig.authorizationMode ||
-      apiKeyDraft.trim().length > 0
+      config.authorizationMode !== savedConfig.authorizationMode
     );
   }, [
-    apiKeyDraft,
     config.authorizationMode,
     config.model,
     config.modelSelectionMode,
+    config.openrouterApiKey,
     config.openrouterDirectEnabled,
     config.openrouterModel,
     savedConfig.authorizationMode,
@@ -340,7 +336,7 @@ export default function ConfigPage() {
           modelSelectionMode: config.modelSelectionMode,
           openrouterDirectEnabled: config.openrouterDirectEnabled,
           openrouterModel: config.openrouterModel,
-          openrouterApiKey: apiKeyDraft.trim(),
+          openrouterApiKey: config.openrouterApiKey.trim() || undefined,
           authorizationMode: config.authorizationMode,
           workspacePath: config.workspacePath,
         }),
@@ -352,7 +348,6 @@ export default function ConfigPage() {
       const nextConfig = payload as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
-      setApiKeyDraft("");
       setRequiresRestart(needsRestart);
       setBackendStatus(null);
       setRestartResult(null);
@@ -514,7 +509,7 @@ export default function ConfigPage() {
   }, [autoRestart, requiresRestart, hasChanges, actionBusy]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
         <div className="flex min-w-0 items-center gap-4">
           {!onboardingMode && (
@@ -537,7 +532,7 @@ export default function ConfigPage() {
             <div className="truncate text-xs text-muted-foreground">
               {onboardingMode
                 ? "完成模型、工作区和授权设置后进入工作台"
-                : "模型、工作区、授权模式和界面风格"}
+                : "模型、工作区、授权模式、技能和界面风格"}
             </div>
           </div>
         </div>
@@ -633,7 +628,7 @@ export default function ConfigPage() {
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
-              模型和授权模式需要重启后端后生效；工作区和界面风格会立即生效。
+              模型和授权模式需要重启后端后生效；技能在技能卡片中单独应用；工作区和界面风格会立即生效。
             </span>
             {requiresRestart && !hasChanges && (
               <span className="text-amber-700">有配置等待应用。</span>
@@ -664,7 +659,10 @@ export default function ConfigPage() {
             )}
           </div>
 
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <section
+            className="rounded-lg border border-border bg-card p-5 shadow-sm"
+            data-tour="config-model"
+          >
             <div className="mb-5 flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
                 <Cpu className="h-5 w-5" />
@@ -685,13 +683,6 @@ export default function ConfigPage() {
             ) : (
               <div className="space-y-5">
                 <div className="space-y-3">
-                  <div>
-                    <Label>集思模型选择方式</Label>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      推荐使用自动选择；需要固定模型时再切换到手动。
-                    </div>
-                  </div>
-
                   <div className="grid gap-2 sm:grid-cols-2">
                     {MODEL_SELECTION_OPTIONS.map((option) => {
                       const active = config.modelSelectionMode === option.id;
@@ -699,7 +690,6 @@ export default function ConfigPage() {
                         <button
                           key={option.id}
                           type="button"
-                          disabled={config.openrouterDirectEnabled}
                           onClick={() =>
                             setConfig((current) => ({
                               ...current,
@@ -708,8 +698,6 @@ export default function ConfigPage() {
                           }
                           className={cn(
                             "rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
-                            config.openrouterDirectEnabled &&
-                              "cursor-not-allowed opacity-60 hover:border-border hover:bg-background",
                             active
                               ? "border-primary ring-2 ring-primary/20"
                               : "border-border"
@@ -734,95 +722,59 @@ export default function ConfigPage() {
                   </div>
                 </div>
 
-                {config.openrouterDirectEnabled ? (
-                  <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-                    已启用 OpenRouter 直连。集思模型选择暂不生效。
-                  </div>
-                ) : config.modelSelectionMode === "auto" ? (
+                {config.modelSelectionMode === "auto" ? (
                   <div className="rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
                     已启用自动模型选择。集思会根据问题自动匹配合适模型。
                   </div>
                 ) : null}
 
-                <div className="space-y-3 rounded-md bg-muted/40 px-3 py-3">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <Label htmlFor="openrouter-direct">
-                        OpenRouter 直连
+                <div className="rounded-md border border-border bg-background p-4">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <Label htmlFor="openrouter-api-key">
+                        OpenRouter API Key
                       </Label>
-                      <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                        开启后将直接使用 OpenRouter API key 和模型 ID，不走集思。
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        用于访问 OpenRouter；保存后写入本机 `.env`，页面不会回显完整 key。
                       </div>
                     </div>
-                    <Switch
-                      id="openrouter-direct"
-                      checked={config.openrouterDirectEnabled}
-                      onCheckedChange={(checked) =>
-                        setConfig((current) => ({
-                          ...current,
-                          openrouterDirectEnabled: checked,
-                        }))
-                      }
-                      aria-label="启用 OpenRouter 直连"
-                    />
-                  </div>
-
-                  {(onboardingMode || config.openrouterDirectEnabled) && (
-                    <div className="space-y-4 pt-1">
-                      <div className="space-y-2">
-                        <Label htmlFor="openrouter-key">
-                          OpenRouter API key
-                        </Label>
-                        <div className="relative">
-                          <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          <Input
-                            id="openrouter-key"
-                            type="password"
-                            value={apiKeyDraft}
-                            onChange={(event) =>
-                              setApiKeyDraft(event.target.value)
-                            }
-                            placeholder={
-                              config.openrouterApiKeySet
-                                ? config.openrouterApiKeyPreview
-                                : "粘贴 sk-or-v1-..."
-                            }
-                            autoComplete="off"
-                            className="pl-9"
-                          />
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          留空保存时会保留已有 key，不会覆盖。
-                        </div>
-                      </div>
-
-                      {config.openrouterDirectEnabled && (
-                        <div className="space-y-2">
-                          <Label htmlFor="openrouter-model">
-                            填写 OpenRouter 模型 ID
-                          </Label>
-                          <Input
-                            id="openrouter-model"
-                            value={config.openrouterModel}
-                            onChange={(event) =>
-                              setConfig((current) => ({
-                                ...current,
-                                openrouterModel: event.target.value,
-                              }))
-                            }
-                            placeholder="deepseek/deepseek-v4-flash"
-                          />
-                          <div className="text-xs text-muted-foreground">
-                            开启直连后会使用这个模型 ID。
-                          </div>
-                        </div>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-1 text-xs font-medium",
+                        config.openrouterApiKeySet
+                          ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                          : "bg-muted text-muted-foreground"
                       )}
-                    </div>
-                  )}
+                    >
+                      {config.openrouterApiKeySet
+                        ? config.openrouterApiKeyPreview || "已保存"
+                        : "未设置"}
+                    </span>
+                  </div>
+                  <Input
+                    id="openrouter-api-key"
+                    type="password"
+                    autoComplete="new-password"
+                    value={config.openrouterApiKey}
+                    disabled={loading}
+                    onChange={(event) =>
+                      setConfig((current) => ({
+                        ...current,
+                        openrouterApiKey: event.target.value,
+                      }))
+                    }
+                    placeholder={
+                      config.openrouterApiKeySet
+                        ? "粘贴新的 key；留空则保留已保存 key"
+                        : "sk-or-v1-..."
+                    }
+                  />
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    只在需要新增或替换 key 时填写；不填写不会覆盖已有 key。
+                  </div>
                 </div>
 
-                {!config.openrouterDirectEnabled &&
-                  config.modelSelectionMode !== "auto" && (
+                {config.modelSelectionMode !== "auto" && (
                     <>
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-end justify-between gap-2">
@@ -913,7 +865,10 @@ export default function ConfigPage() {
             )}
           </section>
 
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <section
+            className="rounded-lg border border-border bg-card p-5 shadow-sm"
+            data-tour="config-workspace"
+          >
             <div className="mb-4 flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
                 <FolderOpen className="h-5 w-5" />
@@ -953,7 +908,10 @@ export default function ConfigPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <section
+            className="rounded-lg border border-border bg-card p-5 shadow-sm"
+            data-tour="config-authorization"
+          >
             <div className="mb-4 flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
                 <ShieldCheck className="h-5 w-5" />
@@ -1008,6 +966,8 @@ export default function ConfigPage() {
               })}
             </div>
           </section>
+
+          {!onboardingMode && <SkillsConfigCard />}
 
           <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
             <div className="mb-4 flex items-start gap-3">

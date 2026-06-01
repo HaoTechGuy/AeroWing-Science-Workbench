@@ -107,7 +107,7 @@ export function ToolApprovalInterrupt({
   };
 
   return (
-    <div className="w-full rounded-md border border-border bg-muted/30 p-4">
+    <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 shadow-sm shadow-black/[0.025]">
       {/* Header */}
       <div className="mb-3 flex items-center gap-2 text-foreground">
         <AlertCircle
@@ -127,7 +127,7 @@ export function ToolApprovalInterrupt({
       )}
 
       {/* Tool Info Card */}
-      <div className="mb-4 rounded-sm border border-border bg-background p-3">
+      <div className="mb-4 rounded-md border border-border bg-card p-3">
         <div className="mb-2">
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Tool

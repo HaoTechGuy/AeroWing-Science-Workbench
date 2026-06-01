@@ -2,6 +2,10 @@ import useSWRInfinite from "swr/infinite";
 import { useMemo } from "react";
 import { Client, type Thread } from "@langchain/langgraph-sdk";
 import { useRemoteAgent } from "@/providers/ClientProvider";
+import {
+  inferThreadDescription,
+  inferThreadTitle,
+} from "@/app/utils/threadTitle";
 
 export interface ThreadItem {
   id: string;
@@ -22,27 +26,6 @@ function messagesFromValues(values: unknown): any[] {
   }
   const messages = (values as { messages?: unknown }).messages;
   return Array.isArray(messages) ? messages : [];
-}
-
-function contentToText(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    for (const block of content) {
-      if (typeof block === "string") {
-        return block;
-      }
-      if (
-        block &&
-        typeof block === "object" &&
-        typeof (block as { text?: unknown }).text === "string"
-      ) {
-        return (block as { text: string }).text;
-      }
-    }
-  }
-  return "";
 }
 
 async function resolveThreadValues(
@@ -172,35 +155,17 @@ export function useThreads(props: {
             const valuesRecord =
               values && typeof values === "object" ? (values as any) : null;
             const goal = valuesRecord?.goal;
-            if (
-              goal &&
-              typeof goal === "object" &&
-              typeof goal.objective === "string" &&
-              goal.objective.trim()
-            ) {
-              const objective = goal.objective.trim();
-              title =
-                objective.slice(0, 50) + (objective.length > 50 ? "..." : "");
+            const messages = messagesFromValues(values);
+            title = inferThreadTitle({
+              metadata,
+              goal,
+              messages,
+              fallback: title,
+            });
+            if (goal?.objective) {
               description = `Goal ${goal.status || "active"}`;
             } else {
-              const messages = messagesFromValues(values);
-              if (messages.length > 0) {
-                const firstHumanMessage = messages.find(
-                  (m: any) => m?.type === "human"
-                );
-                if (firstHumanMessage?.content) {
-                  const content = contentToText(firstHumanMessage.content);
-                  title =
-                    content.slice(0, 50) + (content.length > 50 ? "..." : "");
-                }
-                const firstAiMessage = messages.find(
-                  (m: any) => m?.type === "ai"
-                );
-                if (firstAiMessage?.content) {
-                  const content = contentToText(firstAiMessage.content);
-                  description = content.slice(0, 100);
-                }
-              }
+              description = inferThreadDescription(messages);
             }
           } catch {
             title = `会话 ${thread.thread_id.slice(0, 8)}`;

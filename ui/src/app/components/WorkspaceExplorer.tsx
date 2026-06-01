@@ -3,6 +3,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ChevronRight,
+  ExternalLink,
   File,
   FileCode2,
   FileJson,
@@ -13,16 +14,11 @@ import {
   RefreshCcw,
   Search,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +27,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
+import {
+  WORKSPACE_FILE_DRAG_MIME,
+  createWorkspaceFileDragPayload,
+} from "@/app/utils/workspaceDrag";
 
 interface WorkspaceExplorerProps {
   selectedPath?: string | null;
@@ -38,9 +38,6 @@ interface WorkspaceExplorerProps {
   workspaceId?: string;
   refreshKey?: number;
   activeWorkspace?: LocalWorkspace | null;
-  workspaces?: LocalWorkspace[];
-  onWorkspaceChange?: (workspaceId: string) => void | Promise<void>;
-  onWorkspacePick?: () => void | Promise<void>;
   onFileSelect: (entry: WorkspaceEntry) => void;
 }
 
@@ -57,7 +54,7 @@ function FileIcon({ entry }: { entry: WorkspaceEntry }) {
   }
 
   if (entry.previewKind === "markdown") {
-    return <FileText className="h-4 w-4 text-[#2F6868]" />;
+    return <FileText className="h-4 w-4 text-primary" />;
   }
 
   if (entry.previewKind === "pdf") {
@@ -88,9 +85,6 @@ export function WorkspaceExplorer({
   workspaceId,
   refreshKey,
   activeWorkspace,
-  workspaces = [],
-  onWorkspaceChange,
-  onWorkspacePick,
   onFileSelect,
 }: WorkspaceExplorerProps) {
   const {
@@ -102,25 +96,46 @@ export function WorkspaceExplorer({
     refresh,
   } = useWorkspaceFiles(resourceId, workspaceId, refreshKey);
   const [filter, setFilter] = useState("");
-  const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
 
   const rootEntries = useMemo(() => directories[""] ?? [], [directories]);
   const rootLoading = loadingPaths.has("") && rootEntries.length === 0;
   const normalizedFilter = filter.trim();
-  const workspacePath =
-    activeWorkspace?.resolvedPath || activeWorkspace?.path || "当前资源文件";
+  const canOpenWorkspaceFolder = Boolean(activeWorkspace);
+  const [openingWorkspaceFolder, setOpeningWorkspaceFolder] = useState(false);
 
-  const handlePickWorkspace = useCallback(async () => {
-    if (!onWorkspacePick) {
+  const openWorkspaceFolder = useCallback(async () => {
+    if (!canOpenWorkspaceFolder || openingWorkspaceFolder) {
       return;
     }
-    setIsPickingWorkspace(true);
+
+    setOpeningWorkspaceFolder(true);
     try {
-      await onWorkspacePick();
+      const response = await fetch("/api/workspace/open-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resourceId, workspaceId }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "无法打开工作区文件夹。");
+      }
+    } catch (openError) {
+      const message =
+        openError instanceof Error
+          ? openError.message
+          : "无法打开工作区文件夹。";
+      toast.error(message);
     } finally {
-      setIsPickingWorkspace(false);
+      setOpeningWorkspaceFolder(false);
     }
-  }, [onWorkspacePick]);
+  }, [
+    canOpenWorkspaceFolder,
+    openingWorkspaceFolder,
+    resourceId,
+    workspaceId,
+  ]);
 
   const renderEntry = useCallback(
     (entry: WorkspaceEntry, depth: number): React.ReactNode => {
@@ -137,21 +152,39 @@ export function WorkspaceExplorer({
       const isLoading = loadingPaths.has(entry.path);
       const isSelected = selectedPath === entry.path;
       const children = directories[entry.path] ?? [];
+      const dragPayload = createWorkspaceFileDragPayload(
+        entry,
+        resourceId,
+        workspaceId
+      );
 
       return (
         <div key={entry.path}>
           <button
             type="button"
+            draggable={Boolean(dragPayload)}
+            onDragStart={(event) => {
+              if (!dragPayload) return;
+              event.dataTransfer.effectAllowed = "copy";
+              event.dataTransfer.setData(
+                WORKSPACE_FILE_DRAG_MIME,
+                JSON.stringify(dragPayload)
+              );
+              event.dataTransfer.setData("text/plain", entry.path);
+            }}
             onClick={() =>
               isDirectory ? toggleDirectory(entry.path) : onFileSelect(entry)
             }
             className={cn(
-              "grid h-8 w-full grid-cols-[20px_20px_minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 text-left text-sm transition-colors",
-              "hover:bg-accent",
-              isSelected && "bg-primary/10 hover:bg-primary/10 text-primary"
+              "grid h-8 w-full grid-cols-[20px_20px_minmax(0,1fr)_auto] items-center gap-1 rounded-md border border-transparent px-2 text-left text-sm transition-[background-color,border-color,color]",
+              "hover:border-border hover:bg-card",
+              dragPayload && "cursor-grab active:cursor-grabbing",
+              isSelected &&
+                "border-primary/25 bg-primary/10 text-primary hover:bg-primary/10"
             )}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             aria-expanded={isDirectory ? isExpanded : undefined}
+            title={dragPayload ? "拖拽到会话区添加为附件" : undefined}
           >
             <span className="flex h-5 w-5 items-center justify-center">
               {isDirectory &&
@@ -204,8 +237,10 @@ export function WorkspaceExplorer({
       loadingPaths,
       normalizedFilter,
       onFileSelect,
+      resourceId,
       selectedPath,
       toggleDirectory,
+      workspaceId,
     ]
   );
 
@@ -215,81 +250,69 @@ export function WorkspaceExplorer({
   );
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-background">
-      <div className="border-b border-border px-4 py-3">
-        <div className="mb-3 flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
+    <div className="absolute inset-0 flex flex-col bg-sidebar">
+      <div className="border-b border-border bg-card/60 px-4 py-2">
+        <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center">
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="shrink-0 text-sm font-semibold tracking-tight">
-                工作区
+              <h2 className="shrink-0 text-sm font-semibold leading-none tracking-tight text-foreground">
+                项目工作区
               </h2>
-              {activeWorkspace && workspaces.length > 0 && onWorkspaceChange && (
-                <Select
-                  value={activeWorkspace.id}
-                  onValueChange={(value) => onWorkspaceChange(value)}
-                >
-                  <SelectTrigger className="h-7 min-w-0 flex-1 rounded-md px-2 text-xs">
-                    <span className="truncate">
-                      {activeWorkspace.label}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent
-                    align="start"
-                    className="w-[280px]"
-                  >
-                    {workspaces.map((workspace) => (
-                      <SelectItem
-                        key={workspace.id}
-                        value={workspace.id}
-                        textValue={workspace.label}
-                        className="py-2"
-                      >
-                        <span className="flex min-w-0 flex-col">
-                          <span className="truncate">{workspace.label}</span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {workspace.resolvedPath || workspace.path}
-                          </span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
             </div>
-            <p className="truncate text-xs text-muted-foreground">
-              {workspacePath}
-            </p>
           </div>
-          {onWorkspacePick && (
+          <div className="flex shrink-0 items-center gap-1">
+            {canOpenWorkspaceFolder && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void openWorkspaceFolder()}
+                    disabled={openingWorkspaceFolder}
+                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    aria-label="打开工作区文件夹"
+                  >
+                    {openingWorkspaceFolder ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ExternalLink className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  align="center"
+                  sideOffset={6}
+                  className="whitespace-nowrap"
+                >
+                  打开工作区文件夹
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={handlePickWorkspace}
-                  disabled={isPickingWorkspace}
-                  className="h-8 w-8 shrink-0"
-                  aria-label="浏览本机工作区文件夹"
+                  onClick={refresh}
+                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                  aria-label="刷新工作区文件"
                 >
-                  {isPickingWorkspace ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <FolderOpen className="h-4 w-4" />
-                  )}
+                  <RefreshCcw className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>浏览本机文件夹</TooltipContent>
+              <TooltipContent
+                side="bottom"
+                align="center"
+                sideOffset={6}
+                className="whitespace-nowrap"
+              >
+                刷新工作区文件
+              </TooltipContent>
             </Tooltip>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={refresh}
-            className="h-8 w-8 shrink-0"
-            aria-label="刷新工作区文件"
-          >
-            <RefreshCcw className="h-4 w-4" />
-          </Button>
+          </div>
         </div>
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -297,7 +320,7 @@ export function WorkspaceExplorer({
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
             placeholder="Filter files"
-            className="h-8 rounded-md pl-8 text-xs"
+            className="h-8 rounded-md border-border bg-card pl-8 text-xs"
           />
         </div>
       </div>
@@ -313,7 +336,7 @@ export function WorkspaceExplorer({
             {Array.from({ length: 8 }).map((_, index) => (
               <Skeleton
                 key={index}
-                className="h-8 w-full"
+                className="h-8 w-full bg-muted"
               />
             ))}
           </div>

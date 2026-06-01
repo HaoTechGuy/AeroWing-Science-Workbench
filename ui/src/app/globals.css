@@ -17,22 +17,22 @@
 
   :root {
     /* App-specific color variables */
-    --color-primary: #1c3c3c;
-    --color-user-message: #076699;
-    --color-user-message-bg: #e8f4f8;
-    --color-avatar-bg: #e8ebeb;
-    --color-secondary: #1c3c3c;
+    --color-primary: #214f4d;
+    --color-user-message: #0f6b7c;
+    --color-user-message-bg: #e9f4f3;
+    --color-avatar-bg: #e5eceb;
+    --color-secondary: #214f4d;
     --color-success: #10b981;
     --color-warning: #f59e0b;
     --color-error: #ef4444;
-    --color-background: #f9f9f9;
-    --color-subagent-hover: #bbc4c4;
-    --color-surface: #f9fafb;
-    --color-border: #e5e7eb;
-    --color-border-light: #f3f4f6;
-    --color-text-primary: #111827;
-    --color-text-secondary: #6b7280;
-    --color-text-tertiary: #9ca3af;
+    --color-background: #f4f7f7;
+    --color-subagent-hover: #d7e5e3;
+    --color-surface: #fbfcfc;
+    --color-border: #dce5e5;
+    --color-border-light: #edf2f2;
+    --color-text-primary: #172424;
+    --color-text-secondary: #617172;
+    --color-text-tertiary: #91a0a1;
     --color-file-button: #ffffff;
     --color-file-button-hover: #e5e7eb;
 
@@ -104,31 +104,32 @@
     --sidebar-width: 320px;
     --sidebar-collapsed-width: 60px;
     --header-height: 64px;
+    --app-footer-height: 28px;
     --panel-width: 40vw;
     --chat-max-width: 900px;
 
     /* Tailwind/Radix UI component variables */
     --radius: 0.5rem;
-    --background: 0 0% 98%;
-    --foreground: 220 13% 13%;
+    --background: 180 20% 96%;
+    --foreground: 180 22% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 220 13% 13%;
+    --card-foreground: 180 22% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 13% 13%;
-    --primary: 180 35% 17%;
+    --popover-foreground: 180 22% 12%;
+    --primary: 177 41% 22%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 13% 91%;
-    --secondary-foreground: 220 13% 13%;
-    --muted: 220 13% 95%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 13% 95%;
-    --accent-foreground: 220 13% 13%;
+    --secondary: 180 18% 92%;
+    --secondary-foreground: 180 22% 12%;
+    --muted: 180 16% 94%;
+    --muted-foreground: 184 8% 42%;
+    --accent: 175 27% 92%;
+    --accent-foreground: 177 41% 22%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 180 35% 17%;
-    --sidebar: 220 13% 95%;
+    --border: 180 17% 88%;
+    --input: 180 17% 86%;
+    --ring: 177 41% 22%;
+    --sidebar: 180 18% 97%;
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
@@ -189,44 +190,44 @@
   }
 
   html[data-theme="light"] {
-    --color-primary: #1c3c3c;
-    --color-user-message: #076699;
-    --color-user-message-bg: #e8f4f8;
-    --color-avatar-bg: #e8ebeb;
-    --color-secondary: #1c3c3c;
+    --color-primary: #214f4d;
+    --color-user-message: #0f6b7c;
+    --color-user-message-bg: #e9f4f3;
+    --color-avatar-bg: #e5eceb;
+    --color-secondary: #214f4d;
     --color-success: #10b981;
     --color-warning: #f59e0b;
     --color-error: #ef4444;
-    --color-background: #f9f9f9;
-    --color-subagent-hover: #bbc4c4;
-    --color-surface: #f9fafb;
-    --color-border: #e5e7eb;
-    --color-border-light: #f3f4f6;
-    --color-text-primary: #111827;
-    --color-text-secondary: #6b7280;
-    --color-text-tertiary: #9ca3af;
+    --color-background: #f4f7f7;
+    --color-subagent-hover: #d7e5e3;
+    --color-surface: #fbfcfc;
+    --color-border: #dce5e5;
+    --color-border-light: #edf2f2;
+    --color-text-primary: #172424;
+    --color-text-secondary: #617172;
+    --color-text-tertiary: #91a0a1;
     --color-file-button: #ffffff;
     --color-file-button-hover: #e5e7eb;
-    --background: 0 0% 98%;
-    --foreground: 220 13% 13%;
+    --background: 180 20% 96%;
+    --foreground: 180 22% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 220 13% 13%;
+    --card-foreground: 180 22% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 13% 13%;
-    --primary: 180 35% 17%;
+    --popover-foreground: 180 22% 12%;
+    --primary: 177 41% 22%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 13% 91%;
-    --secondary-foreground: 220 13% 13%;
-    --muted: 220 13% 95%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 13% 95%;
-    --accent-foreground: 220 13% 13%;
+    --secondary: 180 18% 92%;
+    --secondary-foreground: 180 22% 12%;
+    --muted: 180 16% 94%;
+    --muted-foreground: 184 8% 42%;
+    --accent: 175 27% 92%;
+    --accent-foreground: 177 41% 22%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 180 35% 17%;
-    --sidebar: 220 13% 95%;
+    --border: 180 17% 88%;
+    --input: 180 17% 86%;
+    --ring: 177 41% 22%;
+    --sidebar: 180 18% 97%;
   }
 
   html[data-theme="dark"] {
@@ -286,6 +287,10 @@ body {
   line-height: 1.5;
   color: var(--color-text-primary);
   background-color: var(--color-background);
+  background-image:
+    linear-gradient(rgba(33, 79, 77, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 79, 77, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -474,4 +479,361 @@ button {
   font-weight: 600;
   text-decoration: line-through;
   text-decoration-color: #f85149;
+}
+
+
+.water-ripple-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at center, hsl(0 0% 100% / 0.58), transparent 34%),
+    radial-gradient(circle at 50% 58%, hsl(211 100% 63% / 0.12), transparent 48%),
+    linear-gradient(
+      135deg,
+      hsl(var(--background) / 0.8),
+      hsl(var(--card) / 0.72)
+    );
+  backdrop-filter: saturate(1.04) blur(5px);
+  animation: waterRippleIntroFade 1850ms cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}
+
+.water-ripple-intro__field,
+.water-ripple-intro__caustics,
+.water-ripple-intro__lens,
+.water-ripple-intro__ring,
+.water-ripple-intro__flash,
+.water-ripple-intro__brand {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+}
+
+.water-ripple-intro__field {
+  width: 170vmax;
+  height: 170vmax;
+  background:
+    repeating-radial-gradient(
+      circle,
+      transparent 0,
+      transparent 3.8vmax,
+      hsl(var(--foreground) / 0.1) 4.05vmax,
+      transparent 4.65vmax,
+      transparent 8.6vmax
+    ),
+    repeating-radial-gradient(
+      circle,
+      transparent 0,
+      transparent 6.2vmax,
+      hsl(211 100% 56% / 0.08) 6.7vmax,
+      transparent 7.6vmax,
+      transparent 12.2vmax
+    );
+  mask-image: radial-gradient(circle, black 0%, black 58%, transparent 76%);
+  opacity: 0;
+  filter: blur(0.35px) contrast(1.25);
+  animation: waterRippleField 1760ms cubic-bezier(0.2, 0.9, 0.14, 1) forwards;
+}
+
+.water-ripple-intro__caustics {
+  width: 145vmax;
+  height: 145vmax;
+  border-radius: 0;
+  background:
+    linear-gradient(115deg, transparent 0 24%, hsl(0 0% 100% / 0.42) 26%, transparent 32% 100%),
+    linear-gradient(64deg, transparent 0 35%, hsl(211 100% 62% / 0.1) 38%, transparent 43% 100%),
+    repeating-linear-gradient(
+      104deg,
+      transparent 0 18px,
+      hsl(var(--foreground) / 0.06) 19px 21px,
+      transparent 22px 56px
+    );
+  mask-image: radial-gradient(ellipse at center, black 0%, black 48%, transparent 70%);
+  mix-blend-mode: soft-light;
+  opacity: 0;
+  filter: blur(9px) saturate(1.08);
+  animation: waterRippleCaustics 1780ms ease-out forwards;
+}
+
+.water-ripple-intro__lens {
+  width: min(52vmax, 860px);
+  height: min(52vmax, 860px);
+  background:
+    radial-gradient(circle, hsl(0 0% 100% / 0.62) 0%, hsl(211 100% 60% / 0.08) 34%, transparent 68%),
+    conic-gradient(from 160deg, transparent, hsl(0 0% 100% / 0.28), transparent 34%, hsl(211 100% 62% / 0.08), transparent 68%);
+  box-shadow:
+    0 0 72px hsl(211 100% 56% / 0.1),
+    inset 0 0 54px hsl(0 0% 100% / 0.36);
+  mix-blend-mode: normal;
+  opacity: 0;
+  filter: blur(12px);
+  animation: waterRippleLens 1600ms cubic-bezier(0.18, 1, 0.24, 1) forwards;
+}
+
+.water-ripple-intro__ring {
+  width: min(116vmax, 1850px);
+  height: min(116vmax, 1850px);
+  background: conic-gradient(
+    from 220deg,
+    transparent 0deg,
+    hsl(0 0% 100% / 0.72) 32deg,
+    transparent 78deg,
+    hsl(211 100% 56% / 0.16) 142deg,
+    transparent 196deg,
+    hsl(var(--foreground) / 0.16) 286deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    black calc(100% - 2px),
+    black calc(100% - 0.5px),
+    transparent 100%
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 3px),
+    black calc(100% - 2px),
+    black calc(100% - 0.5px),
+    transparent 100%
+  );
+  mix-blend-mode: normal;
+  opacity: 0;
+  filter: drop-shadow(0 0 12px hsl(211 100% 62% / 0.2)) blur(0.2px);
+  animation: waterRippleNeonRing 1540ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.water-ripple-intro__ring--one {
+  animation-delay: 0ms;
+}
+
+.water-ripple-intro__ring--two {
+  animation-delay: 130ms;
+}
+
+.water-ripple-intro__ring--three {
+  animation-delay: 270ms;
+}
+
+.water-ripple-intro__ring--four {
+  animation-delay: 430ms;
+}
+
+.water-ripple-intro__flash {
+  width: 22vmax;
+  height: 22vmax;
+  background: radial-gradient(circle, hsl(0 0% 100% / 0.5), transparent 62%);
+  mix-blend-mode: normal;
+  opacity: 0;
+  filter: blur(18px);
+  animation: waterRippleFlash 720ms ease-out forwards;
+}
+
+.water-ripple-intro__brand {
+  display: flex;
+  width: min(72vw, 680px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 0;
+  color: hsl(var(--foreground) / 0.92);
+  text-align: center;
+  text-shadow:
+    0 1px 0 hsl(0 0% 100% / 0.5),
+    0 12px 36px hsl(var(--foreground) / 0.16),
+    0 0 32px hsl(211 100% 60% / 0.14);
+  mix-blend-mode: normal;
+  opacity: 0;
+  animation: waterRippleBrand 1680ms cubic-bezier(0.2, 0.9, 0.18, 1) forwards;
+}
+
+.water-ripple-intro__title {
+  font-size: clamp(2.6rem, 8vw, 7rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.water-ripple-intro__subtitle {
+  font-size: clamp(0.9rem, 2vw, 1.35rem);
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  color: hsl(var(--foreground) / 0.58);
+}
+
+@keyframes waterRippleIntroFade {
+  0% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes waterRippleField {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.18) rotate(-10deg);
+  }
+  14% {
+    opacity: 1;
+  }
+  42% {
+    opacity: 0.78;
+    transform: translate(-50%, -50%) scale(0.54) rotate(2deg);
+  }
+  62% {
+    opacity: 0.88;
+    transform: translate(-50%, -50%) scale(0.62) rotate(-1deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.08) rotate(10deg);
+  }
+}
+
+@keyframes waterRippleCaustics {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.52) rotate(-18deg) skewX(-8deg);
+  }
+  18% {
+    opacity: 0.82;
+  }
+  52% {
+    opacity: 0.42;
+    transform: translate(-50%, -50%) scale(0.96) rotate(8deg) skewX(4deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.24) rotate(18deg) skewX(0deg);
+  }
+}
+
+@keyframes waterRippleLens {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.34);
+  }
+  16% {
+    opacity: 0.95;
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+  38% {
+    opacity: 0.58;
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+  54% {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.44);
+  }
+}
+
+@keyframes waterRippleNeonRing {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.04) rotate(-32deg);
+  }
+  10% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.18) rotate(-14deg);
+  }
+  32% {
+    opacity: 0.68;
+    transform: translate(-50%, -50%) scale(0.44) rotate(5deg);
+  }
+  47% {
+    opacity: 0.88;
+    transform: translate(-50%, -50%) scale(0.51) rotate(-2deg);
+  }
+  72% {
+    opacity: 0.28;
+    transform: translate(-50%, -50%) scale(0.82) rotate(12deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.12) rotate(24deg);
+  }
+}
+
+@keyframes waterRippleFlash {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.18);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+}
+
+@keyframes waterRippleBrand {
+  0% {
+    opacity: 0;
+    filter: blur(18px);
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+  18% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translate(-50%, -50%) scale(1);
+  }
+  54% {
+    opacity: 0.92;
+    transform: translate(-50%, -50%) scale(1.018);
+  }
+  78% {
+    opacity: 0.62;
+    filter: blur(0.5px);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .water-ripple-intro {
+    background: hsl(var(--background) / 0.16);
+    animation: waterRippleIntroReduced 220ms ease-out forwards;
+  }
+
+  .water-ripple-intro__field,
+  .water-ripple-intro__caustics,
+  .water-ripple-intro__lens,
+  .water-ripple-intro__ring,
+  .water-ripple-intro__flash {
+    display: none;
+  }
+
+  .water-ripple-intro__brand {
+    animation: waterRippleIntroReduced 220ms ease-out forwards;
+  }
+}
+
+@keyframes waterRippleIntroReduced {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 0;
+  }
 }

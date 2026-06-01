@@ -5,22 +5,35 @@ import React, {
   useRef,
   useCallback,
   useMemo,
+  useEffect,
   FormEvent,
   Fragment,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Square,
   ArrowUp,
+  ChevronDown,
+  ChevronUp,
   CheckCircle,
+  CheckCircle2,
   Clock,
   Circle,
   FileIcon,
   ImagePlus,
+  Loader2,
   Paperclip,
+  Pencil,
   Target,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { ChatMessage } from "@/app/components/ChatMessage";
 import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
 import type {
@@ -37,6 +50,11 @@ import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { FilesPopover } from "@/app/components/TasksFilesSidebar";
+import {
+  WORKSPACE_FILE_DRAG_MIME,
+  parseWorkspaceFileDragPayload,
+  type WorkspaceFileDragPayload,
+} from "@/app/utils/workspaceDrag";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
@@ -44,18 +62,28 @@ interface ChatInterfaceProps {
 
 const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
+const MAX_PDF_ATTACHMENT_SIZE = 16 * 1024 * 1024;
+const SUPPORTED_ATTACHMENT_HINT = "支持图片、PDF 和文本文件。";
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
   "css",
+  "env.example",
+  "gitignore",
   "html",
+  "ini",
   "js",
   "json",
   "jsx",
+  "lock",
+  "log",
   "md",
+  "markdown",
   "mdx",
+  "mjs",
   "py",
   "sh",
+  "sql",
   "toml",
   "ts",
   "tsx",
@@ -63,7 +91,15 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "xml",
   "yaml",
   "yml",
+  "zsh",
 ]);
+const PDF_ATTACHMENT_EXTENSIONS = new Set(["pdf"]);
+
+interface AttachmentUploadContext {
+  resourceId?: string;
+  workspaceId?: string;
+  threadId?: string | null;
+}
 
 function formatAttachmentSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -128,7 +164,18 @@ function goalStatusClassName(status: GoalState["status"]): string {
     case "blocked":
       return "border-warning/30 bg-warning/10 text-warning";
     default:
-      return "border-[#2F6868]/30 bg-[#2F6868]/10 text-[#2F6868]";
+      return "border-primary/30 bg-primary/10 text-primary";
+  }
+}
+
+function todoStatusLabel(status: TodoItem["status"]): string {
+  switch (status) {
+    case "completed":
+      return "已完成";
+    case "in_progress":
+      return "进行中";
+    default:
+      return "待处理";
   }
 }
 
@@ -136,12 +183,51 @@ function createAttachmentId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
 
-function isTextAttachment(file: File): boolean {
-  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+function getAttachmentFileKey(fileName: string): string {
+  const lowerName = fileName.trim().toLowerCase();
+  if (lowerName === ".env.example") return "env.example";
+  if (lowerName === ".gitignore") return "gitignore";
+  const parts = lowerName.split(".");
+  return parts.length > 1 ? parts[parts.length - 1] || "" : "";
+}
+
+function isTextAttachmentDescriptor(
+  fileName: string,
+  mimeType?: string
+): boolean {
   return (
-    file.type.startsWith("text/") ||
-    TEXT_ATTACHMENT_EXTENSIONS.has(extension)
+    Boolean(mimeType?.startsWith("text/")) ||
+    TEXT_ATTACHMENT_EXTENSIONS.has(getAttachmentFileKey(fileName))
   );
+}
+
+function isPdfAttachmentDescriptor(
+  fileName: string,
+  mimeType?: string
+): boolean {
+  return (
+    mimeType === "application/pdf" ||
+    PDF_ATTACHMENT_EXTENSIONS.has(getAttachmentFileKey(fileName))
+  );
+}
+
+function isSupportedAttachmentDescriptor(
+  fileName: string,
+  mimeType?: string
+): boolean {
+  return (
+    Boolean(mimeType?.startsWith("image/")) ||
+    isPdfAttachmentDescriptor(fileName, mimeType) ||
+    isTextAttachmentDescriptor(fileName, mimeType)
+  );
+}
+
+function isTextAttachment(file: File): boolean {
+  return isTextAttachmentDescriptor(file.name, file.type);
+}
+
+function isPdfAttachment(file: File): boolean {
+  return isPdfAttachmentDescriptor(file.name, file.type);
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -153,7 +239,56 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-async function prepareAttachment(file: File): Promise<ChatAttachment> {
+async function uploadPdfAttachment(
+  file: File,
+  context: AttachmentUploadContext
+): Promise<Partial<ChatAttachment> & { extractionError?: string }> {
+  const form = new FormData();
+  form.set("file", file);
+  if (context.resourceId) {
+    form.set("resourceId", context.resourceId);
+  }
+  if (context.workspaceId) {
+    form.set("workspaceId", context.workspaceId);
+  }
+  if (context.threadId) {
+    form.set("threadId", context.threadId);
+  }
+
+  const response = await fetch("/api/workspace/attachments", {
+    method: "POST",
+    body: form,
+  });
+  const payload = (await parsePdfUploadResponse(response)) as {
+    attachment?: Partial<ChatAttachment> & { extractionError?: string };
+    error?: string;
+  };
+  if (!response.ok || !payload.attachment) {
+    throw new Error(payload.error || `PDF 上传失败（${response.status}）`);
+  }
+  return payload.attachment;
+}
+
+async function parsePdfUploadResponse(response: Response): Promise<unknown> {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      return await response.json();
+    } catch {
+      return {};
+    }
+  }
+
+  const text = (await response.text().catch(() => "")).trim();
+  return {
+    error: text && text !== "Internal Server Error" ? text : "PDF 上传失败",
+  };
+}
+
+async function prepareAttachment(
+  file: File,
+  context: AttachmentUploadContext
+): Promise<ChatAttachment> {
   const baseAttachment = {
     id: createAttachmentId(),
     name: file.name,
@@ -177,6 +312,37 @@ async function prepareAttachment(file: File): Promise<ChatAttachment> {
     };
   }
 
+  if (isPdfAttachment(file)) {
+    if (file.size > MAX_PDF_ATTACHMENT_SIZE) {
+      return {
+        ...baseAttachment,
+        kind: "pdf",
+        error: "PDF 超过 16 MB",
+      };
+    }
+
+    try {
+      const uploaded = await uploadPdfAttachment(file, context);
+      const extractionNote = uploaded.extractionError
+        ? `PDF 已上传到 ${
+            uploaded.workspacePath || "workspace"
+          }，但文本提取失败：${uploaded.extractionError}`
+        : undefined;
+      return {
+        ...baseAttachment,
+        ...uploaded,
+        kind: "pdf",
+        text: uploaded.text || extractionNote || "",
+      };
+    } catch (error) {
+      return {
+        ...baseAttachment,
+        kind: "pdf",
+        error: error instanceof Error ? error.message : "PDF 上传失败",
+      };
+    }
+  }
+
   if (isTextAttachment(file)) {
     const slice = file.slice(0, MAX_TEXT_ATTACHMENT_SIZE);
     return {
@@ -190,7 +356,64 @@ async function prepareAttachment(file: File): Promise<ChatAttachment> {
   return {
     ...baseAttachment,
     kind: "file",
+    error: `不支持的附件类型。${SUPPORTED_ATTACHMENT_HINT}`,
   };
+}
+
+function hasAttachmentDropData(dataTransfer: DataTransfer): boolean {
+  const types = Array.from(dataTransfer.types);
+  return types.includes(WORKSPACE_FILE_DRAG_MIME) || types.includes("Files");
+}
+
+function isWorkspaceFileAttachmentAllowed(
+  payload: WorkspaceFileDragPayload
+): boolean {
+  if (
+    payload.previewKind === "image" ||
+    payload.previewKind === "pdf" ||
+    payload.previewKind === "markdown" ||
+    payload.previewKind === "text"
+  ) {
+    return true;
+  }
+
+  const descriptorName = payload.extension
+    ? `${payload.name}${payload.extension.startsWith(".") ? "" : "."}${
+        payload.extension
+      }`
+    : payload.name;
+  return isSupportedAttachmentDescriptor(descriptorName);
+}
+
+async function workspaceDragPayloadToFile(
+  payload: WorkspaceFileDragPayload,
+  context: AttachmentUploadContext
+): Promise<File> {
+  const params = new URLSearchParams({ path: payload.path });
+  const effectiveResourceId = payload.resourceId || context.resourceId;
+  const effectiveWorkspaceId = payload.workspaceId || context.workspaceId;
+  if (effectiveResourceId) {
+    params.set("resourceId", effectiveResourceId);
+  }
+  if (effectiveWorkspaceId) {
+    params.set("workspaceId", effectiveWorkspaceId);
+  }
+
+  const response = await fetch(`/api/workspace/file/raw?${params.toString()}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const errorPayload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(errorPayload.error || "无法读取工作区文件。");
+  }
+
+  const blob = await response.blob();
+  const fileName = payload.name || payload.path.split("/").pop() || "file";
+  return new File([blob], fileName, {
+    type: blob.type || "application/octet-stream",
+  });
 }
 
 const getStatusIcon = (status: TodoItem["status"], className?: string) => {
@@ -235,9 +458,7 @@ function normalizeToolArgs(value: unknown): Record<string, unknown> {
 }
 
 function toolCallsFromMessage(message: Record<string, any>): ToolCall[] {
-  const toolCalls = Array.isArray(message.tool_calls)
-    ? message.tool_calls
-    : [];
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
 
   return toolCalls
     .filter((toolCall) => isRecord(toolCall) && toolCall.name)
@@ -257,7 +478,10 @@ function buildRemoteRuntimeToolMessages(
   }>,
   topLevelToolCallIds: Set<string>
 ): Array<{ message: Message; toolCalls: ToolCall[] }> {
-  const remoteMessages = new Map<string, { message: Message; toolCalls: ToolCall[] }>();
+  const remoteMessages = new Map<
+    string,
+    { message: Message; toolCalls: ToolCall[] }
+  >();
 
   for (const event of streamEvents) {
     if (
@@ -268,12 +492,14 @@ function buildRemoteRuntimeToolMessages(
     }
 
     const data = isRecord(event.data) ? event.data : {};
-    const modelMessages = isRecord(data.model) && Array.isArray(data.model.messages)
-      ? data.model.messages
-      : [];
-    const toolMessages = isRecord(data.tools) && Array.isArray(data.tools.messages)
-      ? data.tools.messages
-      : [];
+    const modelMessages =
+      isRecord(data.model) && Array.isArray(data.model.messages)
+        ? data.model.messages
+        : [];
+    const toolMessages =
+      isRecord(data.tools) && Array.isArray(data.tools.messages)
+        ? data.tools.messages
+        : [];
 
     for (const rawMessage of modelMessages) {
       if (!isRecord(rawMessage) || rawMessage.type !== "ai" || !rawMessage.id) {
@@ -320,9 +546,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const chatDragDepthRef = useRef(0);
 
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [isChatDropActive, setIsChatDropActive] = useState(false);
+  const [isPreparingDroppedAttachment, setIsPreparingDroppedAttachment] =
+    useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [showIntermediateResults, setShowIntermediateResults] =
+    useState(false);
   const { scrollRef, contentRef } = useStickToBottom();
 
   const {
@@ -338,9 +573,15 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     isLoading,
     isThreadLoading,
     interrupt,
+    runStatus,
+    threadTitle,
+    updateThreadTitle,
     sendMessage,
     stopStream,
     resumeInterrupt,
+    threadId,
+    resourceId,
+    workspaceId,
   } = useChatContext();
 
   const submitDisabled = isLoading || !assistant;
@@ -348,6 +589,53 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     (attachment) => !attachment.error
   );
   const errorMessage = formatChatError(error);
+
+  useEffect(() => {
+    if (!isEditingTitle) {
+      setTitleDraft(threadTitle);
+    }
+  }, [isEditingTitle, threadTitle]);
+
+  useEffect(() => {
+    setShowIntermediateResults(false);
+  }, [threadId]);
+
+  useEffect(() => {
+    if (isLoading) {
+      setShowIntermediateResults(false);
+    }
+  }, [isLoading]);
+
+  const startTitleEdit = useCallback(() => {
+    setTitleDraft(threadTitle);
+    setIsEditingTitle(true);
+  }, [threadTitle]);
+
+  const cancelTitleEdit = useCallback(() => {
+    setTitleDraft(threadTitle);
+    setIsEditingTitle(false);
+  }, [threadTitle]);
+
+  const saveTitleEdit = useCallback(async () => {
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle) {
+      toast.error("标题不能为空");
+      return;
+    }
+
+    setIsSavingTitle(true);
+    try {
+      await updateThreadTitle(nextTitle);
+      setIsEditingTitle(false);
+      toast.success("标题已更新");
+    } catch (titleError) {
+      toast.error(
+        titleError instanceof Error ? titleError.message : "标题更新失败"
+      );
+    } finally {
+      setIsSavingTitle(false);
+    }
+  }, [titleDraft, updateThreadTitle]);
 
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
@@ -372,15 +660,145 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     [attachments, input, isLoading, sendMessage, setInput, submitDisabled]
   );
 
-  const handleAttachmentFiles = useCallback(async (fileList: FileList | null) => {
-    const files = Array.from(fileList ?? []);
-    if (files.length === 0) return;
+  const handleAttachmentFiles = useCallback(
+    async (fileList: FileList | null) => {
+      const files = Array.from(fileList ?? []);
+      if (files.length === 0) return;
 
-    const preparedAttachments = await Promise.all(
-      files.map((file) => prepareAttachment(file))
-    );
-    setAttachments((current) => [...current, ...preparedAttachments]);
+      const preparedAttachments = await Promise.all(
+        files.map((file) =>
+          prepareAttachment(file, { resourceId, workspaceId, threadId })
+        )
+      );
+      setAttachments((current) => [...current, ...preparedAttachments]);
+    },
+    [resourceId, threadId, workspaceId]
+  );
+
+  const resetChatDropState = useCallback(() => {
+    chatDragDepthRef.current = 0;
+    setIsChatDropActive(false);
   }, []);
+
+  const handleChatDragEnter = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!hasAttachmentDropData(event.dataTransfer)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      chatDragDepthRef.current += 1;
+      setIsChatDropActive(true);
+    },
+    []
+  );
+
+  const handleChatDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!hasAttachmentDropData(event.dataTransfer)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = submitDisabled ? "none" : "copy";
+      setIsChatDropActive(true);
+    },
+    [submitDisabled]
+  );
+
+  const handleChatDragLeave = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!hasAttachmentDropData(event.dataTransfer)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      chatDragDepthRef.current = Math.max(0, chatDragDepthRef.current - 1);
+      if (chatDragDepthRef.current === 0) {
+        setIsChatDropActive(false);
+      }
+    },
+    []
+  );
+
+  const handleChatDrop = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>) => {
+      if (!hasAttachmentDropData(event.dataTransfer)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      resetChatDropState();
+
+      if (submitDisabled) {
+        toast.error("当前会话正在运行，完成后再添加附件。");
+        return;
+      }
+
+      const workspacePayload = event.dataTransfer.getData(
+        WORKSPACE_FILE_DRAG_MIME
+      );
+      if (!workspacePayload) {
+        await handleAttachmentFiles(event.dataTransfer.files);
+        return;
+      }
+
+      const payload = parseWorkspaceFileDragPayload(workspacePayload);
+      if (!payload) {
+        toast.error("无法识别这个工作区文件。");
+        return;
+      }
+
+      if (!isWorkspaceFileAttachmentAllowed(payload)) {
+        toast.warning(
+          `不支持添加 ${payload.name}。${SUPPORTED_ATTACHMENT_HINT}`
+        );
+        return;
+      }
+
+      setIsPreparingDroppedAttachment(true);
+      try {
+        const file = await workspaceDragPayloadToFile(payload, {
+          resourceId,
+          workspaceId,
+          threadId,
+        });
+        const attachment = await prepareAttachment(file, {
+          resourceId,
+          workspaceId,
+          threadId,
+        });
+
+        if (attachment.error) {
+          toast.error(`${attachment.name}: ${attachment.error}`);
+          return;
+        }
+
+        setAttachments((current) => [...current, attachment]);
+        toast.success(`已添加 ${attachment.name}`);
+      } catch (dropError) {
+        toast.error(
+          dropError instanceof Error
+            ? dropError.message
+            : "无法添加工作区文件。"
+        );
+      } finally {
+        setIsPreparingDroppedAttachment(false);
+      }
+    },
+    [
+      handleAttachmentFiles,
+      resetChatDropState,
+      resourceId,
+      submitDisabled,
+      threadId,
+      workspaceId,
+    ]
+  );
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((current) =>
@@ -523,7 +941,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     });
     const processedArray = Array.from(messageMap.values());
     const topLevelToolCallIds = new Set(
-      processedArray.flatMap((data) => data.toolCalls.map((toolCall) => toolCall.id))
+      processedArray.flatMap((data) =>
+        data.toolCalls.map((toolCall) => toolCall.id)
+      )
     );
 
     // Remote runtimes currently arrive as namespaced subgraph stream events.
@@ -570,13 +990,69 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     });
   }, [messages, streamEvents, interrupt, interruptedToolNames]);
 
+  const showRuntimeDetails = isLoading || Boolean(interrupt);
+  const visibleMessages = useMemo(() => {
+    if (showRuntimeDetails) {
+      return processedMessages;
+    }
+
+    return processedMessages.filter((data) => {
+      if (data.message.type !== "ai") {
+        return true;
+      }
+      return extractStringFromMessageContent(data.message).trim() !== "";
+    });
+  }, [processedMessages, showRuntimeDetails]);
+
+  const completedMessageId = useMemo(() => {
+    if (
+      showRuntimeDetails ||
+      error ||
+      (runStatus !== "completed" && runStatus !== "idle")
+    ) {
+      return null;
+    }
+
+    for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
+      const message = visibleMessages[index].message;
+      if (message.type === "ai") {
+        return message.id ?? null;
+      }
+    }
+
+    return null;
+  }, [error, runStatus, showRuntimeDetails, visibleMessages]);
+
+  const intermediateMessages = useMemo(() => {
+    if (showRuntimeDetails) {
+      return [];
+    }
+
+    return processedMessages.filter((data) => data.toolCalls.length > 0);
+  }, [processedMessages, showRuntimeDetails]);
+
+  const shouldShowTodosComplete =
+    runStatus === "completed" ||
+    (runStatus === "idle" &&
+      !isThreadLoading &&
+      !isLoading &&
+      !interrupt &&
+      !error);
+  const displayTodos = useMemo(
+    () =>
+      shouldShowTodosComplete
+        ? todos.map((todo) => ({ ...todo, status: "completed" as const }))
+        : todos,
+    [shouldShowTodosComplete, todos]
+  );
+
   const groupedTodos = {
-    in_progress: todos.filter((t) => t.status === "in_progress"),
-    pending: todos.filter((t) => t.status === "pending"),
-    completed: todos.filter((t) => t.status === "completed"),
+    in_progress: displayTodos.filter((t) => t.status === "in_progress"),
+    pending: displayTodos.filter((t) => t.status === "pending"),
+    completed: displayTodos.filter((t) => t.status === "completed"),
   };
 
-  const hasTasks = todos.length > 0;
+  const hasTasks = displayTodos.length > 0;
   const hasFiles = Object.keys(files).length > 0;
   const hasGoal = Boolean(goal?.objective);
 
@@ -606,10 +1082,114 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     return hasVisibleInterruptToolCall ? [] : actionRequests;
   }, [actionRequests, hasVisibleInterruptToolCall]);
 
+  const dropOverlayVisible = isChatDropActive || isPreparingDroppedAttachment;
+  const dropOverlayTitle = isPreparingDroppedAttachment
+    ? "正在添加附件..."
+    : submitDisabled
+    ? "当前运行中，暂不能添加附件"
+    : "松开添加到会话";
+  const dropOverlayDescription = submitDisabled
+    ? "请等待本轮运行完成。"
+    : SUPPORTED_ATTACHMENT_HINT;
+
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div
+      className={cn(
+        "relative flex flex-1 flex-col overflow-hidden bg-card/70 transition-[box-shadow,background-color]",
+        dropOverlayVisible && "bg-primary/5 ring-1 ring-inset ring-primary/35"
+      )}
+      onDragEnter={handleChatDragEnter}
+      onDragOver={handleChatDragOver}
+      onDragLeave={handleChatDragLeave}
+      onDrop={handleChatDrop}
+      data-chat-drop-root="true"
+    >
+      <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-card/90 px-4 py-2">
+        <div className="min-w-0 flex-1">
+          {isEditingTitle ? (
+            <Input
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void saveTitleEdit();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelTitleEdit();
+                }
+              }}
+              disabled={isSavingTitle}
+              autoFocus
+              className="h-7 max-w-xl"
+              aria-label="会话标题"
+            />
+          ) : (
+            <h2 className="truncate text-sm font-semibold text-foreground">
+              {threadTitle}
+            </h2>
+          )}
+        </div>
+
+        {isEditingTitle ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => void saveTitleEdit()}
+              disabled={isSavingTitle}
+              aria-label="保存会话标题"
+            >
+              {isSavingTitle ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={cancelTitleEdit}
+              disabled={isSavingTitle}
+              aria-label="取消更改标题"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                onClick={startTitleEdit}
+                disabled={isThreadLoading}
+                aria-label="更改会话标题"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              align="center"
+              sideOffset={6}
+              className="whitespace-nowrap"
+            >
+              更改会话标题
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+
       <div
-        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain"
+        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain bg-card/70"
         ref={scrollRef}
       >
         <div
@@ -623,9 +1203,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
           ) : (
             <>
               {hasGoal && goal && (
-                <div className="mb-4 rounded-xl border border-border bg-sidebar px-4 py-3 shadow-sm">
+                <div className="mb-4 rounded-lg border border-border bg-card px-4 py-3 shadow-sm shadow-black/[0.03]">
                   <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    <Target className="h-4 w-4 text-[#2F6868]" />
+                    <Target className="h-4 w-4 text-primary" />
                     Goal
                     <span
                       className={cn(
@@ -644,21 +1224,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       </span>
                     )}
                   </div>
-                  <div className="mt-2 text-sm leading-6 text-primary">
+                  <div className="mt-2 text-sm leading-6 text-foreground">
                     {goal.objective}
                   </div>
                 </div>
               )}
-              {processedMessages.map((data, index) => {
+              {visibleMessages.map((data, index) => {
                 const messageUi = ui?.filter(
                   (u: any) => u.metadata?.message_id === data.message.id
                 );
-                const isLastMessage = index === processedMessages.length - 1;
+                const isLastMessage = index === visibleMessages.length - 1;
+                const prevVisibleMessage =
+                  index > 0 ? visibleMessages[index - 1].message : null;
                 return (
                   <ChatMessage
                     key={data.message.id}
                     message={data.message}
-                    toolCalls={data.toolCalls}
+                    toolCalls={showRuntimeDetails ? data.toolCalls : []}
+                    showAvatar={data.message.type !== prevVisibleMessage?.type}
                     isLoading={isLoading}
                     actionRequestsMap={
                       isLastMessage ? actionRequestsMap : undefined
@@ -666,13 +1249,63 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     reviewConfigsMap={
                       isLastMessage ? reviewConfigsMap : undefined
                     }
-                    ui={messageUi}
+                    ui={showRuntimeDetails ? messageUi : undefined}
                     stream={stream}
                     onResumeInterrupt={resumeInterrupt}
                     graphId={assistant?.graph_id}
                   />
                 );
               })}
+              {intermediateMessages.length > 0 && (
+                <div className="ml-10 mt-4 overflow-hidden rounded-md border border-border/30 bg-muted/5 text-muted-foreground/70">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-muted/10"
+                    onClick={() =>
+                      setShowIntermediateResults((current) => !current)
+                    }
+                    aria-expanded={showIntermediateResults}
+                  >
+                    <span>
+                      中间过程 · {intermediateMessages.length} 步
+                    </span>
+                    {showIntermediateResults ? (
+                      <ChevronUp className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 shrink-0" />
+                    )}
+                  </button>
+                  {showIntermediateResults && (
+                    <div className="border-t border-border/30 px-3 pb-3">
+                      {intermediateMessages.map((data, index) => {
+                        const messageUi = ui?.filter(
+                          (u: any) => u.metadata?.message_id === data.message.id
+                        );
+                        return (
+                          <ChatMessage
+                            key={`intermediate-${data.message.id ?? index}`}
+                            message={data.message}
+                            toolCalls={data.toolCalls}
+                            showAvatar={false}
+                            isLoading={false}
+                            runtimeMuted
+                            ui={messageUi}
+                            stream={stream}
+                            onResumeInterrupt={resumeInterrupt}
+                            graphId={assistant?.graph_id}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+              {completedMessageId && (
+                <div className="ml-10 mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                  <span>已完成</span>
+                </div>
+              )}
               {errorMessage && (
                 <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
                   {errorMessage}
@@ -696,23 +1329,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         </div>
       </div>
 
-      <div className="flex-shrink-0 bg-background">
+      <div className="flex-shrink-0 border-t border-border/70 bg-background/80">
         <div
           className={cn(
-            "mx-4 mb-6 flex flex-shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-background",
+            "mx-4 mb-5 mt-3 flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-lg shadow-black/[0.04]",
             "mx-auto w-[calc(100%-32px)] max-w-[1024px] transition-colors duration-200 ease-in-out"
           )}
+          data-tour="chat-input"
         >
           {(hasGoal || hasTasks || hasFiles) && (
-            <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-sidebar empty:hidden">
+            <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-muted/50 empty:hidden">
               {!metaOpen && (
                 <>
                   {(() => {
-                    const activeTask = todos.find(
+                    const activeTask = displayTodos.find(
                       (t) => t.status === "in_progress"
                     );
 
-                    const totalTasks = todos.length;
+                    const totalTasks = displayTodos.length;
                     const remainingTasks =
                       totalTasks - groupedTodos.pending.length;
                     const isCompleted = totalTasks === remainingTasks;
@@ -727,7 +1361,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "tasks" ? null : "tasks"
                             )
                           }
-                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left"
+                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "tasks"}
                         >
                           {(() => {
@@ -742,7 +1376,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                                   key="label"
                                   className="ml-[1px] min-w-0 truncate text-sm"
                                 >
-                                  All tasks completed
+                                  所有子任务已完成
                                 </span>,
                               ];
                             }
@@ -756,8 +1390,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                                   key="label"
                                   className="ml-[1px] min-w-0 truncate text-sm"
                                 >
-                                  Task{" "}
-                                  {totalTasks - groupedTodos.pending.length} of{" "}
+                                  子任务{" "}
+                                  {totalTasks - groupedTodos.pending.length} /{" "}
                                   {totalTasks}
                                 </span>,
                                 <span
@@ -779,8 +1413,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                                 key="label"
                                 className="ml-[1px] min-w-0 truncate text-sm"
                               >
-                                Task {totalTasks - groupedTodos.pending.length}{" "}
-                                of {totalTasks}
+                                子任务 {totalTasks - groupedTodos.pending.length}{" "}
+                                / {totalTasks}
                               </span>,
                             ];
                           })()}
@@ -798,12 +1432,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "goal" ? null : "goal"
                             )
                           }
-                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left"
+                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "goal"}
                         >
                           <Target
                             size={16}
-                            className="text-[#2F6868]"
+                            className="text-primary"
                           />
                           <span className="ml-[1px] min-w-0 truncate text-sm">
                             Goal · {goalStatusLabel(goal.status)}
@@ -825,12 +1459,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "files" ? null : "files"
                             )
                           }
-                          className="flex flex-shrink-0 cursor-pointer items-center gap-2 px-[18px] py-3 text-left text-sm"
+                          className="flex flex-shrink-0 cursor-pointer items-center gap-2 px-[18px] py-3 text-left text-sm transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "files"}
                         >
                           <FileIcon size={16} />
                           Files (State)
-                          <span className="h-4 min-w-4 rounded-full bg-[#2F6868] px-0.5 text-center text-[10px] leading-[16px] text-white">
+                          <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-[10px] leading-[16px]">
                             {Object.keys(files).length}
                           </span>
                         </button>
@@ -850,11 +1484,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
               {metaOpen && (
                 <>
-                  <div className="sticky top-0 flex items-stretch bg-sidebar text-sm">
+                  <div className="sticky top-0 flex items-stretch border-b border-border bg-card text-sm">
                     {hasGoal && (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 py-3 pr-4 first:pl-[18px] aria-expanded:font-semibold"
+                        className="inline-flex items-center gap-2 py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
                         onClick={() =>
                           setMetaOpen((prev) =>
                             prev === "goal" ? null : "goal"
@@ -862,14 +1496,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         }
                         aria-expanded={metaOpen === "goal"}
                       >
-                        <Target className="h-4 w-4 text-[#2F6868]" />
+                        <Target className="h-4 w-4 text-primary" />
                         Goal
                       </button>
                     )}
                     {hasTasks && (
                       <button
                         type="button"
-                        className="py-3 pr-4 first:pl-[18px] aria-expanded:font-semibold"
+                        className="py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
                         onClick={() =>
                           setMetaOpen((prev) =>
                             prev === "tasks" ? null : "tasks"
@@ -877,13 +1511,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         }
                         aria-expanded={metaOpen === "tasks"}
                       >
-                        Tasks
+                        子任务
                       </button>
                     )}
                     {hasFiles && (
                       <button
                         type="button"
-                        className="inline-flex items-center gap-2 py-3 pr-4 first:pl-[18px] aria-expanded:font-semibold"
+                        className="inline-flex items-center gap-2 py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
                         onClick={() =>
                           setMetaOpen((prev) =>
                             prev === "files" ? null : "files"
@@ -892,7 +1526,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         aria-expanded={metaOpen === "files"}
                       >
                         Files (State)
-                        <span className="h-4 min-w-4 rounded-full bg-[#2F6868] px-0.5 text-center text-[10px] leading-[16px] text-white">
+                        <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-[10px] leading-[16px]">
                           {Object.keys(files).length}
                         </span>
                       </button>
@@ -908,7 +1542,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     className="px-[18px]"
                   >
                     {metaOpen === "goal" && goal && (
-                      <div className="mb-5 rounded-lg border border-border bg-background px-3 py-3">
+                      <div className="mb-5 rounded-md border border-border bg-card px-3 py-3">
                         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           <span
                             className={cn(
@@ -918,14 +1552,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                           >
                             {goalStatusLabel(goal.status)}
                           </span>
-                          <span>{formatGoalElapsed(goal.timeUsedSeconds || 0)}</span>
+                          <span>
+                            {formatGoalElapsed(goal.timeUsedSeconds || 0)}
+                          </span>
                           {typeof goal.tokenBudget === "number" && (
                             <span>
                               Tokens {goal.tokensUsed || 0}/{goal.tokenBudget}
                             </span>
                           )}
                         </div>
-                        <div className="text-sm leading-6 text-primary">
+                        <div className="text-sm leading-6 text-foreground">
                           {goal.objective}
                         </div>
                       </div>
@@ -940,13 +1576,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                             className="mb-4"
                           >
                             <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-tertiary">
-                              {
-                                {
-                                  pending: "Pending",
-                                  in_progress: "In Progress",
-                                  completed: "Completed",
-                                }[status]
-                              }
+                              {todoStatusLabel(status as TodoItem["status"])}
                             </h3>
                             <div className="grid grid-cols-[auto_1fr] gap-3 rounded-sm p-1 pl-0 text-sm">
                               {todos.map((todo, index) => (
@@ -979,8 +1609,30 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
           )}
           <form
             onSubmit={handleSubmit}
-            className="flex flex-col"
+            className="relative flex flex-col"
           >
+            {dropOverlayVisible && (
+              <div
+                className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/80 p-4 backdrop-blur-[1px]"
+                data-chat-drop-overlay="true"
+              >
+                <div className="flex min-w-56 flex-col items-center gap-2 rounded-md border border-dashed border-primary/45 bg-card/90 px-5 py-4 text-center shadow-lg shadow-black/[0.04]">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    {isPreparingDroppedAttachment ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="h-4 w-4" />
+                    )}
+                  </div>
+                  <div className="text-sm font-medium text-foreground">
+                    {dropOverlayTitle}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {dropOverlayDescription}
+                  </div>
+                </div>
+              </div>
+            )}
             <input
               ref={imageInputRef}
               type="file"
@@ -1027,7 +1679,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       {attachment.name}
                     </span>
                     <span className="shrink-0 text-muted-foreground">
-                      {attachment.error || formatAttachmentSize(attachment.size)}
+                      {attachment.error ||
+                        formatAttachmentSize(attachment.size)}
                     </span>
                     <button
                       type="button"
@@ -1047,33 +1700,57 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={isLoading ? "正在运行..." : "你希望我做些什么？"}
-              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-primary outline-none placeholder:text-tertiary/60"
+              className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
               rows={2}
             />
-            <div className="flex items-center justify-between gap-2 p-3">
+            <div className="flex items-center justify-between gap-2 border-t border-border/60 p-3">
               <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => imageInputRef.current?.click()}
-                  disabled={submitDisabled}
-                  aria-label="添加图片"
-                >
-                  <ImagePlus className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={submitDisabled}
-                  aria-label="添加附件"
-                >
-                  <Paperclip className="h-4 w-4" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={submitDisabled}
+                      aria-label="添加图片"
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="center"
+                    sideOffset={6}
+                    className="whitespace-nowrap"
+                  >
+                    添加图片
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={submitDisabled}
+                      aria-label="添加附件(文本或PDF)"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="center"
+                    sideOffset={6}
+                    className="whitespace-nowrap"
+                  >
+                    添加附件(文本或PDF)
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="flex justify-end gap-2">
                 <Button
@@ -1082,7 +1759,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   onClick={isLoading ? stopStream : handleSubmit}
                   disabled={
                     !isLoading &&
-                    (submitDisabled || (!input.trim() && !hasSendableAttachments))
+                    (submitDisabled ||
+                      (!input.trim() && !hasSendableAttachments))
                   }
                 >
                   {isLoading ? (

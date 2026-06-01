@@ -26,6 +26,7 @@ interface ToolCallBoxProps {
   reviewConfig?: ReviewConfig;
   onResume?: (value: any) => void;
   isLoading?: boolean;
+  muted?: boolean;
 }
 
 export const ToolCallBox = React.memo<ToolCallBoxProps>(
@@ -38,7 +39,9 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     reviewConfig,
     onResume,
     isLoading,
+    muted,
   }) => {
+    const useMutedStyle = Boolean(isLoading || muted) && !actionRequest;
     const [isExpanded, setIsExpanded] = useState(
       () => !!uiComponent || !!actionRequest
     );
@@ -57,9 +60,15 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     }, [toolCall]);
 
     const statusIcon = useMemo(() => {
+      const mutedClassName = useMutedStyle ? "text-muted-foreground/70" : "";
       switch (status) {
         case "completed":
-          return <CircleCheckBigIcon />;
+          return (
+            <CircleCheckBigIcon
+              size={14}
+              className={mutedClassName}
+            />
+          );
         case "error":
           return (
             <AlertCircle
@@ -71,7 +80,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
           return (
             <Loader2
               size={14}
-              className="animate-spin"
+              className={cn("animate-spin", mutedClassName)}
             />
           );
         case "interrupted":
@@ -89,7 +98,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
             />
           );
       }
-    }, [status]);
+    }, [status, useMutedStyle]);
 
     const toggleExpanded = useCallback(() => {
       setIsExpanded((prev) => !prev);
@@ -107,8 +116,11 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     return (
       <div
         className={cn(
-          "w-full overflow-hidden rounded-lg border-none shadow-none outline-none transition-colors duration-200 hover:bg-accent",
-          isExpanded && hasContent && "bg-accent"
+          "w-full overflow-hidden rounded-md border border-transparent outline-none transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/60",
+          isExpanded && hasContent && "border-border bg-accent/60",
+          useMutedStyle &&
+            "border-border/30 bg-muted/5 text-muted-foreground/70 shadow-none hover:border-border/40 hover:bg-muted/10",
+          useMutedStyle && isExpanded && hasContent && "bg-muted/10"
         )}
       >
         <Button
@@ -123,7 +135,12 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
           <div className="flex w-full items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               {statusIcon}
-              <span className="text-[15px] font-medium tracking-[-0.6px] text-foreground">
+              <span
+                className={cn(
+                  "text-sm font-medium text-foreground",
+                  useMutedStyle && "text-muted-foreground/70"
+                )}
+              >
                 {displayName}
               </span>
             </div>
@@ -145,7 +162,12 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
         {isExpanded && hasContent && (
           <div className="px-4 pb-4">
             {uiComponent && stream && graphId ? (
-              <div className="mt-4">
+              <div
+                className={cn(
+                  "mt-4",
+                  useMutedStyle && "opacity-90"
+                )}
+              >
                 <LoadExternalComponent
                   key={uiComponent.id}
                   stream={stream}
@@ -175,11 +197,18 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                       {Object.entries(args).map(([key, value]) => (
                         <div
                           key={key}
-                          className="rounded-sm border border-border"
+                          className={cn(
+                            "rounded-sm border border-border",
+                            useMutedStyle && "border-border/30"
+                          )}
                         >
                           <button
                             onClick={() => toggleArgExpanded(key)}
-                            className="flex w-full items-center justify-between bg-muted/30 p-2 text-left text-xs font-medium transition-colors hover:bg-muted/50"
+                            className={cn(
+                              "flex w-full items-center justify-between bg-muted/30 p-2 text-left text-xs font-medium transition-colors hover:bg-muted/50",
+                              useMutedStyle &&
+                                "bg-muted/10 text-muted-foreground/70 hover:bg-muted/15"
+                            )}
                           >
                             <span className="font-mono">{key}</span>
                             {expandedArgs[key] ? (
@@ -195,8 +224,18 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                             )}
                           </button>
                           {expandedArgs[key] && (
-                            <div className="border-t border-border bg-muted/20 p-2">
-                              <pre className="m-0 overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6 text-foreground">
+                            <div
+                              className={cn(
+                                "border-t border-border bg-muted/20 p-2",
+                                useMutedStyle && "border-border/30 bg-muted/5"
+                              )}
+                            >
+                              <pre
+                                className={cn(
+                                  "m-0 overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-6 text-foreground",
+                                  useMutedStyle && "text-muted-foreground/70"
+                                )}
+                              >
                                 {typeof value === "string"
                                   ? value
                                   : JSON.stringify(value, null, 2)}
@@ -213,7 +252,13 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
                     <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Result
                     </h4>
-                    <pre className="m-0 overflow-x-auto whitespace-pre-wrap break-all rounded-sm border border-border bg-muted/40 p-2 font-mono text-xs leading-7 text-foreground">
+                    <pre
+                      className={cn(
+                        "m-0 overflow-x-auto whitespace-pre-wrap break-all rounded-sm border border-border bg-muted/40 p-2 font-mono text-xs leading-7 text-foreground",
+                        useMutedStyle &&
+                          "border-border/30 bg-muted/10 text-muted-foreground/70"
+                      )}
+                    >
                       {typeof result === "string"
                         ? result
                         : JSON.stringify(result, null, 2)}

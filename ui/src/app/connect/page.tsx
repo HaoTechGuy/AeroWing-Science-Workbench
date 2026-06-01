@@ -10,7 +10,6 @@ import {
   RotateCcw,
   Save,
   Server,
-  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,13 +26,11 @@ export default function ConnectPage() {
   const router = useRouter();
   const [deploymentUrl, setDeploymentUrl] = useState("");
   const [assistantId, setAssistantId] = useState("");
-  const [langsmithApiKey, setLangsmithApiKey] = useState("");
 
   useEffect(() => {
     const config = getConfig();
     setDeploymentUrl(config.deploymentUrl);
     setAssistantId(config.assistantId);
-    setLangsmithApiKey(config.langsmithApiKey || "");
   }, []);
 
   function saveAndReturn(event: FormEvent<HTMLFormElement>) {
@@ -57,7 +54,6 @@ export default function ConnectPage() {
     saveConnectionConfig({
       deploymentUrl: nextDeploymentUrl,
       assistantId: nextAssistantId,
-      langsmithApiKey,
     });
 
     toast.success("连接配置已保存");
@@ -69,12 +65,11 @@ export default function ConnectPage() {
     clearConnectionConfig();
     setDeploymentUrl(config.deploymentUrl);
     setAssistantId(config.assistantId);
-    setLangsmithApiKey(config.langsmithApiKey || "");
     toast.success("已恢复默认连接配置");
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="flex min-h-[calc(100vh-var(--app-footer-height))] flex-col bg-background text-foreground">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
         <div className="flex min-w-0 items-center gap-4">
           <Button
@@ -134,17 +129,6 @@ export default function ConnectPage() {
                 placeholder="agent"
               />
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="langsmith-api-key">LangSmith API Key</Label>
-              <Input
-                id="langsmith-api-key"
-                value={langsmithApiKey}
-                onChange={(event) => setLangsmithApiKey(event.target.value)}
-                placeholder="本地服务通常可留空"
-                type="password"
-              />
-            </div>
           </div>
 
           <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
@@ -172,14 +156,19 @@ export default function ConnectPage() {
               <Cloud className="h-5 w-5 text-[#2F6868]" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-semibold">云端托管</h2>
+              <h2 className="flex items-center gap-2 text-base font-semibold">
+                云端托管
+                <span className="rounded-full border border-[#BFD9D4] bg-[#F1F7F5] px-2 py-0.5 text-[11px] font-medium leading-4 text-[#2F6868]">
+                  Beta
+                </span>
+              </h2>
               <div className="mt-1 text-sm text-muted-foreground">
                 连接云端部署的 InternAgents，让同一个助手可以长期运行、跨设备访问。
               </div>
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border border-border/80 bg-background px-3 py-3">
               <Globe2 className="mb-2 h-4 w-4 text-[#2F6868]" />
               <div className="text-sm font-medium">部署地址</div>
@@ -192,13 +181,6 @@ export default function ConnectPage() {
               <div className="text-sm font-medium">Assistant ID</div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
                 使用云端 graph 或 assistant 对应的 ID。
-              </div>
-            </div>
-            <div className="rounded-md border border-border/80 bg-background px-3 py-3">
-              <ShieldCheck className="mb-2 h-4 w-4 text-[#2F6868]" />
-              <div className="text-sm font-medium">访问密钥</div>
-              <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                需要鉴权时，把 API Key 填到上方密钥栏。
               </div>
             </div>
           </div>

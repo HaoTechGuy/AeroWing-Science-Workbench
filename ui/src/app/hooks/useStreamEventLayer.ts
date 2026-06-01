@@ -49,7 +49,9 @@ function collectInterrupts(data: unknown): unknown[] {
 
 function getEventKind(event: RemoteAgentStreamEvent): StreamEventKind {
   if (collectInterrupts(event.data).length > 0) return "interrupt";
-  if (event.mode === "messages") return "message";
+  if (event.mode === "messages" || event.mode === "messages-tuple") {
+    return "message";
+  }
   if (event.mode === "updates") return "update";
   if (event.mode === "values") return "value";
   if (event.mode === "metadata") return "metadata";

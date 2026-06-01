@@ -1,4 +1,4 @@
-deepagents
+faxiandeepagents
 langchain-openai
 langchain-openrouter>=0.2.0
 langgraph-cli[inmem]

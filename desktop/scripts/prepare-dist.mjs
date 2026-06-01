@@ -13,6 +13,7 @@ const distDir = path.join(rootDir, "dist-app");
 const uiStandaloneDir = path.join(distDir, "ui-standalone");
 const templateDir = path.join(distDir, "internagents-template");
 const pythonRuntimeDir = path.join(distDir, "python-runtime");
+const standaloneDependencyRoots = ["pdf-parse"];
 
 const runtimeEntries = [
   ".env.example",
@@ -22,6 +23,7 @@ const runtimeEntries = [
   "ssh_backend.py",
   "dynamic_local_backend.py",
   "kb_sync_middleware.py",
+  "mineru_middleware.py",
   "goal_middleware.py",
   "goal_state.py",
   "goal_tools.py",
@@ -102,6 +104,8 @@ async function prepareUiStandalone() {
     { verbatimSymlinks: true }
   );
   await rewriteUiStandaloneNodeModuleSymlinks();
+  await copyMissingStandalonePackageDependencies();
+  await linkStandalonePackageDependencies();
 }
 
 async function rewriteUiStandaloneNodeModuleSymlinks() {
@@ -139,6 +143,169 @@ async function rewriteUiStandaloneNodeModuleSymlinks() {
   });
 }
 
+async function readJsonIfExists(filePath) {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+  return JSON.parse(await fs.readFile(filePath, "utf8"));
+}
+
+async function listPackageNames(nodeModulesDir) {
+  const names = [];
+  const entries = await fs.readdir(nodeModulesDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    if (entry.name.startsWith("@")) {
+      const scopedEntries = await fs.readdir(path.join(nodeModulesDir, entry.name), {
+        withFileTypes: true,
+      });
+      for (const scopedEntry of scopedEntries) {
+        if (scopedEntry.isDirectory()) {
+          names.push(`${entry.name}/${scopedEntry.name}`);
+        }
+      }
+      continue;
+    }
+    names.push(entry.name);
+  }
+  return names;
+}
+
+function packagePath(nodeModulesDir, packageName) {
+  return path.join(nodeModulesDir, ...packageName.split("/"));
+}
+
+function dependencyNames(manifest) {
+  return new Set([
+    ...Object.keys(manifest.dependencies || {}),
+    ...Object.keys(manifest.optionalDependencies || {}),
+  ]);
+}
+
+async function ensureDirectoryLink(linkPath, targetPath) {
+  let existing = null;
+  try {
+    existing = await fs.lstat(linkPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  if (existing) {
+    return;
+  }
+
+  await fs.mkdir(path.dirname(linkPath), { recursive: true });
+  const relativeTarget = path.relative(path.dirname(linkPath), targetPath);
+  await fs.symlink(relativeTarget || ".", linkPath, "dir");
+}
+
+async function linkStandalonePackageDependencies() {
+  const standaloneNodeModulesDir = path.join(uiStandaloneDir, "standalone_node_modules");
+  if (!existsSync(standaloneNodeModulesDir)) {
+    return;
+  }
+
+  const packageNames = await listPackageNames(standaloneNodeModulesDir);
+  const packagePaths = new Map(
+    packageNames.map((packageName) => [
+      packageName,
+      packagePath(standaloneNodeModulesDir, packageName),
+    ])
+  );
+
+  for (const packageName of packageNames) {
+    const currentPackagePath = packagePaths.get(packageName);
+    const manifest = await readJsonIfExists(path.join(currentPackagePath, "package.json"));
+    if (!manifest) {
+      continue;
+    }
+
+    for (const dependencyName of dependencyNames(manifest)) {
+      const dependencyPath = packagePaths.get(dependencyName);
+      if (!dependencyPath || dependencyPath === currentPackagePath) {
+        continue;
+      }
+
+      await ensureDirectoryLink(
+        packagePath(path.join(currentPackagePath, "node_modules"), dependencyName),
+        dependencyPath
+      );
+    }
+  }
+}
+
+async function ensureStandalonePackage(packageName, sourceNodeModulesDir, targetNodeModulesDir) {
+  const targetPath = packagePath(targetNodeModulesDir, packageName);
+  const sourcePath = packagePath(sourceNodeModulesDir, packageName);
+  if (!existsSync(sourcePath)) {
+    return false;
+  }
+
+  const isPartialPackage =
+    existsSync(targetPath) &&
+    !existsSync(path.join(targetPath, "package.json")) &&
+    existsSync(path.join(sourcePath, "package.json"));
+  if (existsSync(targetPath) && !isPartialPackage) {
+    return true;
+  }
+
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await fs.cp(sourcePath, targetPath, {
+    recursive: true,
+    force: true,
+    verbatimSymlinks: false,
+  });
+  return true;
+}
+
+async function copyMissingStandalonePackageDependencies() {
+  const standaloneNodeModulesDir = path.join(uiStandaloneDir, "standalone_node_modules");
+  const sourceNodeModulesDir = path.join(uiDir, "node_modules");
+  if (!existsSync(standaloneNodeModulesDir) || !existsSync(sourceNodeModulesDir)) {
+    return;
+  }
+
+  const packageNames = [...standaloneDependencyRoots];
+  const queuedPackageNames = new Set(packageNames);
+  for (let index = 0; index < packageNames.length; index += 1) {
+    const packageName = packageNames[index];
+    const available = await ensureStandalonePackage(
+      packageName,
+      sourceNodeModulesDir,
+      standaloneNodeModulesDir
+    );
+    if (!available) {
+      continue;
+    }
+
+    const manifest = await readJsonIfExists(
+      path.join(packagePath(standaloneNodeModulesDir, packageName), "package.json")
+    );
+    if (!manifest) {
+      continue;
+    }
+
+    for (const dependencyName of dependencyNames(manifest)) {
+      if (queuedPackageNames.has(dependencyName)) {
+        continue;
+      }
+
+      const availableDependency = await ensureStandalonePackage(
+        dependencyName,
+        sourceNodeModulesDir,
+        standaloneNodeModulesDir
+      );
+      if (availableDependency) {
+        packageNames.push(dependencyName);
+        queuedPackageNames.add(dependencyName);
+      }
+    }
+  }
+}
+
 async function prepareRuntimeTemplate() {
   await fs.mkdir(templateDir, { recursive: true });
   for (const entry of runtimeEntries) {
@@ -171,6 +338,7 @@ async function preparePythonRuntime() {
   });
   await rewriteRuntimeSymlinks(path.resolve(pythonSource));
   await normalizePythonLinks();
+  await assertNoExternalRuntimeSymlinks();
 }
 
 async function relink(linkPath, targetName) {
@@ -232,6 +400,27 @@ async function rewriteRuntimeSymlinks(sourceRoot) {
     const relativeTarget = path.relative(path.dirname(entryPath), bundledTarget);
     await fs.rm(entryPath, { force: true });
     await fs.symlink(relativeTarget || path.basename(bundledTarget), entryPath);
+  });
+}
+
+async function assertNoExternalRuntimeSymlinks() {
+  const bundledRoot = path.resolve(pythonRuntimeDir);
+  await walk(pythonRuntimeDir, async (entryPath, entry) => {
+    if (!entry.isSymbolicLink()) {
+      return;
+    }
+
+    const linkTarget = await fs.readlink(entryPath);
+    if (!path.isAbsolute(linkTarget)) {
+      return;
+    }
+
+    const resolvedTarget = path.resolve(linkTarget);
+    if (!resolvedTarget.startsWith(`${bundledRoot}${path.sep}`)) {
+      throw new Error(
+        `Bundled Python runtime contains an external symlink: ${entryPath} -> ${linkTarget}`
+      );
+    }
   });
 }
 

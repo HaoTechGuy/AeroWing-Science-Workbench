@@ -308,7 +308,7 @@ async function normalizedResponse(config: AgentConfig) {
     openrouterApiKeyPreview: previewApiKey(apiKey),
     authorizationMode: inferAuthorizationMode(config),
     desktopMode,
-    needsOnboarding: desktopMode && missing.length > 0,
+    needsOnboarding: false,
     missing,
   };
 }
@@ -360,10 +360,6 @@ export async function PUT(request: NextRequest) {
       typeof body.openrouterApiKey === "string"
         ? body.openrouterApiKey.trim()
         : "";
-    const currentEnv = await readEnvValues();
-    if (isDesktopMode() && !apiKey && !currentEnv.OPENROUTER_API_KEY?.trim()) {
-      throw new Error("桌面版首次配置需要填写 OpenRouter API key。");
-    }
     const workspacePath =
       typeof body.workspacePath === "string"
         ? body.workspacePath.trim()

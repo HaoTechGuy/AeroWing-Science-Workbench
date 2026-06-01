@@ -21,6 +21,22 @@ The repository includes:
 - `ui/`: InternAgents Next.js web UI
 - `scripts/dev.sh`: one-command local development launcher
 
+## Guided Tour Update
+
+This branch updates the desktop first-run experience:
+
+- First launch now opens the local workbench directly instead of blocking on a
+  configuration page.
+- The committed desktop defaults use OpenRouter with
+  `deepseek/deepseek-v4-flash`.
+- A Quickstart tour introduces the workbench, project selector, workspace,
+  conversations, service connection, skills, configuration, and About/Updates.
+- The About/Updates page can restart the tour and exposes local update actions.
+- Workspace file/folder open routes and conversation title helpers support the
+  refreshed desktop workflow.
+- UI polish is intentionally light: tighter navigation, cleaner panels, and
+  more consistent buttons, inputs, selectors, and previews.
+
 ## Current UI Direction
 
 The web UI is moving toward a three-panel local research workspace:
@@ -170,6 +186,43 @@ The browser talks to the LangGraph API through the LangGraph JavaScript SDK. It
 does not call a Python `RemoteAgent`, and it does not require LangSmith for
 local development.
 
+## Software Updates
+
+The About page includes a local software update panel. The installed macOS app
+checks a GitHub Releases feed for binary DMG assets. By default it reads:
+
+```text
+shuyuehu/InternAgents
+```
+
+Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
+a public release-only repository. The source repository can stay private; the
+release repository only needs GitHub Releases with assets named like
+`InternAgents-0.1.1-arm64.dmg`.
+
+The browser never receives a shell command or user-provided repository URL. It
+calls local Next.js API routes under `/api/update/*`; those routes are the only
+place that can query the fixed release feed, download the matching DMG, mount
+it, verify the `.app`, and launch the local installer script that replaces the
+current app and reopens InternAgents.
+
+Publishing a new desktop release is tag driven. Create the tag on the branch or
+commit you want to ship, then push that tag:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The workflow uses that tag as the App version, runs on macOS, validates Python
+files, lints and builds the UI, builds the DMG, clears any existing uploaded
+release assets, and uploads one DMG asset to `shuyuehu/InternAgents`. If the
+workflow runs in a private source repository, set:
+
+```text
+Repository secret:   INTERNAGENTS_RELEASE_TOKEN=<PAT with contents:write on that repo>
+```
+
 ### Tool Display Names
 
 Backend tool names stay unchanged because LangGraph still needs the original
@@ -270,8 +323,9 @@ NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
 ```
 
-First launch opens the configuration onboarding flow when the app runtime has no
-OpenRouter API key yet.
+First launch opens the local workbench directly. The committed default model
+configuration uses `openrouter/auto`; real OpenRouter API keys still belong in
+the user's untracked `.env` or desktop runtime configuration.
 
 ### Publishing Desktop Releases
 

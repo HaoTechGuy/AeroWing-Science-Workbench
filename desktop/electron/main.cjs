@@ -257,9 +257,17 @@ function ensureWorkspaceRecord(workspaces, workspacePath) {
 }
 
 function pythonBinary() {
-  const binDir = path.join(resourcesRoot(), "python-runtime", "bin");
-  for (const name of ["python3.12", "python3.11", "python3", "python"]) {
-    const candidate = path.join(binDir, name);
+  const runtimeDir = path.join(resourcesRoot(), "python-runtime");
+  const candidates = [
+    path.join(runtimeDir, "venv", "bin", "python"),
+    path.join(runtimeDir, ".venv", "bin", "python"),
+    path.join(runtimeDir, "bin", "python3.12"),
+    path.join(runtimeDir, "bin", "python3.11"),
+    path.join(runtimeDir, "bin", "python3"),
+    path.join(runtimeDir, "bin", "python"),
+  ];
+
+  for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
       return candidate;
     }
@@ -284,6 +292,13 @@ function nodeHostBinary() {
     }
   }
   return process.execPath;
+}
+
+function appBundlePath() {
+  if (!app.isPackaged) {
+    return "";
+  }
+  return path.resolve(path.dirname(process.execPath), "..", "..");
 }
 
 function runtimePidFile(name) {
@@ -336,6 +351,9 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
     INTERNAGENTS_BACKEND_PORT: String(backendPort),
     INTERNAGENTS_LOCAL_RUNTIME_PORT: String(runtimePort),
     INTERNAGENTS_PYTHON_BIN: pythonBinary(),
+    INTERNAGENTS_APP_BUNDLE_PATH: appBundlePath(),
+    INTERNAGENTS_APP_PID: String(process.pid),
+    INTERNAGENTS_APP_VERSION: app.getVersion(),
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONNOUSERSITE: "1",
     NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL: `http://${HOST}:${backendPort}`,
@@ -396,12 +414,9 @@ async function boot() {
 
   await startNextServer(uiPort, backendPort, runtimePort);
 
-  const configured = hasInitialConfig();
-  if (configured) {
-    await restartBackend(uiPort);
-  }
+  await restartBackend(uiPort);
 
-  const startPath = configured ? "/?assistantId=agent_local" : "/config?onboarding=1";
+  const startPath = "/?assistantId=agent_local";
   await createWindow(`http://${HOST}:${uiPort}${startPath}`);
 }
 

@@ -80,30 +80,34 @@ jobs:
 
       - name: Prepare bundled Python runtime
         run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install .
+          python -m pip install --upgrade pip uv
+          rm -rf .desktop-python-runtime
+          export UV_PYTHON_INSTALL_DIR="$PWD/.desktop-python-runtime/python"
+          uv python install 3.11 --managed-python --no-bin
+          uv venv "$PWD/.desktop-python-runtime/venv" \
+            --python 3.11 \
+            --managed-python \
+            --seed \
+            --relocatable
+          uv pip install \
+            --python "$PWD/.desktop-python-runtime/venv/bin/python" \
+            --link-mode copy \
+            --compile-bytecode \
+            .
+          "$PWD/.desktop-python-runtime/venv/bin/python" -c "import langgraph_cli; print(langgraph_cli.__file__)"
+          echo "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$PWD/.desktop-python-runtime" >> "$GITHUB_ENV"
 
       - name: Validate Python files
         run: |
-          .venv/bin/python <<'PY'
-          import compileall
-          import pathlib
-          import sys
-          import tomllib
-
-          config = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
-          modules = config["tool"]["setuptools"].get("py-modules", [])
-          files = [pathlib.Path(module.replace(".", "/") + ".py") for module in modules]
-          missing = [str(path) for path in files if not path.exists()]
-          if missing:
-            print(f"Missing Python modules from pyproject.toml: {', '.join(missing)}", file=sys.stderr)
-            sys.exit(1)
-          failed = [str(path) for path in files if not compileall.compile_file(str(path), quiet=1)]
-          if failed:
-            print(f"Python compile failed: {', '.join(failed)}", file=sys.stderr)
-            sys.exit(1)
-          PY
+          .desktop-python-runtime/venv/bin/python -m compileall \
+            agent.py \
+            internagent_resources.py \
+            ssh_backend.py \
+            kb_sync_middleware.py \
+            goal_middleware.py \
+            goal_state.py \
+            goal_tools.py \
+            mineru_middleware.py
 
       - name: Validate UI
         run: |
@@ -117,24 +121,29 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
         run: |
+          shopt -s nullglob
+          dmg_assets=(desktop/release/InternAgents-*.dmg)
+          if [ "${#dmg_assets[@]}" -ne 1 ]; then
+            printf 'Expected exactly one DMG, found %s:\n' "${#dmg_assets[@]}"
+            printf '  %s\n' "${dmg_assets[@]}"
+            exit 1
+          fi
+
+          DMG_PATH="${dmg_assets[0]}"
           NOTES="InternAgents macOS App release ${INTERNAGENTS_RELEASE_TAG}
 
           Source tag: ${GITHUB_REF_NAME}
           Source commit: ${GITHUB_SHA}"
 
-          shopt -s nullglob
-          dmg_assets=(desktop/release/InternAgents-*.dmg)
-          optional_assets=(desktop/release/*.blockmap desktop/release/latest-mac.yml)
-          assets=("${dmg_assets[@]}" "${optional_assets[@]}")
-
-          if [ "${#dmg_assets[@]}" -eq 0 ]; then
-            echo "::error::No DMG assets found under desktop/release."
-            exit 1
-          fi
-
           if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
+            existing_assets="$(gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" --json assets --jq '.assets[].name')"
+            while IFS= read -r asset; do
+              [ -z "$asset" ] && continue
+              gh release delete-asset "$INTERNAGENTS_RELEASE_TAG" "$asset" --repo "$INTERNAGENTS_RELEASE_REPO" --yes
+            done <<< "$existing_assets"
+
             gh release upload "$INTERNAGENTS_RELEASE_TAG" \
-              "${assets[@]}" \
+              "$DMG_PATH" \
               --repo "$INTERNAGENTS_RELEASE_REPO" \
               --clobber
             gh release edit "$INTERNAGENTS_RELEASE_TAG" \
@@ -144,7 +153,7 @@ jobs:
               --latest
           else
             gh release create "$INTERNAGENTS_RELEASE_TAG" \
-              "${assets[@]}" \
+              "$DMG_PATH" \
               --repo "$INTERNAGENTS_RELEASE_REPO" \
               --title "$INTERNAGENTS_RELEASE_TAG" \
               --notes "$NOTES" \

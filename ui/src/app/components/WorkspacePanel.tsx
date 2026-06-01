@@ -22,9 +22,6 @@ interface WorkspacePanelProps {
   workspaceId?: string;
   workspaceRefreshKey?: number;
   activeWorkspace?: LocalWorkspace | null;
-  workspaces?: LocalWorkspace[];
-  onWorkspaceChange?: (workspaceId: string) => void | Promise<void>;
-  onWorkspacePick?: () => void | Promise<void>;
 }
 
 export function WorkspacePanel({
@@ -40,12 +37,9 @@ export function WorkspacePanel({
   workspaceId,
   workspaceRefreshKey,
   activeWorkspace,
-  workspaces = [],
-  onWorkspaceChange,
-  onWorkspacePick,
 }: WorkspacePanelProps) {
   return (
-    <div className="h-full bg-background">
+    <div className="h-full bg-sidebar">
       <ResizablePanelGroup
         direction="vertical"
         autoSaveId="internagents-left-panel"
@@ -63,9 +57,6 @@ export function WorkspacePanel({
             workspaceId={workspaceId}
             refreshKey={workspaceRefreshKey}
             activeWorkspace={activeWorkspace}
-            workspaces={workspaces}
-            onWorkspaceChange={onWorkspaceChange}
-            onWorkspacePick={onWorkspacePick}
             onFileSelect={onFileSelect}
           />
         </ResizablePanel>
@@ -76,6 +67,7 @@ export function WorkspacePanel({
           defaultSize={46}
           minSize={26}
           className="relative min-h-[220px]"
+          data-tour="thread-list"
         >
           <ThreadList
             onThreadSelect={onThreadSelect}
