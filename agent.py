@@ -63,10 +63,29 @@ def _env_positive_int(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+def _config_model() -> str | None:
+    try:
+        config = json.loads(DEFAULT_CONFIG_FILE.read_text())
+    except Exception:
+        return None
+
+    if config.get("openrouter_direct_enabled") is True:
+        model = config.get("openrouter_model")
+    elif config.get("model_selection_mode") == "manual":
+        model = config.get("manual_model")
+    else:
+        model = "openrouter/auto"
+    return model.strip() if isinstance(model, str) and model.strip() else None
+
+
 def _resolve_model() -> str:
     explicit_model = _env_value("DEEPAGENT_MODEL")
     if explicit_model:
         return explicit_model
+
+    config_model = _config_model()
+    if config_model:
+        return f"openrouter:{config_model}"
 
     provider = _env_value("LLM_PROVIDER")
     model = _env_value("LLM_MODEL")

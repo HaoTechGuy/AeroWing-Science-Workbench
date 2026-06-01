@@ -313,6 +313,26 @@ set:
 INTERNAGENTS_PYTHON_RUNTIME_SOURCE=/path/to/python-runtime npm run build
 ```
 
+The same prepare step also builds the remote backend CLI package used by the
+web UI's "new remote workspace" flow:
+
+```text
+dist-app/internagents-template/backend-wheelhouse
+dist-app/internagents-template/internagents-backend-cli.tar.gz
+```
+
+`backend-wheelhouse` contains the pinned Python dependencies for supported
+remote Linux targets, and `internagents-backend-cli.tar.gz` contains the
+runtime source plus that wheelhouse. Packaged desktop builds set
+`INTERNAGENTS_DESKTOP=1`, so remote setup only uploads the prebuilt archive; it
+does not build or download backend dependencies on the user's machine at setup
+time. If the archive is missing from a desktop build, remote setup fails fast
+instead of falling back to source-directory sync.
+
+The remote host still needs a working `python3` with `venv` support. The bundled
+wheelhouse currently targets Linux x86_64, Python 3.11/3.12, and glibc 2.28 or
+newer.
+
 The packaged app writes real user configuration under macOS Application Support
 and starts the UI with:
 
@@ -502,14 +522,21 @@ python -m langgraph_cli dev \
   --config langgraph.json
 ```
 
-Remote resources follow the same runtime pattern: start `langgraph.runtime.json`
-on the remote machine with `INTERNAGENT_PROCESS_ROLE=runtime` and the matching
-`INTERNAGENT_RUNTIME_ID`, then expose it to the coordinator through an existing
-SSH tunnel. Store the concrete SSH command, workspace, and tunnel URL only in
-local config. Do not change server network, firewall, SSH daemon,
-security-group, or routing settings for this setup; if a runtime is not
-reachable with existing access, fix the local resource config, credentials,
-process, or tunnel instead.
+Remote resources can be created from the web UI by selecting either an SSH
+config host or a raw SSH command such as `ssh -p 2222 user@example.com`. The
+setup API uploads the bundled `internagents-backend-cli.tar.gz`, installs it on
+the remote host with `pip install --no-index --find-links backend-wheelhouse`,
+starts `internagents-backend runtime start`, and opens the local SSH tunnel to
+the remote runtime. Store the concrete SSH command, workspace, and tunnel URL
+only in local config.
+
+For manual debugging, the same runtime pattern still applies: start
+`langgraph.runtime.json` on the remote machine with
+`INTERNAGENT_PROCESS_ROLE=runtime` and the matching `INTERNAGENT_RUNTIME_ID`,
+then expose it to the coordinator through an existing SSH tunnel. Do not change
+server network, firewall, SSH daemon, security-group, or routing settings for
+this setup; if a runtime is not reachable with existing access, fix the local
+resource config, credentials, process, package install, or tunnel instead.
 
 If a resource sets `kb_path`, InternAgents will best-effort run `kb sync pull`
 before each agent run and `kb sync push` after the run using that resource's

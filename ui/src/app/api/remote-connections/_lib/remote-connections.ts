@@ -1,8 +1,8 @@
 import { execFile, spawn } from "child_process";
 import { createServer } from "net";
-import { createWriteStream } from "fs";
+import { createReadStream, createWriteStream } from "fs";
 import { constants } from "fs";
-import { access, mkdir, readFile, writeFile } from "fs/promises";
+import { access, cp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
@@ -26,6 +26,29 @@ const REMOTE_SLOT_IDS = Array.from(
 );
 const SSH_CONNECT_TIMEOUT_SECONDS = 8;
 const COMMAND_MAX_BUFFER = 1024 * 1024 * 8;
+const BACKEND_CLI_WHEELHOUSE_DIR = "backend-wheelhouse";
+const BACKEND_CLI_ARCHIVE_NAME = "internagents-backend-cli.tar.gz";
+const BACKEND_CLI_PACKAGE_ENTRIES = [
+  ".env.example",
+  "agent.py",
+  "main.py",
+  "internagent_resources.py",
+  "ssh_backend.py",
+  "dynamic_local_backend.py",
+  "kb_sync_middleware.py",
+  "mineru_middleware.py",
+  "goal_middleware.py",
+  "goal_state.py",
+  "goal_tools.py",
+  "internagents_backend_cli.py",
+  "internagent.resources.json",
+  "internagent.resources.example.json",
+  "langgraph.runtime.json",
+  "pyproject.toml",
+  "requirements.txt",
+  "deepagent.config.json",
+  "skills",
+];
 type LogSink = (message: string) => void;
 
 export interface UiResourceConfig {
@@ -484,66 +507,119 @@ async function commandExists(command: string): Promise<boolean> {
   }
 }
 
-async function syncSourceToRemote(
-  sshCommand: string,
-  installDir: string,
-  copyEnv: boolean,
-  log: string[],
-  onLog?: LogSink
+async function copyPackageEntryIfExists(
+  root: string,
+  stagingDir: string,
+  entry: string
 ): Promise<void> {
-  if (!(await commandExists("tar"))) {
-    throw new Error("本机缺少 tar，无法同步 InternAgents runtime 代码。");
+  const source = path.join(root, entry);
+  if (!(await fileExists(source))) {
+    return;
   }
-  const root = getWorkspaceRoot();
-  const excludes = [
-    ".codex",
-    ".git",
-    ".venv",
-    ".internagents",
-    ".langgraph_api",
-    ".next",
-    ".omx",
-    ".pytest_cache",
-    "tmp",
-    "ui/.next",
-    "ui/node_modules",
-    "node_modules",
-    "internagent.resources.local.json",
-  ];
-  if (!copyEnv) {
-    excludes.push(".env", ".env.*", "ui/.env", "ui/.env.*");
-  } else {
-    excludes.push("ui/.env", "ui/.env.*");
+  await mkdir(path.dirname(path.join(stagingDir, entry)), { recursive: true });
+  await cp(source, path.join(stagingDir, entry), {
+    recursive: true,
+    force: true,
+    verbatimSymlinks: false,
+  });
+}
+
+async function resolveBundledBackendWheelhouse(root: string): Promise<string> {
+  const bundledWheelhouse = path.join(root, BACKEND_CLI_WHEELHOUSE_DIR);
+  if (await fileExists(bundledWheelhouse)) {
+    return bundledWheelhouse;
   }
 
-  const tarArgs = [
-    "-czf",
-    "-",
-    ...excludes.map((item) => `--exclude=${item}`),
-    ".",
-  ];
+  if (process.env.INTERNAGENTS_DESKTOP !== "1") {
+    const localDevWheelhouse = path.join(
+      root,
+      ".internagents",
+      BACKEND_CLI_WHEELHOUSE_DIR
+    );
+    if (await fileExists(localDevWheelhouse)) {
+      return localDevWheelhouse;
+    }
+  }
+
+  throw new Error(
+    "backend CLI 离线依赖包缺失。请使用 desktop 发布包内置的 backend-wheelhouse，或先运行 desktop 打包流程生成它。"
+  );
+}
+
+async function buildBackendCliPackage(
+  log: string[],
+  onLog?: LogSink
+): Promise<string> {
+  const root = getWorkspaceRoot();
+  const prebuiltArchive = path.join(root, BACKEND_CLI_ARCHIVE_NAME);
+  if (await fileExists(prebuiltArchive)) {
+    pushLog(log, "使用 desktop 内置 backend CLI 包。", onLog);
+    return prebuiltArchive;
+  }
+  if (process.env.INTERNAGENTS_DESKTOP === "1") {
+    throw new Error(
+      `desktop 发布包缺少内置 backend CLI 包: ${BACKEND_CLI_ARCHIVE_NAME}`
+    );
+  }
+
+  if (!(await commandExists("tar"))) {
+    throw new Error("本机缺少 tar，无法打包 InternAgents backend CLI。");
+  }
+
+  const buildId = `${Date.now()}-${process.pid}`;
+  const artifactsDir = path.join(root, ".internagents", "artifacts");
+  const stagingDir = path.join(
+    root,
+    ".internagents",
+    "backend-cli-build",
+    buildId
+  );
+  const artifactPath = path.join(
+    artifactsDir,
+    `internagents-backend-cli-${buildId}.tar.gz`
+  );
+
+  await rm(stagingDir, { recursive: true, force: true });
+  await mkdir(stagingDir, { recursive: true });
+  await mkdir(artifactsDir, { recursive: true });
+  for (const entry of BACKEND_CLI_PACKAGE_ENTRIES) {
+    await copyPackageEntryIfExists(root, stagingDir, entry);
+  }
+  await cp(
+    await resolveBundledBackendWheelhouse(root),
+    path.join(stagingDir, BACKEND_CLI_WHEELHOUSE_DIR),
+    {
+      recursive: true,
+      force: true,
+      verbatimSymlinks: false,
+    }
+  );
+
+  try {
+    pushLog(log, "打包独立 InternAgents backend CLI...", onLog);
+    await execFileAsync("tar", ["-czf", artifactPath, "-C", stagingDir, "."], {
+      timeout: 120_000,
+      maxBuffer: COMMAND_MAX_BUFFER,
+    });
+    return artifactPath;
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true });
+  }
+}
+
+async function streamFileOverSsh(
+  sshCommand: string,
+  localPath: string,
+  remoteScript: string
+): Promise<void> {
   const [sshBinary, ...baseSshArgs] = sshArgsFromCommand(sshCommand, [
     "-o",
     "BatchMode=yes",
     "-o",
     `ConnectTimeout=${SSH_CONNECT_TIMEOUT_SECONDS}`,
   ]);
-  const remoteScript = [
-    "set -e",
-    `mkdir -p ${shellQuote(installDir)}`,
-    `tar -xzf - -C ${shellQuote(installDir)}`,
-  ].join(" && ");
-
-  pushLog(
-    log,
-    `同步当前 InternAgents runtime 到远端安装目录: ${installDir}`,
-    onLog
-  );
   await new Promise<void>((resolve, reject) => {
-    const tar = spawn("tar", tarArgs, {
-      cwd: root,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const input = createReadStream(localPath);
     const ssh = spawn(
       sshBinary,
       [...baseSshArgs, `bash -lc ${shellQuote(remoteScript)}`],
@@ -552,37 +628,68 @@ async function syncSourceToRemote(
       }
     );
     const errors: string[] = [];
-    tar.stderr.on("data", (chunk) => errors.push(String(chunk)));
-    ssh.stderr.on("data", (chunk) => errors.push(String(chunk)));
-    tar.stdout.pipe(ssh.stdin);
-    tar.on("error", reject);
+    input.on("error", reject);
     ssh.on("error", reject);
-    let tarExit: number | null = null;
-    let sshExit: number | null = null;
-    const done = () => {
-      if (tarExit === null || sshExit === null) return;
-      if (tarExit === 0 && sshExit === 0) {
+    ssh.stderr.on("data", (chunk) => errors.push(String(chunk)));
+    input.pipe(ssh.stdin);
+    ssh.on("close", (code) => {
+      if ((code ?? 1) === 0) {
         resolve();
       } else {
-        reject(
-          new Error(
-            errors.join("\n") || `代码同步失败 tar=${tarExit} ssh=${sshExit}`
-          )
-        );
+        reject(new Error(errors.join("\n") || `SSH upload failed: ${code}`));
       }
-    };
-    tar.on("close", (code) => {
-      tarExit = code ?? 1;
-      done();
-    });
-    ssh.on("close", (code) => {
-      sshExit = code ?? 1;
-      done();
     });
   });
 }
 
-async function configureRemoteRuntime(
+async function uploadBackendCliPackageToRemote(
+  sshCommand: string,
+  installDir: string,
+  log: string[],
+  onLog?: LogSink
+): Promise<void> {
+  const artifactPath = await buildBackendCliPackage(log, onLog);
+  const stopExistingRuntime = [
+    `install_dir=${shellQuote(installDir)}`,
+    'pids=$(ps -eo pid=,comm=,args= | awk -v dir="$install_dir" \'$2 ~ /^python/ && index($0, dir) && index($0, " -m langgraph_cli dev ") {print $1}\' || true)',
+    'if [ -n "$pids" ]; then for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done; sleep 1; for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done; fi',
+  ].join(" && ");
+  const remoteScript = [
+    "set -e",
+    stopExistingRuntime,
+    `rm -rf ${shellQuote(path.posix.join(installDir, "package"))}`,
+    `mkdir -p ${shellQuote(path.posix.join(installDir, "package"))}`,
+    `tar -xzf - -C ${shellQuote(path.posix.join(installDir, "package"))}`,
+  ].join(" && ");
+
+  pushLog(
+    log,
+    `上传 backend CLI 包到远端安装目录: ${installDir}/package`,
+    onLog
+  );
+  await streamFileOverSsh(sshCommand, artifactPath, remoteScript);
+}
+
+async function uploadEnvToRemotePackage(
+  sshCommand: string,
+  installDir: string,
+  log: string[],
+  onLog?: LogSink
+): Promise<void> {
+  const envPath = path.join(getWorkspaceRoot(), ".env");
+  if (!(await fileExists(envPath))) {
+    throw new Error("已选择同步 .env，但本机仓库根目录没有 .env 文件。");
+  }
+  const remoteEnvPath = path.posix.join(installDir, "package", ".env");
+  pushLog(log, "同步本机 .env 到远端 backend CLI 包。", onLog);
+  await streamFileOverSsh(
+    sshCommand,
+    envPath,
+    `set -e && cat > ${shellQuote(remoteEnvPath)}`
+  );
+}
+
+async function installAndStartRemoteRuntime(
   sshCommand: string,
   installDir: string,
   resource: ResourceRecord,
@@ -590,91 +697,65 @@ async function configureRemoteRuntime(
   onLog?: LogSink
 ): Promise<void> {
   const workspace = assertRemoteWorkspace(resource.workspace || "");
-  const runtimeConfig = JSON.stringify(
-    {
-      default_resource: resource.id,
-      resources: [
-        {
-          id: resource.id,
-          label: resource.label || resource.id,
-          backend: "local_shell",
-          workspace,
-          remote_url: `http://127.0.0.1:${REMOTE_RUNTIME_PORT}`,
-          remote_assistant_id: "agent",
-          enabled: true,
-        },
-      ],
-    },
-    null,
-    2
-  );
   const script = String.raw`
 set -euo pipefail
-cd __INSTALL_DIR__
+cd __PACKAGE_DIR__
 mkdir -p __RESOURCE_WORKSPACE__
-cat > internagent.runtime.local.json <<'JSON'
-__RUNTIME_CONFIG__
-JSON
-python3 - <<'PY'
-from pathlib import Path
-path = Path('.env')
-lines = path.read_text().splitlines() if path.exists() else []
-key = 'INTERNAGENT_RESOURCES_FILE'
-next_lines = []
-seen = False
-for line in lines:
-    if line.strip().startswith(key + '='):
-        next_lines.append(f'{key}="internagent.runtime.local.json"')
-        seen = True
-    else:
-        next_lines.append(line)
-if not seen:
-    next_lines.append(f'{key}="internagent.runtime.local.json"')
-path.write_text('\n'.join(next_lines).rstrip() + '\n')
-PY
-python3 -m venv .venv
-.venv/bin/python -m pip install -U pip setuptools wheel
-.venv/bin/python -m pip install -e .
-mkdir -p .internagents/logs .internagents/pids
-pidfile=.internagents/pids/runtime-__RESOURCE_ID__.pid
-logfile=.internagents/logs/runtime-__RESOURCE_ID__.log
-if [ -s "$pidfile" ] && kill -0 "$(cat "$pidfile")" >/dev/null 2>&1; then
-  echo "runtime already running pid=$(cat "$pidfile")"
-else
-  nohup env INTERNAGENT_PROCESS_ROLE=runtime INTERNAGENT_RUNTIME_ID=__RESOURCE_ID__ \
-    .venv/bin/python -m langgraph_cli dev \
-      --host 127.0.0.1 \
-      --port __REMOTE_RUNTIME_PORT__ \
-      --no-browser \
-      --no-reload \
-      --config langgraph.runtime.json > "$logfile" 2>&1 &
-  echo $! > "$pidfile"
-  echo "runtime started pid=$(cat "$pidfile")"
+python3 -m venv __VENV_DIR__
+if [ ! -d __WHEELHOUSE_DIR__ ] || ! find __WHEELHOUSE_DIR__ -name '*.whl' -print -quit | grep -q .; then
+  echo "backend-wheelhouse is missing from backend CLI package" >&2
+  exit 1
 fi
-.venv/bin/python - <<'PY'
-import sys, time, urllib.request
-url = 'http://127.0.0.1:__REMOTE_RUNTIME_PORT__/ok'
-for _ in range(60):
-    try:
-        with urllib.request.urlopen(url, timeout=1) as response:
-            if 200 <= response.status < 300:
-                print('runtime ok')
-                sys.exit(0)
-    except Exception:
-        time.sleep(1)
-print('runtime health check timed out', file=sys.stderr)
-sys.exit(1)
+__VENV_PYTHON__ - <<'PY'
+import platform
+import sys
+if sys.version_info[:2] not in {(3, 11), (3, 12)}:
+    raise SystemExit("Remote Python must be 3.11 or 3.12 for the bundled backend wheelhouse.")
+if platform.machine() not in {"x86_64", "AMD64"}:
+    raise SystemExit("Remote machine must be Linux x86_64 for the bundled backend wheelhouse.")
+libc_name, libc_version = platform.libc_ver()
+if libc_name == "glibc":
+    version = tuple(int(part) for part in libc_version.split(".")[:2])
+    if version < (2, 28):
+        raise SystemExit("Remote glibc must be >= 2.28 for the bundled backend wheelhouse.")
 PY
+__VENV_PYTHON__ -m pip install --no-index --find-links __WHEELHOUSE_DIR__ --upgrade pip setuptools wheel
+__VENV_PYTHON__ -m pip install --no-index --find-links __WHEELHOUSE_DIR__ --no-build-isolation .
+__BACKEND_CLI__ runtime start \
+  --install-dir __PACKAGE_DIR__ \
+  --resource-id __RESOURCE_ID__ \
+  --label __RESOURCE_LABEL__ \
+  --workspace __RESOURCE_WORKSPACE__ \
+  --host 127.0.0.1 \
+  --port __REMOTE_RUNTIME_PORT__
 `
-    .replace(/__INSTALL_DIR__/g, () => shellQuote(installDir))
+    .replace(/__PACKAGE_DIR__/g, () =>
+      shellQuote(path.posix.join(installDir, "package"))
+    )
+    .replace(/__VENV_DIR__/g, () =>
+      shellQuote(path.posix.join(installDir, ".venv"))
+    )
+    .replace(/__VENV_PYTHON__/g, () =>
+      shellQuote(path.posix.join(installDir, ".venv", "bin", "python"))
+    )
+    .replace(/__WHEELHOUSE_DIR__/g, () =>
+      shellQuote(path.posix.join(installDir, "package", BACKEND_CLI_WHEELHOUSE_DIR))
+    )
+    .replace(/__BACKEND_CLI__/g, () =>
+      shellQuote(
+        path.posix.join(installDir, ".venv", "bin", "internagents-backend")
+      )
+    )
     .replace(/__RESOURCE_WORKSPACE__/g, () => shellQuote(workspace))
-    .replace("__RUNTIME_CONFIG__", () => runtimeConfig)
     .replace(/__RESOURCE_ID__/g, resource.id)
+    .replace(/__RESOURCE_LABEL__/g, () =>
+      shellQuote(resource.label || resource.id)
+    )
     .replace(/__REMOTE_RUNTIME_PORT__/g, String(REMOTE_RUNTIME_PORT));
 
   pushLog(
     log,
-    "安装远端 Python 依赖并启动 runtime，这一步可能需要几分钟...",
+    "离线安装 backend CLI 并启动远端 runtime，这一步可能需要几分钟...",
     onLog
   );
   const result = await runSshCommand(sshCommand, script, 180_000);
@@ -808,18 +889,10 @@ export async function setupRemoteConnection(
     onLog
   );
 
-  const envPath = path.join(getWorkspaceRoot(), ".env");
-  if (request.copyEnv && !(await fileExists(envPath))) {
-    throw new Error("已选择同步 .env，但本机仓库根目录没有 .env 文件。");
+  await uploadBackendCliPackageToRemote(sshCommand, installDir, log, onLog);
+  if (request.copyEnv) {
+    await uploadEnvToRemotePackage(sshCommand, installDir, log, onLog);
   }
-
-  await syncSourceToRemote(
-    sshCommand,
-    installDir,
-    request.copyEnv === true,
-    log,
-    onLog
-  );
 
   const resource: ResourceRecord = {
     id: resourceId,
@@ -831,7 +904,13 @@ export async function setupRemoteConnection(
     remote_assistant_id: "agent",
     enabled: true,
   };
-  await configureRemoteRuntime(sshCommand, installDir, resource, log, onLog);
+  await installAndStartRemoteRuntime(
+    sshCommand,
+    installDir,
+    resource,
+    log,
+    onLog
+  );
   const remoteUrl = await ensureRuntimeTunnel(
     sshCommand,
     resourceId,

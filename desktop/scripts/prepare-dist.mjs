@@ -14,6 +14,21 @@ const uiStandaloneDir = path.join(distDir, "ui-standalone");
 const templateDir = path.join(distDir, "internagents-template");
 const pythonRuntimeDir = path.join(distDir, "python-runtime");
 const standaloneDependencyRoots = ["pdf-parse"];
+const backendWheelhouseDirName = "backend-wheelhouse";
+const backendCliArchiveName = "internagents-backend-cli.tar.gz";
+const backendWheelhouseTargets = [
+  {
+    pythonVersion: "3.12",
+    abi: "cp312",
+    platforms: ["manylinux_2_28_x86_64", "manylinux2014_x86_64"],
+  },
+  {
+    pythonVersion: "3.11",
+    abi: "cp311",
+    platforms: ["manylinux_2_28_x86_64", "manylinux2014_x86_64"],
+  },
+];
+const backendSourceDistributions = new Set(["forbiddenfruit"]);
 
 const runtimeEntries = [
   ".env.example",
@@ -27,6 +42,7 @@ const runtimeEntries = [
   "goal_middleware.py",
   "goal_state.py",
   "goal_tools.py",
+  "internagents_backend_cli.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.json",
@@ -317,6 +333,144 @@ async function prepareRuntimeTemplate() {
   );
 }
 
+function pythonBuildBinary() {
+  const explicitPython = process.env.INTERNAGENTS_PYTHON_BIN;
+  if (explicitPython) {
+    return explicitPython;
+  }
+
+  const explicitRuntime = process.env.INTERNAGENTS_PYTHON_RUNTIME_SOURCE;
+  const candidates = [
+    explicitRuntime ? path.join(explicitRuntime, "bin", "python") : "",
+    path.join(rootDir, ".venv", "bin", "python"),
+    path.join(rootDir, ".conda", "bin", "python"),
+    "python3",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (!candidate.includes(path.sep) || existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return "python3";
+}
+
+function projectDependencyRequirements(pythonBin) {
+  const script = [
+    "import pathlib, subprocess, sys, tomllib",
+    "data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())",
+    "build = data.get('build-system', {}).get('requires', [])",
+    "frozen = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze', '--exclude-editable'], text=True)",
+    "deps = ['pip==25.3', *build, *frozen.splitlines()]",
+    "for dep in deps:",
+    "    dep = dep.strip()",
+    "    if dep and ' @ file://' not in dep:",
+    "        print(dep)",
+  ].join("\n");
+  const result = spawnSync(pythonBin, ["-c", script], {
+    cwd: rootDir,
+    encoding: "utf8",
+    shell: false,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `Unable to read backend dependencies from pyproject.toml: ${
+        result.stderr || result.stdout
+      }`
+    );
+  }
+  return Array.from(
+    new Set(
+      result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function requirementName(requirement) {
+  return (
+    requirement
+      .trim()
+      .match(/^([A-Za-z0-9_.-]+)/)?.[1]
+      ?.toLowerCase()
+      .replace(/_/g, "-") || ""
+  );
+}
+
+async function prepareBackendWheelhouse() {
+  const pythonBin = pythonBuildBinary();
+  const wheelhouseDir = path.join(templateDir, backendWheelhouseDirName);
+  const requirementsPath = path.join(distDir, "backend-wheelhouse-requirements.txt");
+  const sourceRequirementsPath = path.join(
+    distDir,
+    "backend-wheelhouse-source-requirements.txt"
+  );
+  const requirements = projectDependencyRequirements(pythonBin);
+  const sourceRequirements = requirements.filter((requirement) =>
+    backendSourceDistributions.has(requirementName(requirement))
+  );
+  const binaryRequirements = requirements.filter(
+    (requirement) => !backendSourceDistributions.has(requirementName(requirement))
+  );
+
+  await fs.rm(wheelhouseDir, { recursive: true, force: true });
+  await fs.mkdir(wheelhouseDir, { recursive: true });
+  await fs.writeFile(requirementsPath, `${binaryRequirements.join("\n")}\n`);
+  await fs.writeFile(sourceRequirementsPath, `${sourceRequirements.join("\n")}\n`);
+
+  for (const target of backendWheelhouseTargets) {
+    const platformArgs = target.platforms.flatMap((platform) => [
+      "--platform",
+      platform,
+    ]);
+    run(pythonBin, [
+      "-m",
+      "pip",
+      "download",
+      "--dest",
+      wheelhouseDir,
+      "--no-deps",
+      "--only-binary=:all:",
+      ...platformArgs,
+      "--implementation",
+      "cp",
+      "--python-version",
+      target.pythonVersion,
+      "--abi",
+      target.abi,
+      "-r",
+      requirementsPath,
+    ]);
+  }
+  if (sourceRequirements.length > 0) {
+    run(pythonBin, [
+      "-m",
+      "pip",
+      "download",
+      "--dest",
+      wheelhouseDir,
+      "--no-deps",
+      "-r",
+      sourceRequirementsPath,
+    ]);
+  }
+}
+
+async function prepareBackendCliArchive() {
+  const archivePath = path.join(templateDir, backendCliArchiveName);
+  const temporaryArchivePath = path.join(distDir, backendCliArchiveName);
+
+  await fs.rm(archivePath, { force: true });
+  await fs.rm(temporaryArchivePath, { force: true });
+  run("tar", ["-czf", temporaryArchivePath, "-C", templateDir, "."]);
+  await fs.cp(temporaryArchivePath, archivePath, {
+    force: true,
+    verbatimSymlinks: false,
+  });
+}
+
 async function preparePythonRuntime() {
   const explicitSource = process.env.INTERNAGENTS_PYTHON_RUNTIME_SOURCE;
   const pythonSource =
@@ -430,6 +584,8 @@ async function main() {
 
   await prepareUiStandalone();
   await prepareRuntimeTemplate();
+  await prepareBackendWheelhouse();
+  await prepareBackendCliArchive();
   await preparePythonRuntime();
 
   console.log(`Prepared desktop resources at ${distDir}`);
