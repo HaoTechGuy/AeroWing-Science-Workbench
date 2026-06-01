@@ -46,7 +46,7 @@ function run(command, args, options = {}) {
   }
 }
 
-async function copyIfExists(source, destination) {
+async function copyIfExists(source, destination, options = {}) {
   if (!existsSync(source)) {
     return;
   }
@@ -54,6 +54,7 @@ async function copyIfExists(source, destination) {
     recursive: true,
     force: true,
     verbatimSymlinks: false,
+    ...options,
   });
 }
 
@@ -85,7 +86,7 @@ async function prepareUiStandalone() {
   await fs.cp(standaloneSource, uiStandaloneDir, {
     recursive: true,
     force: true,
-    verbatimSymlinks: false,
+    verbatimSymlinks: true,
   });
 
   const serverDir = await findServerDir(uiStandaloneDir);
@@ -97,8 +98,45 @@ async function prepareUiStandalone() {
   await copyIfExists(path.join(uiDir, "public"), path.join(serverDir, "public"));
   await copyIfExists(
     path.join(uiStandaloneDir, "node_modules"),
-    path.join(uiStandaloneDir, "standalone_node_modules")
+    path.join(uiStandaloneDir, "standalone_node_modules"),
+    { verbatimSymlinks: true }
   );
+  await rewriteUiStandaloneNodeModuleSymlinks();
+}
+
+async function rewriteUiStandaloneNodeModuleSymlinks() {
+  const nodeModulesDir = path.join(uiStandaloneDir, "node_modules");
+  const standaloneNodeModulesDir = path.join(uiStandaloneDir, "standalone_node_modules");
+  if (!existsSync(nodeModulesDir) || !existsSync(standaloneNodeModulesDir)) {
+    return;
+  }
+
+  await walk(uiStandaloneDir, async (entryPath, entry) => {
+    if (!entry.isSymbolicLink()) {
+      return;
+    }
+
+    const linkTarget = await fs.readlink(entryPath);
+    const absoluteTarget = path.isAbsolute(linkTarget)
+      ? linkTarget
+      : path.resolve(path.dirname(entryPath), linkTarget);
+    const resolvedTarget = path.resolve(absoluteTarget);
+    if (!resolvedTarget.startsWith(`${nodeModulesDir}${path.sep}`)) {
+      return;
+    }
+
+    const bundledTarget = path.join(
+      standaloneNodeModulesDir,
+      path.relative(nodeModulesDir, resolvedTarget)
+    );
+    if (!existsSync(bundledTarget)) {
+      return;
+    }
+
+    const relativeTarget = path.relative(path.dirname(entryPath), bundledTarget);
+    await fs.rm(entryPath, { force: true });
+    await fs.symlink(relativeTarget || path.basename(bundledTarget), entryPath);
+  });
 }
 
 async function prepareRuntimeTemplate() {

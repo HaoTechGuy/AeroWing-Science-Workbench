@@ -8,7 +8,7 @@
     "prepare:dist": "node scripts/prepare-dist.mjs",
     "sign:adhoc": "codesign --force --deep --sign - release/mac-arm64/InternAgents.app",
     "pack": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc",
-    "build": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc && electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64"
+    "build": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc && electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64/InternAgents.app"
   },
   "build": {
     "appId": "com.internagents.desktop",

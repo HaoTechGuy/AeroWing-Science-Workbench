@@ -273,6 +273,32 @@ NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
 First launch opens the configuration onboarding flow when the app runtime has no
 OpenRouter API key yet.
 
+### Publishing Desktop Releases
+
+Desktop releases are tag driven from the source repository
+`qzzqzzb/InternAgents`. Create and push a semver tag on the commit you want to
+ship:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The GitHub Actions workflow builds the macOS DMG and publishes it to the public
+release repository `shuyuehu/InternAgents`. Because the workflow runs in the
+source repository, configure the cross-repository token there:
+
+```text
+qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions
+New repository secret:
+Name:  INTERNAGENTS_RELEASE_TOKEN
+Value: <GitHub PAT>
+```
+
+Recommended PAT: fine-grained token with repository access limited to
+`shuyuehu/InternAgents`, `Contents: Read and write`, and default `Metadata`
+read access. If using a classic token, grant `repo`.
+
 ## Smoke Tests
 
 CLI smoke test:
