@@ -300,7 +300,7 @@ export default function AboutPage() {
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold">导览</h2>
                   <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                    重新打开本机 Quickstart，依次查看工作台、工作区、对话、技能和配置。
+                    重新打开本机导览，依次查看工作台、工作区、对话和配置。
                   </div>
                 </div>
               </div>

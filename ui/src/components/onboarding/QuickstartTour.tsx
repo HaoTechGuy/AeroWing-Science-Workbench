@@ -29,6 +29,7 @@ type TourEventDetail = {
 const QUICKSTART_COMPLETED_KEY = "internagents.quickstart.completed.v1";
 const QUICKSTART_STEP_KEY = "internagents.quickstart.step.v1";
 const WORKBENCH_HREF = "/?assistantId=agent";
+const WORKBENCH_PARAM_KEYS = ["resourceId", "assistantId", "workspaceId"];
 
 const QUICKSTART_STEPS: QuickstartStep[] = [
   {
@@ -166,6 +167,29 @@ function isConfigSetupRoute() {
   }
 }
 
+function getWorkbenchHref() {
+  if (typeof window === "undefined") {
+    return WORKBENCH_HREF;
+  }
+
+  try {
+    const currentParams = new URLSearchParams(window.location.search);
+    const nextParams = new URLSearchParams();
+    for (const key of WORKBENCH_PARAM_KEYS) {
+      const value = currentParams.get(key);
+      if (value) {
+        nextParams.set(key, value);
+      }
+    }
+    if (!nextParams.get("assistantId")) {
+      nextParams.set("assistantId", "agent");
+    }
+    return `/?${nextParams.toString()}`;
+  } catch {
+    return WORKBENCH_HREF;
+  }
+}
+
 export function QuickstartTour() {
   const pathname = usePathname();
   const router = useRouter();
@@ -179,6 +203,10 @@ export function QuickstartTour() {
   const isLastStep = stepIndex === totalSteps - 1;
   const isFirstStep = stepIndex === 0;
   const onStepRoute = pathname === step.route;
+  const stepHref = useMemo(
+    () => (step.route === "/" ? getWorkbenchHref() : step.href || step.route),
+    [step.href, step.route]
+  );
 
   const startTour = useCallback((detail?: TourEventDetail) => {
     if (!detail?.restart && readCompleted()) {
@@ -244,9 +272,9 @@ export function QuickstartTour() {
     }
     writeStoredStep(step.id);
     if (!onStepRoute) {
-      router.push(step.href || step.route);
+      router.push(stepHref);
     }
-  }, [active, onStepRoute, router, step.href, step.id, step.route]);
+  }, [active, onStepRoute, router, step.id, stepHref]);
 
   useEffect(() => {
     if (!active || !onStepRoute) {
@@ -361,7 +389,7 @@ export function QuickstartTour() {
   }
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-[70]">
       {!spotlightStyle && <div className="absolute inset-0 bg-black/45" />}
       {spotlightStyle && (
         <div
@@ -383,7 +411,7 @@ export function QuickstartTour() {
           <div className="min-w-0">
             <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
               <Map className="h-3.5 w-3.5" />
-              Quickstart {stepIndex + 1} / {totalSteps}
+              导览 {stepIndex + 1} / {totalSteps}
             </div>
             <h2
               id="quickstart-tour-title"
@@ -398,7 +426,7 @@ export function QuickstartTour() {
             size="icon"
             className="h-8 w-8 shrink-0"
             onClick={endTour}
-            aria-label="关闭 Quickstart"
+            aria-label="关闭导览"
           >
             <X className="h-4 w-4" />
           </Button>
