@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-const INTRO_DURATION_MS = 1850;
-const REDUCED_MOTION_DURATION_MS = 280;
+const INTRO_DURATION_MS = 1180;
+const REDUCED_MOTION_DURATION_MS = 180;
 const INTRO_COMPLETE_EVENT = "internagents.intro.complete";
 
 type IntroWindow = Window & {
@@ -24,6 +24,7 @@ export function WaterRippleIntro() {
       "navigation"
     )[0] as PerformanceNavigationTiming | undefined;
     if (navigationEntry?.type === "reload") {
+      setVisible(false);
       markIntroComplete();
       return;
     }

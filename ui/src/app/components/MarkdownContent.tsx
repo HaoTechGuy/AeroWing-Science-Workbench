@@ -62,7 +62,7 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                 </SyntaxHighlighter>
               ) : (
                 <code
-                  className="bg-surface rounded-sm px-1 py-0.5 font-mono text-[0.9em]"
+                  className="bg-surface rounded-sm px-1 py-0.5 font-mono text-xs"
                   {...props}
                 >
                   {children}

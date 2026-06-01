@@ -11,6 +11,7 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  PanelLeftClose,
   RefreshCcw,
   Search,
 } from "lucide-react";
@@ -39,6 +40,7 @@ interface WorkspaceExplorerProps {
   refreshKey?: number;
   activeWorkspace?: LocalWorkspace | null;
   onFileSelect: (entry: WorkspaceEntry) => void;
+  onCollapse?: () => void;
 }
 
 function formatBytes(bytes?: number): string {
@@ -86,6 +88,7 @@ export function WorkspaceExplorer({
   refreshKey,
   activeWorkspace,
   onFileSelect,
+  onCollapse,
 }: WorkspaceExplorerProps) {
   const {
     directories,
@@ -208,7 +211,7 @@ export function WorkspaceExplorer({
             </span>
             <span className="min-w-0 truncate font-medium">{entry.name}</span>
             {!isDirectory && (
-              <span className="pl-2 text-[11px] text-muted-foreground">
+              <span className="pl-2 text-xs text-muted-foreground">
                 {formatBytes(entry.size)}
               </span>
             )}
@@ -255,6 +258,30 @@ export function WorkspaceExplorer({
         <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center">
             <div className="flex min-w-0 items-center gap-2">
+              {onCollapse && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={onCollapse}
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                      aria-label="缩小工作区"
+                    >
+                      <PanelLeftClose className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="bottom"
+                    align="center"
+                    sideOffset={6}
+                    className="whitespace-nowrap"
+                  >
+                    缩小工作区
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <h2 className="shrink-0 text-sm font-semibold leading-none tracking-tight text-foreground">
                 项目工作区
               </h2>

@@ -121,7 +121,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
           <div className="mt-4 flex h-7 w-7 shrink-0 items-start justify-center">
             {showAvatar && (
               <div
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/20 bg-primary text-[10px] font-semibold tracking-wide text-primary-foreground shadow-sm shadow-black/[0.035]"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/20 bg-primary text-xs font-semibold tracking-wide text-primary-foreground shadow-sm shadow-black/[0.035]"
                 title="InternAgents"
                 aria-label="InternAgents"
               >

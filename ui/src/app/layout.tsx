@@ -44,7 +44,7 @@ export default function RootLayout({
             {children}
           </div>
         </NuqsAdapter>
-        <footer className="flex h-[var(--app-footer-height)] items-center justify-center border-t border-border bg-background/95 px-4 text-[11px] text-muted-foreground">
+        <footer className="internagents-home flex h-[var(--app-footer-height)] items-center justify-center border-t border-border bg-background/95 px-4 text-xs text-muted-foreground">
           上海人工智能实验室
         </footer>
         <QuickstartTour />
