@@ -510,7 +510,10 @@ export default function ConfigPage() {
 
   return (
     <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
-      <header className="flex h-16 items-center justify-between border-b border-border px-6">
+      <header
+        className="flex h-16 items-center justify-between border-b border-border px-6"
+        data-tour="config-header"
+      >
         <div className="flex min-w-0 items-center gap-4">
           {!onboardingMode && (
             <Button

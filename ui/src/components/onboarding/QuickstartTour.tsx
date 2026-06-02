@@ -100,9 +100,9 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
   {
     id: "config-model",
     route: "/config",
-    target: '[data-tour="config-model"]',
-    title: "模型",
-    body: "这里设置模型调用方式。默认可以使用集思自动选择合适模型，也可以改为手动指定模型，并在这里配置 OpenRouter API Key。",
+    target: '[data-tour="config-header"]',
+    title: "配置页",
+    body: "这里集中管理模型、工作区、授权和界面设置。默认自动模型选择就可以直接使用，只有需要自定义模型或 API Key 时再修改。",
   },
   {
     id: "about",
