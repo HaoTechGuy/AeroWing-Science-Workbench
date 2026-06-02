@@ -3,7 +3,7 @@ import { constants, createWriteStream } from "fs";
 import { promises as fs } from "fs";
 import type { FileHandle } from "fs/promises";
 import path from "path";
-import { Readable } from "stream";
+import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 import { promisify } from "util";
 import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
@@ -51,6 +51,15 @@ export interface UpdateAssetInfo {
   downloadUrl: string;
 }
 
+export interface UpdateDownloadProgress {
+  assetName: string;
+  downloadedBytes: number;
+  totalBytes?: number;
+  percent?: number;
+  startedAt: string;
+  updatedAt: string;
+}
+
 export interface UpdateReleaseInfo {
   tagName: string;
   name: string;
@@ -78,6 +87,7 @@ export interface UpdateStatus {
     commit: string;
     label: string;
   };
+  download?: UpdateDownloadProgress;
   installLogPath?: string;
   log: UpdateLogEntry[];
 }
@@ -130,7 +140,9 @@ function updatePaths() {
 }
 
 function releaseRepoSlug() {
-  const raw = (process.env.INTERNAGENTS_UPDATE_REPO || DEFAULT_RELEASE_REPO).trim();
+  const raw = (
+    process.env.INTERNAGENTS_UPDATE_REPO || DEFAULT_RELEASE_REPO
+  ).trim();
   return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(raw)
     ? raw
     : DEFAULT_RELEASE_REPO;
@@ -189,7 +201,11 @@ async function readStatusFile(): Promise<UpdateStatus | null> {
 async function writeStatusFile(status: UpdateStatus): Promise<UpdateStatus> {
   const { updateDir, statusPath } = updatePaths();
   await fs.mkdir(updateDir, { recursive: true });
-  await fs.writeFile(statusPath, `${JSON.stringify(status, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    statusPath,
+    `${JSON.stringify(status, null, 2)}\n`,
+    "utf8"
+  );
   return status;
 }
 
@@ -330,10 +346,14 @@ function appBundlePath() {
 export async function getCurrentVersionInfo(): Promise<UpdateVersionInfo> {
   const appPath = appBundlePath();
   const appVersion = process.env.INTERNAGENTS_APP_VERSION?.trim();
-  const exactTag = appVersion ? undefined : await safeGit(["describe", "--tags", "--exact-match"]);
+  const exactTag = appVersion
+    ? undefined
+    : await safeGit(["describe", "--tags", "--exact-match"]);
   const branch = await safeGit(["rev-parse", "--abbrev-ref", "HEAD"]);
   const commit = await safeGit(["rev-parse", "--short", "HEAD"]);
-  const version = normalizeVersion(appVersion || exactTag || (await readPackageVersion()));
+  const version = normalizeVersion(
+    appVersion || exactTag || (await readPackageVersion())
+  );
   const sourceMode = appPath ? false : true;
   const status = sourceMode
     ? await safeGit(["status", "--porcelain", "--untracked-files=all"])
@@ -346,7 +366,9 @@ export async function getCurrentVersionInfo(): Promise<UpdateVersionInfo> {
     branch,
     commit,
     dirty,
-    dirtyReason: dirty ? "当前源码目录有未提交改动，源码模式不能自动安装 App 更新。" : undefined,
+    dirtyReason: dirty
+      ? "当前源码目录有未提交改动，源码模式不能自动安装 App 更新。"
+      : undefined,
     appPath,
     installMode: appPath ? "desktop-app" : "source",
   };
@@ -389,7 +411,9 @@ function assetRegexOverride() {
 function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
   const name = typeof asset.name === "string" ? asset.name : "";
   const downloadUrl =
-    typeof asset.browser_download_url === "string" ? asset.browser_download_url : "";
+    typeof asset.browser_download_url === "string"
+      ? asset.browser_download_url
+      : "";
   if (!name || !downloadUrl || !name.toLowerCase().endsWith(".dmg")) {
     return -1;
   }
@@ -402,10 +426,16 @@ function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
   const lowerName = name.toLowerCase();
   const arch = process.arch;
   const wantedTokens =
-    arch === "arm64" ? ["arm64", "aarch64", "apple-silicon", "silicon"] : ["x64", "x86_64", "amd64", "intel"];
+    arch === "arm64"
+      ? ["arm64", "aarch64", "apple-silicon", "silicon"]
+      : ["x64", "x86_64", "amd64", "intel"];
   const otherTokens =
-    arch === "arm64" ? ["x64", "x86_64", "amd64", "intel"] : ["arm64", "aarch64", "apple-silicon", "silicon"];
-  const hasWantedToken = wantedTokens.some((token) => lowerName.includes(token));
+    arch === "arm64"
+      ? ["x64", "x86_64", "amd64", "intel"]
+      : ["arm64", "aarch64", "apple-silicon", "silicon"];
+  const hasWantedToken = wantedTokens.some((token) =>
+    lowerName.includes(token)
+  );
   const hasOtherToken = otherTokens.some((token) => lowerName.includes(token));
 
   if (hasOtherToken && !hasWantedToken) {
@@ -423,20 +453,30 @@ function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
   if (hasOtherToken) {
     score -= 80;
   }
-  if (lowerName.includes(normalizeVersion(tagName).toLowerCase()) || lowerName.includes(tagName.toLowerCase())) {
+  if (
+    lowerName.includes(normalizeVersion(tagName).toLowerCase()) ||
+    lowerName.includes(tagName.toLowerCase())
+  ) {
     score += 20;
   }
   return score;
 }
 
-function selectReleaseAsset(assets: GitHubAssetPayload[], tagName: string): UpdateAssetInfo | undefined {
+function selectReleaseAsset(
+  assets: GitHubAssetPayload[],
+  tagName: string
+): UpdateAssetInfo | undefined {
   const ranked = assets
     .map((asset) => ({ asset, score: scoreReleaseAsset(asset, tagName) }))
     .filter((entry) => entry.score >= 0)
     .sort((a, b) => b.score - a.score);
 
   const selected = ranked[0]?.asset;
-  if (!selected || typeof selected.name !== "string" || typeof selected.browser_download_url !== "string") {
+  if (
+    !selected ||
+    typeof selected.name !== "string" ||
+    typeof selected.browser_download_url !== "string"
+  ) {
     return undefined;
   }
 
@@ -528,8 +568,7 @@ function buildStatusWithRelease(
   latest: UpdateReleaseInfo,
   previous?: UpdateStatus | null
 ): UpdateStatus {
-  const updateAvailable =
-    compareVersions(latest.tagName, current.version) > 0;
+  const updateAvailable = compareVersions(latest.tagName, current.version) > 0;
   return withApplicability({
     ...(previous || fallbackStatus(current)),
     state: updateAvailable ? "available" : "up-to-date",
@@ -665,7 +704,18 @@ function safeFileName(value: string) {
   return value.replace(/[^A-Za-z0-9._-]/g, "-");
 }
 
-async function downloadAsset(asset: UpdateAssetInfo): Promise<string> {
+function parseContentLength(value: string | null) {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+async function downloadAsset(
+  asset: UpdateAssetInfo,
+  reportProgress?: (progress: UpdateDownloadProgress) => Promise<void>
+): Promise<string> {
   const { downloadsDir } = updatePaths();
   await fs.mkdir(downloadsDir, { recursive: true });
   const destination = path.join(downloadsDir, safeFileName(asset.name));
@@ -679,15 +729,73 @@ async function downloadAsset(asset: UpdateAssetInfo): Promise<string> {
     throw new Error(`DMG 下载失败：HTTP ${response.status}`);
   }
 
+  const totalBytes =
+    asset.size ?? parseContentLength(response.headers.get("content-length"));
+  const startedAt = nowIso();
+  let downloadedBytes = 0;
+  let lastReportAt = 0;
+  let lastReportBytes = 0;
+  const reportEveryMs = 250;
+  const reportEveryBytes = 1024 * 1024;
+
+  const buildProgress = (): UpdateDownloadProgress => {
+    const percent =
+      totalBytes !== undefined
+        ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 1000) / 10)
+        : undefined;
+
+    return {
+      assetName: asset.name,
+      downloadedBytes,
+      totalBytes,
+      percent,
+      startedAt,
+      updatedAt: nowIso(),
+    };
+  };
+
+  const emitProgress = async (force = false) => {
+    if (!reportProgress) {
+      return;
+    }
+    const currentTime = Date.now();
+    if (
+      !force &&
+      currentTime - lastReportAt < reportEveryMs &&
+      downloadedBytes - lastReportBytes < reportEveryBytes
+    ) {
+      return;
+    }
+    lastReportAt = currentTime;
+    lastReportBytes = downloadedBytes;
+    await reportProgress(buildProgress());
+  };
+
+  await emitProgress(true);
+
+  const progressStream = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      downloadedBytes += chunk.length;
+      emitProgress(downloadedBytes === totalBytes)
+        .then(() => callback(null, chunk))
+        .catch((error) => callback(error));
+    },
+  });
+
   await pipeline(
     Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+    progressStream,
     createWriteStream(partial)
   );
+
+  await emitProgress(true);
 
   if (asset.size !== undefined) {
     const stat = await fs.stat(partial);
     if (stat.size !== asset.size) {
-      throw new Error(`DMG 下载大小不一致：期望 ${asset.size}，实际 ${stat.size}。`);
+      throw new Error(
+        `DMG 下载大小不一致：期望 ${asset.size}，实际 ${stat.size}。`
+      );
     }
   }
 
@@ -695,7 +803,10 @@ async function downloadAsset(asset: UpdateAssetInfo): Promise<string> {
   return destination;
 }
 
-async function findAppBundle(directory: string, depth = 0): Promise<string | null> {
+async function findAppBundle(
+  directory: string,
+  depth = 0
+): Promise<string | null> {
   if (depth > 5) {
     return null;
   }
@@ -710,7 +821,10 @@ async function findAppBundle(directory: string, depth = 0): Promise<string | nul
     if (!entry.isDirectory() || entry.name.endsWith(".app")) {
       continue;
     }
-    const result = await findAppBundle(path.join(directory, entry.name), depth + 1);
+    const result = await findAppBundle(
+      path.join(directory, entry.name),
+      depth + 1
+    );
     if (result) {
       return result;
     }
@@ -724,12 +838,18 @@ async function mountDmg(dmgPath: string): Promise<string> {
   await fs.rm(mountDir, { recursive: true, force: true });
   await fs.mkdir(mountDir, { recursive: true });
   try {
-    await runCommand("hdiutil", ["attach", dmgPath, "-readonly", "-nobrowse", "-mountpoint", mountDir], {
-      timeoutMs: UPDATE_TIMEOUT_MS,
-    });
+    await runCommand(
+      "hdiutil",
+      ["attach", dmgPath, "-readonly", "-nobrowse", "-mountpoint", mountDir],
+      {
+        timeoutMs: UPDATE_TIMEOUT_MS,
+      }
+    );
     return mountDir;
   } catch (error) {
-    await fs.rm(mountDir, { recursive: true, force: true }).catch(() => undefined);
+    await fs
+      .rm(mountDir, { recursive: true, force: true })
+      .catch(() => undefined);
     throw error;
   }
 }
@@ -739,10 +859,15 @@ async function detachDmg(mountDir: string) {
     allowFailure: true,
     timeoutMs: COMMAND_TIMEOUT_MS,
   });
-  await fs.rm(mountDir, { recursive: true, force: true }).catch(() => undefined);
+  await fs
+    .rm(mountDir, { recursive: true, force: true })
+    .catch(() => undefined);
 }
 
-async function stageAppFromDmg(dmgPath: string, tagName: string): Promise<string> {
+async function stageAppFromDmg(
+  dmgPath: string,
+  tagName: string
+): Promise<string> {
   const { stagingDir } = updatePaths();
   let mountDir: string | null = null;
   try {
@@ -754,13 +879,20 @@ async function stageAppFromDmg(dmgPath: string, tagName: string): Promise<string
 
     await fs.rm(stagingDir, { recursive: true, force: true });
     await fs.mkdir(stagingDir, { recursive: true });
-    const stagedApp = path.join(stagingDir, `InternAgents-${safeFileName(tagName)}.app`);
+    const stagedApp = path.join(
+      stagingDir,
+      `InternAgents-${safeFileName(tagName)}.app`
+    );
     await runCommand("ditto", [sourceApp, stagedApp], {
       timeoutMs: UPDATE_TIMEOUT_MS,
     });
-    await runCommand("codesign", ["--verify", "--deep", "--strict", stagedApp], {
-      timeoutMs: COMMAND_TIMEOUT_MS,
-    });
+    await runCommand(
+      "codesign",
+      ["--verify", "--deep", "--strict", stagedApp],
+      {
+        timeoutMs: COMMAND_TIMEOUT_MS,
+      }
+    );
     return stagedApp;
   } finally {
     if (mountDir) {
@@ -773,10 +905,17 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-async function writeInstallerScript(stagedApp: string, targetApp: string, tagName: string) {
+async function writeInstallerScript(
+  stagedApp: string,
+  targetApp: string,
+  tagName: string
+) {
   const { installerDir, installLogPath, stagingDir } = updatePaths();
   await fs.mkdir(installerDir, { recursive: true });
-  const scriptPath = path.join(installerDir, `install-${safeFileName(tagName)}.zsh`);
+  const scriptPath = path.join(
+    installerDir,
+    `install-${safeFileName(tagName)}.zsh`
+  );
   const appPid = Number(process.env.INTERNAGENTS_APP_PID || process.ppid || 0);
   const backupApp = `${targetApp}.previous-internagents-update`;
 
@@ -840,8 +979,16 @@ APP_PID=${String(appPid)}
   return { scriptPath, installLogPath };
 }
 
-async function launchInstaller(stagedApp: string, targetApp: string, tagName: string) {
-  const { scriptPath, installLogPath } = await writeInstallerScript(stagedApp, targetApp, tagName);
+async function launchInstaller(
+  stagedApp: string,
+  targetApp: string,
+  tagName: string
+) {
+  const { scriptPath, installLogPath } = await writeInstallerScript(
+    stagedApp,
+    targetApp,
+    tagName
+  );
   const installer = spawn("/bin/zsh", [scriptPath], {
     detached: true,
     stdio: "ignore",
@@ -857,7 +1004,11 @@ export async function applyUpdate(): Promise<UpdateStatus> {
     return releaseCheck;
   }
 
-  if (!releaseCheck.canApply || !latest.asset || !releaseCheck.current.appPath) {
+  if (
+    !releaseCheck.canApply ||
+    !latest.asset ||
+    !releaseCheck.current.appPath
+  ) {
     return writeStatusFile(
       withApplicability(
         appendLog(
@@ -874,6 +1025,8 @@ export async function applyUpdate(): Promise<UpdateStatus> {
   }
 
   const releaseLock = await acquireLock();
+  const asset = latest.asset;
+  const targetAppPath = releaseCheck.current.appPath;
   let status = releaseCheck;
 
   try {
@@ -883,14 +1036,34 @@ export async function applyUpdate(): Promise<UpdateStatus> {
         state: "downloading",
         startedAt: nowIso(),
         completedAt: undefined,
-        message: `正在下载 ${latest.asset.name}。`,
+        message: `正在下载 ${asset.name}。`,
+        download: {
+          assetName: asset.name,
+          downloadedBytes: 0,
+          totalBytes: asset.size,
+          percent: asset.size !== undefined ? 0 : undefined,
+          startedAt: nowIso(),
+          updatedAt: nowIso(),
+        },
       },
-      `开始下载 ${latest.asset.name}。`
+      `开始下载 ${asset.name}。`
     );
     await writeStatusFile(status);
 
-    const dmgPath = await downloadAsset(latest.asset);
-    status = appendLog(status, `已下载 ${latest.asset.name}。`);
+    const dmgPath = await downloadAsset(asset, async (download) => {
+      status = {
+        ...status,
+        state: "downloading",
+        message:
+          download.percent !== undefined
+            ? `正在下载 ${asset.name}，已完成 ${download.percent.toFixed(1)}%。`
+            : `正在下载 ${asset.name}。`,
+        download,
+        updatedAt: download.updatedAt,
+      };
+      await writeStatusFile(status);
+    });
+    status = appendLog(status, `已下载 ${asset.name}。`);
     await writeStatusFile(status);
 
     const stagedApp = await stageAppFromDmg(dmgPath, latest.tagName);
@@ -899,7 +1072,7 @@ export async function applyUpdate(): Promise<UpdateStatus> {
 
     const installLogPath = await launchInstaller(
       stagedApp,
-      releaseCheck.current.appPath,
+      targetAppPath,
       latest.tagName
     );
 
@@ -939,7 +1112,8 @@ export async function rollbackUpdate(): Promise<UpdateStatus> {
         {
           ...status,
           state: "failed",
-          message: "App 安装器模式不支持应用内回滚；请从 release 页面下载上一版 DMG 重新安装。",
+          message:
+            "App 安装器模式不支持应用内回滚；请从 release 页面下载上一版 DMG 重新安装。",
           completedAt: nowIso(),
         },
         "已拒绝应用内回滚。"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -63,6 +63,14 @@ interface UpdateStatusResult {
     commit: string;
     label: string;
   };
+  download?: {
+    assetName: string;
+    downloadedBytes: number;
+    totalBytes?: number;
+    percent?: number;
+    startedAt: string;
+    updatedAt: string;
+  };
   backendRestart?: {
     message: string;
   };
@@ -73,9 +81,38 @@ interface UpdateStatusResult {
   }>;
 }
 
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = unitIndex === 0 || size >= 10 ? 0 : 1;
+  return `${size.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function formatPercent(value: number | undefined) {
+  if (value === undefined) {
+    return "下载中";
+  }
+
+  const clamped = Math.min(100, Math.max(0, value));
+  const digits = clamped > 0 && clamped < 10 ? 1 : 0;
+  return `${clamped.toFixed(digits)}%`;
+}
+
 export default function AboutPage() {
-  const [updateStatus, setUpdateStatus] =
-    useState<UpdateStatusResult | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusResult | null>(
+    null
+  );
   const [statusLoading, setStatusLoading] = useState(true);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [applyingUpdate, setApplyingUpdate] = useState(false);
@@ -84,6 +121,31 @@ export default function AboutPage() {
 
   const actionBusy =
     statusLoading || checkingUpdate || applyingUpdate || rollingBackUpdate;
+  const downloadProgress = updateStatus?.download;
+  const downloadPercent =
+    typeof downloadProgress?.percent === "number"
+      ? Math.min(100, Math.max(0, downloadProgress.percent))
+      : undefined;
+  const showDownloadProgress =
+    updateStatus?.state === "downloading" && Boolean(downloadProgress);
+  const shouldPollUpdateStatus =
+    applyingUpdate ||
+    rollingBackUpdate ||
+    updateStatus?.state === "downloading" ||
+    updateStatus?.state === "applying" ||
+    updateStatus?.state === "rolling-back";
+
+  const downloadProgressLabel = useMemo(() => {
+    if (!downloadProgress) {
+      return "";
+    }
+    const downloaded = formatBytes(downloadProgress.downloadedBytes);
+    const total =
+      downloadProgress.totalBytes !== undefined
+        ? formatBytes(downloadProgress.totalBytes)
+        : "未知大小";
+    return `${downloaded} / ${total}`;
+  }, [downloadProgress]);
 
   function startQuickstartTour() {
     window.dispatchEvent(
@@ -93,29 +155,42 @@ export default function AboutPage() {
     );
   }
 
-  async function loadUpdateStatus() {
-    setStatusLoading(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/update/status", {
-        cache: "no-store",
-      });
-      const payload = (await response.json()) as UpdateStatusResult & {
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(payload.error || payload.message || "更新状态读取失败");
+  const loadUpdateStatus = useCallback(
+    async (options?: { quiet?: boolean }) => {
+      if (!options?.quiet) {
+        setStatusLoading(true);
+        setError(null);
       }
-      setUpdateStatus(payload);
-    } catch (statusError) {
-      const message =
-        statusError instanceof Error ? statusError.message : "更新状态读取失败";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setStatusLoading(false);
-    }
-  }
+      try {
+        const response = await fetch("/api/update/status", {
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as UpdateStatusResult & {
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(
+            payload.error || payload.message || "更新状态读取失败"
+          );
+        }
+        setUpdateStatus(payload);
+      } catch (statusError) {
+        const message =
+          statusError instanceof Error
+            ? statusError.message
+            : "更新状态读取失败";
+        if (!options?.quiet) {
+          setError(message);
+          toast.error(message);
+        }
+      } finally {
+        if (!options?.quiet) {
+          setStatusLoading(false);
+        }
+      }
+    },
+    []
+  );
 
   async function checkForSoftwareUpdate() {
     setCheckingUpdate(true);
@@ -232,7 +307,19 @@ export default function AboutPage() {
 
   useEffect(() => {
     void loadUpdateStatus();
-  }, []);
+  }, [loadUpdateStatus]);
+
+  useEffect(() => {
+    if (!shouldPollUpdateStatus) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadUpdateStatus({ quiet: true });
+    }, 500);
+
+    return () => window.clearInterval(intervalId);
+  }, [loadUpdateStatus, shouldPollUpdateStatus]);
 
   return (
     <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
@@ -276,7 +363,10 @@ export default function AboutPage() {
                   <h2 className="text-base font-semibold">我是 InternAgents</h2>
                   <div className="mt-1 max-w-3xl space-y-2 text-sm leading-6 text-muted-foreground">
                     <p>
-                      InternAgents 由上海人工智能实验室研发。它不是一个单纯“会聊天”的大模型，而是一个面向科研与技术探索的大模型智能体。它将对话、文件、代码和计算资源组织在同一个工作台中，让 AI 不只是回答问题，而是能够进入真实的研究与开发过程，协助理解材料、拆解任务、调用工具、推进实验，并在关键步骤中保留人的监督、审批和纠偏能力。
+                      InternAgents
+                      由上海人工智能实验室研发。它不是一个单纯“会聊天”的大模型，而是一个面向科研与技术探索的大模型智能体。它将对话、文件、代码和计算资源组织在同一个工作台中，让
+                      AI
+                      不只是回答问题，而是能够进入真实的研究与开发过程，协助理解材料、拆解任务、调用工具、推进实验，并在关键步骤中保留人的监督、审批和纠偏能力。
                     </p>
                   </div>
                 </div>
@@ -419,7 +509,9 @@ export default function AboutPage() {
                   </div>
                   {updateStatus?.latest?.publishedAt && (
                     <div className="mt-1 truncate text-xs text-muted-foreground">
-                      {new Date(updateStatus.latest.publishedAt).toLocaleString()}
+                      {new Date(
+                        updateStatus.latest.publishedAt
+                      ).toLocaleString()}
                     </div>
                   )}
                 </div>
@@ -435,6 +527,38 @@ export default function AboutPage() {
                   </div>
                 </div>
               </div>
+
+              {showDownloadProgress && downloadProgress && (
+                <div className="rounded-md border border-border bg-background px-3 py-3">
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <div className="min-w-0 truncate font-medium">
+                      {downloadProgress.assetName}
+                    </div>
+                    <div className="shrink-0 font-mono text-muted-foreground">
+                      {formatPercent(downloadPercent)}
+                    </div>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-[#2F6868] transition-[width] duration-300 dark:bg-teal-300"
+                      style={{
+                        width:
+                          downloadPercent !== undefined
+                            ? `${downloadPercent}%`
+                            : "45%",
+                      }}
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <div className="truncate">{downloadProgressLabel}</div>
+                    <div className="shrink-0">
+                      {new Date(
+                        downloadProgress.updatedAt
+                      ).toLocaleTimeString()}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {updateStatus?.latest?.notes && (
                 <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
@@ -455,7 +579,7 @@ export default function AboutPage() {
                       className="truncate"
                     >
                       {new Date(entry.at).toLocaleTimeString()} ·{" "}
-                  {entry.message}
+                      {entry.message}
                     </div>
                   ))}
                 </div>
