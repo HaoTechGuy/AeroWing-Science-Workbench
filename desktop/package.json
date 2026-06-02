@@ -2,7 +2,7 @@
   "name": "internagents-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "macOS desktop packaging for InternAgents.",
+  "description": "Desktop packaging for InternAgents.",
   "main": "electron/main.cjs",
   "scripts": {
     "prepare:dist": "node scripts/prepare-dist.mjs",
@@ -12,7 +12,11 @@
     "pack:x64": "INTERNAGENTS_DESKTOP_ARCH=x64 npm run pack",
     "build": "npm run prepare:dist && node scripts/build-mac.mjs --dmg",
     "build:arm64": "INTERNAGENTS_DESKTOP_ARCH=arm64 npm run build",
-    "build:x64": "INTERNAGENTS_DESKTOP_ARCH=x64 npm run build"
+    "build:x64": "INTERNAGENTS_DESKTOP_ARCH=x64 npm run build",
+    "pack:win": "npm run prepare:dist && node scripts/build-win.mjs --dir",
+    "build:win": "npm run prepare:dist && node scripts/build-win.mjs --nsis",
+    "build:win:zip": "npm run prepare:dist && node scripts/build-win.mjs --zip",
+    "build:win:all": "npm run prepare:dist && node scripts/build-win.mjs --nsis --zip"
   },
   "build": {
     "appId": "com.internagents.desktop",
@@ -25,6 +29,23 @@
       "target": [
         "dmg"
       ]
+    },
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true
     },
     "directories": {
       "output": "release"

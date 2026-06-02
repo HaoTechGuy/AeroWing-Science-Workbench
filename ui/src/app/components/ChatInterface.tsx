@@ -119,6 +119,11 @@ function formatChatError(error: unknown): string | null {
       ? error
       : JSON.stringify(error);
 
+  const remoteRuntimeMessage = extractRemoteRuntimeErrorMessage(message);
+  if (remoteRuntimeMessage) {
+    return `远程 Agent runtime 执行失败：${remoteRuntimeMessage}`;
+  }
+
   if (/ConnectError|connection|connect/i.test(message)) {
     return "模型服务连接失败，请检查网络或代理后重试。";
   }
@@ -128,6 +133,27 @@ function formatChatError(error: unknown): string | null {
   }
 
   return message || "运行失败，请重试。";
+}
+
+function extractRemoteRuntimeErrorMessage(message: string): string | null {
+  if (!/RemoteException/i.test(message)) {
+    return null;
+  }
+
+  const normalized = message.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  const extracted =
+    normalized.match(/['"]message['"]\s*:\s*['"]([^'"]+)['"]/)?.[1]?.trim() ??
+    null;
+
+  if (/Insufficient credits/i.test(extracted ?? normalized)) {
+    return "OpenRouter 余额不足，请充值后重试。";
+  }
+
+  if (/User not found|Unauthorized|401/i.test(extracted ?? normalized)) {
+    return "OpenRouter API key 无效或未授权，请在配置页重新填写。";
+  }
+
+  return extracted;
 }
 
 function formatGoalElapsed(seconds: number): string {

@@ -52,14 +52,34 @@ const runtimeEntries = [
   "skills",
 ];
 
+function commandForPlatform(command, args) {
+  if (command === "npm" && process.env.npm_execpath) {
+    return {
+      executable: process.execPath,
+      args: [process.env.npm_execpath, ...args],
+    };
+  }
+
+  return {
+    executable: command,
+    args,
+  };
+}
+
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const resolved = commandForPlatform(command, args);
+  const result = spawnSync(resolved.executable, resolved.args, {
     cwd: rootDir,
     stdio: "inherit",
     shell: false,
     ...options,
   });
   if (result.status !== 0) {
+    if (result.error) {
+      throw new Error(
+        `${resolved.executable} ${resolved.args.join(" ")} failed: ${result.error.message}`
+      );
+    }
     throw new Error(`${command} ${args.join(" ")} failed`);
   }
 }
@@ -340,19 +360,32 @@ function pythonBuildBinary() {
   }
 
   const explicitRuntime = process.env.INTERNAGENTS_PYTHON_RUNTIME_SOURCE;
-  const candidates = [
-    explicitRuntime ? path.join(explicitRuntime, "bin", "python") : "",
-    path.join(rootDir, ".venv", "bin", "python"),
-    path.join(rootDir, ".conda", "bin", "python"),
-    "python3",
-  ].filter(Boolean);
+  const candidates =
+    process.platform === "win32"
+      ? [
+          explicitRuntime ? path.join(explicitRuntime, "venv", "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, ".venv", "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, "python.exe") : "",
+          path.join(rootDir, ".venv", "Scripts", "python.exe"),
+          path.join(rootDir, ".conda", "python.exe"),
+          "python",
+        ].filter(Boolean)
+      : [
+          explicitRuntime ? path.join(explicitRuntime, "venv", "bin", "python") : "",
+          explicitRuntime ? path.join(explicitRuntime, ".venv", "bin", "python") : "",
+          explicitRuntime ? path.join(explicitRuntime, "bin", "python") : "",
+          path.join(rootDir, ".venv", "bin", "python"),
+          path.join(rootDir, ".conda", "bin", "python"),
+          "python3",
+        ].filter(Boolean);
 
   for (const candidate of candidates) {
     if (!candidate.includes(path.sep) || existsSync(candidate)) {
       return candidate;
     }
   }
-  return "python3";
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 function projectDependencyRequirements(pythonBin) {
@@ -490,9 +523,12 @@ async function preparePythonRuntime() {
     force: true,
     verbatimSymlinks: false,
   });
-  await rewriteRuntimeSymlinks(path.resolve(pythonSource));
-  await normalizePythonLinks();
-  await assertNoExternalRuntimeSymlinks();
+  await validatePythonRuntime();
+  if (process.platform !== "win32") {
+    await rewriteRuntimeSymlinks(path.resolve(pythonSource));
+    await normalizePythonLinks();
+    await assertNoExternalRuntimeSymlinks();
+  }
 }
 
 async function relink(linkPath, targetName) {
@@ -515,6 +551,39 @@ async function normalizePythonLinks() {
     await relink(path.join(binDir, "python"), "python3.11");
     await relink(path.join(binDir, "python3"), "python3.11");
   }
+}
+
+async function validatePythonRuntime() {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          path.join(pythonRuntimeDir, "venv", "Scripts", "pythonw.exe"),
+          path.join(pythonRuntimeDir, "venv", "Scripts", "python.exe"),
+          path.join(pythonRuntimeDir, ".venv", "Scripts", "pythonw.exe"),
+          path.join(pythonRuntimeDir, ".venv", "Scripts", "python.exe"),
+          path.join(pythonRuntimeDir, "pythonw.exe"),
+          path.join(pythonRuntimeDir, "python.exe"),
+          path.join(pythonRuntimeDir, "Scripts", "pythonw.exe"),
+          path.join(pythonRuntimeDir, "Scripts", "python.exe"),
+          path.join(pythonRuntimeDir, "bin", "pythonw.exe"),
+          path.join(pythonRuntimeDir, "bin", "python.exe"),
+        ]
+      : [
+          path.join(pythonRuntimeDir, "venv", "bin", "python"),
+          path.join(pythonRuntimeDir, ".venv", "bin", "python"),
+          path.join(pythonRuntimeDir, "bin", "python3.12"),
+          path.join(pythonRuntimeDir, "bin", "python3.11"),
+          path.join(pythonRuntimeDir, "bin", "python3"),
+          path.join(pythonRuntimeDir, "bin", "python"),
+        ];
+
+  if (candidates.some((candidate) => existsSync(candidate))) {
+    return;
+  }
+
+  throw new Error(
+    `Python runtime at ${pythonRuntimeDir} does not contain a usable Python executable.`
+  );
 }
 
 async function walk(directory, visit) {

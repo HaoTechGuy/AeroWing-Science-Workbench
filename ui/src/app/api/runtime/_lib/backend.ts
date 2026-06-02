@@ -43,6 +43,8 @@ interface ProcessInfo {
   command: string;
 }
 
+const IS_WINDOWS = process.platform === "win32";
+
 function backendHost(): string {
   const deploymentUrl = process.env.NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL;
   if (!deploymentUrl) {
@@ -79,6 +81,10 @@ function localRuntimePort(): number {
 }
 
 function isExecutable(filePath: string): boolean {
+  if (IS_WINDOWS) {
+    return existsSync(filePath);
+  }
+
   try {
     accessSync(filePath, constants.X_OK);
     return true;
@@ -92,8 +98,26 @@ function pythonBinary(root: string): string {
     return process.env.INTERNAGENTS_PYTHON_BIN;
   }
 
-  const venvPython = path.join(root, ".venv", "bin", "python");
-  return isExecutable(venvPython) ? venvPython : "python3";
+  const candidates = IS_WINDOWS
+    ? [
+        path.join(root, ".venv", "Scripts", "pythonw.exe"),
+        path.join(root, ".venv", "Scripts", "python.exe"),
+        path.join(root, ".conda", "pythonw.exe"),
+        path.join(root, ".conda", "python.exe"),
+        path.join(root, ".conda", "Scripts", "pythonw.exe"),
+        path.join(root, ".conda", "Scripts", "python.exe"),
+      ]
+    : [
+        path.join(root, ".venv", "bin", "python"),
+        path.join(root, ".conda", "bin", "python"),
+      ];
+
+  const bundledPython = candidates.find(isExecutable);
+  if (bundledPython) {
+    return bundledPython;
+  }
+
+  return IS_WINDOWS ? "python" : "python3";
 }
 
 function runtimePaths(root: string) {
@@ -282,6 +306,10 @@ async function ensureLocalRuntimeResource(runtimeUrl: string): Promise<string> {
 }
 
 async function listListeningPids(port: number): Promise<number[]> {
+  if (IS_WINDOWS) {
+    return listWindowsListeningPids(port);
+  }
+
   try {
     const { stdout } = await execFileAsync("lsof", [
       "-nP",
@@ -298,7 +326,42 @@ async function listListeningPids(port: number): Promise<number[]> {
   }
 }
 
+async function listWindowsListeningPids(port: number): Promise<number[]> {
+  try {
+    const { stdout } = await execFileAsync("netstat.exe", ["-ano", "-p", "tcp"]);
+    const pids = new Set<number>();
+
+    for (const line of stdout.split(/\r?\n/)) {
+      const parts = line.trim().split(/\s+/);
+      if (
+        parts.length < 5 ||
+        parts[0].toUpperCase() !== "TCP" ||
+        parts[3].toUpperCase() !== "LISTENING"
+      ) {
+        continue;
+      }
+
+      const localAddress = parts[1];
+      const separatorIndex = localAddress.lastIndexOf(":");
+      const localPort =
+        separatorIndex >= 0 ? Number(localAddress.slice(separatorIndex + 1)) : NaN;
+      const pid = Number(parts[4]);
+      if (localPort === port && Number.isInteger(pid) && pid > 0) {
+        pids.add(pid);
+      }
+    }
+
+    return Array.from(pids);
+  } catch {
+    return [];
+  }
+}
+
 async function getProcessInfo(pid: number): Promise<ProcessInfo | null> {
+  if (IS_WINDOWS) {
+    return getWindowsProcessInfo(pid);
+  }
+
   try {
     const { stdout } = await execFileAsync("ps", [
       "-p",
@@ -323,6 +386,46 @@ async function getProcessInfo(pid: number): Promise<ProcessInfo | null> {
       ppid: Number(match[2]),
       pgid: Number(match[3]),
       command: match[4],
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function getWindowsProcessInfo(pid: number): Promise<ProcessInfo | null> {
+  try {
+    const command = [
+      "$process = Get-CimInstance Win32_Process -Filter \"ProcessId = " +
+        pid +
+        "\";",
+      "if ($null -eq $process) { exit 1 }",
+      "[pscustomobject]@{",
+      "pid = [int]$process.ProcessId;",
+      "ppid = [int]$process.ParentProcessId;",
+      "command = [string]$process.CommandLine",
+      "} | ConvertTo-Json -Compress",
+    ].join(" ");
+    const { stdout } = await execFileAsync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      command,
+    ]);
+    const parsed = JSON.parse(stdout.trim()) as {
+      pid?: number;
+      ppid?: number;
+      command?: string;
+    };
+
+    if (!parsed.pid) {
+      return null;
+    }
+
+    return {
+      pid: parsed.pid,
+      ppid: parsed.ppid || 0,
+      pgid: parsed.pid,
+      command: parsed.command || "",
     };
   } catch {
     return null;
@@ -373,6 +476,27 @@ async function findLangGraphProcess(
 }
 
 async function terminateBackend(info: ProcessInfo): Promise<void> {
+  if (IS_WINDOWS) {
+    try {
+      await execFileAsync("taskkill.exe", ["/PID", String(info.pid), "/T"]);
+    } catch {
+      // Fall through to the forced termination attempt below.
+    }
+
+    if (await waitForProcessExit(info.pid)) {
+      return;
+    }
+
+    try {
+      await execFileAsync("taskkill.exe", ["/PID", String(info.pid), "/T", "/F"]);
+    } catch {
+      return;
+    }
+
+    await waitForProcessExit(info.pid, 5000);
+    return;
+  }
+
   const target = info.pgid > 1 ? -info.pgid : info.pid;
   try {
     process.kill(target, "SIGTERM");
@@ -443,6 +567,7 @@ async function startLangGraphServer({
       detached: true,
       env: env || process.env,
       stdio: ["ignore", fd, fd],
+      windowsHide: true,
     }
   );
   child.unref();

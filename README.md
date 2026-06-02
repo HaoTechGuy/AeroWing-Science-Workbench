@@ -294,12 +294,11 @@ Open:
 http://127.0.0.1:3000/?assistantId=agent
 ```
 
-## macOS Desktop Packaging
+## Desktop Packaging
 
 The desktop packaging entrypoint lives in `desktop/`. It builds the Next.js UI
 as a standalone server, copies an InternAgents runtime template, bundles a
-Python runtime, and asks `electron-builder` to produce a macOS DMG for the
-current machine architecture.
+Python runtime, and asks `electron-builder` to produce native desktop artifacts.
 
 ```bash
 cd desktop
@@ -307,6 +306,7 @@ npm install
 npm run build
 ```
 
+On macOS, `npm run build` produces a DMG for the current machine architecture.
 To build a specific architecture, run `npm run build:arm64` for Apple Silicon
 or `npm run build:x64` for Intel. The bundled Python runtime must match the
 target architecture, so the release workflow builds each DMG on a matching
@@ -318,6 +318,26 @@ set:
 
 ```bash
 INTERNAGENTS_PYTHON_RUNTIME_SOURCE=/path/to/python-runtime npm run build
+```
+
+On Windows, provide a Python runtime whose executable is available at
+`venv\Scripts\python.exe`, `python.exe`, `Scripts\python.exe`, or
+`bin\python.exe`, then build the NSIS installer:
+
+```powershell
+cd desktop
+npm install
+$env:INTERNAGENTS_PYTHON_RUNTIME_SOURCE = "C:\path\to\python-runtime"
+npm run build:win
+```
+
+If the NSIS installer dependencies are unavailable on the build machine, create
+a distributable ZIP instead. To build both Windows artifacts from one prepared
+dist directory, use:
+
+```powershell
+npm run build:win:zip
+npm run build:win:all
 ```
 
 The same prepare step also builds the remote backend CLI package used by the
@@ -340,11 +360,11 @@ The remote host still needs a working `python3` with `venv` support. The bundled
 wheelhouse currently targets Linux x86_64, Python 3.11/3.12, and glibc 2.28 or
 newer.
 
-The packaged app writes real user configuration under macOS Application Support
-and starts the UI with:
+The packaged app writes real user configuration under the platform application
+data directory and starts the UI with:
 
 ```text
-INTERNAGENTS_APP_ROOT=<Application Support>/InternAgents/runtime
+INTERNAGENTS_APP_ROOT=<app data>/InternAgents/runtime
 INTERNAGENTS_DESKTOP=1
 NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
@@ -366,9 +386,9 @@ git push origin v0.1.1
 ```
 
 The GitHub Actions workflow builds Apple Silicon (`arm64`) and Intel (`x64`)
-macOS DMGs and publishes them to the public release repository
-`shuyuehu/InternAgents`. Because the workflow runs in the source repository,
-configure the cross-repository token there:
+macOS DMGs plus Windows x64 EXE/ZIP artifacts, then publishes them to the
+public release repository `shuyuehu/InternAgents`. Because the workflow runs in
+the source repository, configure the cross-repository token there:
 
 ```text
 qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions
