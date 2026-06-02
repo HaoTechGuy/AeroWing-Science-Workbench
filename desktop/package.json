@@ -6,13 +6,18 @@
   "main": "electron/main.cjs",
   "scripts": {
     "prepare:dist": "node scripts/prepare-dist.mjs",
-    "sign:adhoc": "codesign --force --deep --sign - release/mac-arm64/InternAgents.app",
-    "pack": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc",
-    "build": "npm run prepare:dist && electron-builder --mac dir --arm64 && npm run sign:adhoc && electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64/InternAgents.app"
+    "sign:adhoc": "node scripts/build-mac.mjs --sign-only",
+    "pack": "npm run prepare:dist && node scripts/build-mac.mjs --dir",
+    "pack:arm64": "INTERNAGENTS_DESKTOP_ARCH=arm64 npm run pack",
+    "pack:x64": "INTERNAGENTS_DESKTOP_ARCH=x64 npm run pack",
+    "build": "npm run prepare:dist && node scripts/build-mac.mjs --dmg",
+    "build:arm64": "INTERNAGENTS_DESKTOP_ARCH=arm64 npm run build",
+    "build:x64": "INTERNAGENTS_DESKTOP_ARCH=x64 npm run build"
   },
   "build": {
     "appId": "com.internagents.desktop",
     "productName": "InternAgents",
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
     "mac": {
       "category": "public.app-category.developer-tools",
       "identity": null,
