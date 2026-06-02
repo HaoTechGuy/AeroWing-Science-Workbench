@@ -18,6 +18,7 @@
       "ssh_command": "ssh user@example-host",
       "workspace": "/path/to/InternAgents",
       "remote_url": "http://127.0.0.1:22025",
+      "remote_runtime_port": 22024,
       "remote_assistant_id": "agent",
       "kb_path": "",
       "enabled": true

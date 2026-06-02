@@ -1,8 +1,17 @@
 import { execFile, spawn } from "child_process";
+import { createHash } from "crypto";
 import { createServer } from "net";
 import { createReadStream, createWriteStream } from "fs";
 import { constants } from "fs";
-import { access, cp, mkdir, readFile, rm, writeFile } from "fs/promises";
+import {
+  access,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "fs/promises";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
@@ -16,8 +25,11 @@ import {
 } from "@/app/api/workspace/_lib/workspace";
 
 const execFileAsync = promisify(execFile);
-const REMOTE_RUNTIME_PORT = 22024;
+const LEGACY_REMOTE_RUNTIME_PORT = 22024;
+const REMOTE_RUNTIME_PORT_START = 22024;
+const REMOTE_RUNTIME_PORT_END = 22150;
 const REMOTE_INSTALL_ROOT = "~/.internagents/runtimes";
+const REMOTE_BACKEND_CLI_ROOT = "~/.internagents/backend-cli";
 const LOCAL_REMOTE_PORT_START = 22025;
 const LOCAL_REMOTE_PORT_END = 22150;
 const REMOTE_SLOT_IDS = Array.from(
@@ -50,12 +62,25 @@ const BACKEND_CLI_PACKAGE_ENTRIES = [
   "skills",
 ];
 type LogSink = (message: string) => void;
+type RemoteInstallMode = "auto" | "venv" | "pythonPath" | "conda";
+
+interface RemoteInstallOptions {
+  installMode: RemoteInstallMode;
+  pythonPath?: string;
+  condaCommand?: string;
+}
+
+interface BackendCliPackage {
+  artifactPath: string;
+  fingerprint: string;
+}
 
 export interface UiResourceConfig {
   id: string;
   label: string;
   assistantId: string;
   runtimeUrl?: string;
+  remoteRuntimePort?: number;
   workspacePath?: string;
 }
 
@@ -73,6 +98,9 @@ export interface RemoteConnectionSetupRequest {
   resourceId?: string;
   localPort?: number;
   copyEnv?: boolean;
+  installMode?: RemoteInstallMode;
+  pythonPath?: string;
+  condaCommand?: string;
 }
 
 export interface RemoteConnectionSetupResult {
@@ -261,8 +289,12 @@ async function resolveSshConnection(request: {
   return { sshCommand: sshCommandForHost(host), displayName: host };
 }
 
-function defaultRemoteInstallDir(resourceId: string): string {
+function defaultRemoteRuntimeDir(resourceId: string): string {
   return `${REMOTE_INSTALL_ROOT}/${safeId(resourceId) || "runtime"}`;
+}
+
+function defaultRemoteBackendCliDir(fingerprint: string): string {
+  return `${REMOTE_BACKEND_CLI_ROOT}/${safeId(fingerprint) || "package"}`;
 }
 
 async function runSshCommand(
@@ -404,6 +436,7 @@ export function listUiResources(): UiResourceConfig[] {
       label: resource.label || resource.id,
       assistantId: assistantIdForResource(resource.id),
       runtimeUrl: resource.remote_url,
+      remoteRuntimePort: resource.remote_runtime_port,
       workspacePath: resource.workspace,
     }));
 }
@@ -433,6 +466,50 @@ function assertRemoteWorkspace(value: unknown): string {
     throw new Error("远端工作区需要使用绝对路径或 ~/ 开头路径。");
   }
   return workspace;
+}
+
+function normalizeInstallMode(value: unknown): RemoteInstallMode {
+  return value === "venv" || value === "pythonPath" || value === "conda"
+    ? value
+    : "auto";
+}
+
+function normalizeRemoteCommandPath(
+  value: unknown,
+  label: string
+): string | undefined {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) {
+    return undefined;
+  }
+  if (/[\r\n]/.test(text)) {
+    throw new Error(`${label} 只能填写一行路径或命令。`);
+  }
+  return text;
+}
+
+function normalizeInstallOptions(
+  request: RemoteConnectionSetupRequest
+): RemoteInstallOptions {
+  const installMode = normalizeInstallMode(request.installMode);
+  const pythonPath = normalizeRemoteCommandPath(
+    request.pythonPath,
+    "自定义 Python 路径"
+  );
+  const condaCommand = normalizeRemoteCommandPath(
+    request.condaCommand,
+    "Conda/Mamba 命令"
+  );
+
+  if (installMode === "pythonPath" && !pythonPath) {
+    throw new Error("指定 Python 安装方式需要填写自定义 Python 路径。");
+  }
+
+  return {
+    installMode,
+    pythonPath,
+    condaCommand,
+  };
 }
 
 async function portIsAvailable(port: number): Promise<boolean> {
@@ -466,6 +543,120 @@ async function chooseLocalPort(requested?: number): Promise<number> {
     }
   }
   throw new Error("没有可用的本地 tunnel 端口。");
+}
+
+function configuredRemoteRuntimePort(resource: ResourceRecord): number {
+  const port = resource.remote_runtime_port;
+  return typeof port === "number" && Number.isInteger(port) && port > 0
+    ? port
+    : LEGACY_REMOTE_RUNTIME_PORT;
+}
+
+async function chooseRemoteRuntimePort(
+  sshCommand: string,
+  resourceId: string,
+  resources: ResourceRecord[],
+  log: string[],
+  onLog?: LogSink
+): Promise<number> {
+  const existing = resources.find((resource) => resource.id === resourceId);
+  if (existing) {
+    const port = configuredRemoteRuntimePort(existing);
+    pushLog(log, `复用远端 runtime 端口: ${port}`, onLog);
+    return port;
+  }
+
+  const reservedPorts = Array.from(
+    new Set(
+      resources
+        .filter(
+          (resource) =>
+            resource.id !== resourceId &&
+            resource.ssh_command?.trim() === sshCommand.trim()
+        )
+        .map((resource) => configuredRemoteRuntimePort(resource))
+    )
+  ).sort((a, b) => a - b);
+
+  const script = String.raw`
+set -euo pipefail
+start=__REMOTE_PORT_START__
+end=__REMOTE_PORT_END__
+reserved_ports=__RESERVED_PORTS__
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$start" "$end" "$reserved_ports" <<'PY'
+import socket
+import sys
+
+start = int(sys.argv[1])
+end = int(sys.argv[2])
+reserved = {int(port) for port in sys.argv[3].split() if port}
+for port in range(start, end + 1):
+    if port in reserved:
+        continue
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", port))
+    except OSError:
+        continue
+    finally:
+        sock.close()
+    print(port)
+    break
+else:
+    raise SystemExit("No free remote runtime port.")
+PY
+  exit 0
+fi
+
+used_ports=""
+if command -v ss >/dev/null 2>&1; then
+  used_ports="$(ss -ltnH 2>/dev/null | awk '{print $4}' | sed 's/.*://')"
+elif command -v netstat >/dev/null 2>&1; then
+  used_ports="$(netstat -ltn 2>/dev/null | awk 'NR > 2 {print $4}' | sed 's/.*://')"
+fi
+
+for port in $(seq "$start" "$end"); do
+  case " $reserved_ports $used_ports " in
+    *" $port "*) continue ;;
+  esac
+  printf '%s\n' "$port"
+  exit 0
+done
+echo "No free remote runtime port." >&2
+exit 2
+`
+    .replace(/__REMOTE_PORT_START__/g, String(REMOTE_RUNTIME_PORT_START))
+    .replace(/__REMOTE_PORT_END__/g, String(REMOTE_RUNTIME_PORT_END))
+    .replace(/__RESERVED_PORTS__/g, () =>
+      shellQuote(reservedPorts.join(" "))
+    );
+
+  let result: { stdout: string; stderr: string };
+  try {
+    result = await runSshCommand(sshCommand, script, 20_000);
+  } catch (error) {
+    const err = error as Error & { stdout?: string; stderr?: string };
+    throw new Error(
+      `没有可用的远端 runtime 端口 (${REMOTE_RUNTIME_PORT_START}-${REMOTE_RUNTIME_PORT_END}): ${
+        err.stderr || err.stdout || err.message
+      }`,
+      { cause: error }
+    );
+  }
+  const selected = Number(result.stdout.trim().split(/\r?\n/).pop());
+  if (
+    !Number.isInteger(selected) ||
+    selected < REMOTE_RUNTIME_PORT_START ||
+    selected > REMOTE_RUNTIME_PORT_END
+  ) {
+    throw new Error(
+      `远端 runtime 端口选择失败: ${result.stdout || result.stderr}`
+    );
+  }
+  pushLog(log, `选择远端 runtime 端口: ${selected}`, onLog);
+  return selected;
 }
 
 async function urlOk(url: string): Promise<boolean> {
@@ -505,6 +696,51 @@ async function commandExists(command: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const input = createReadStream(filePath);
+    input.on("data", (chunk) => hash.update(chunk));
+    input.on("error", reject);
+    input.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function updateHashWithFile(
+  hash: ReturnType<typeof createHash>,
+  filePath: string
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const input = createReadStream(filePath);
+    input.on("data", (chunk) => hash.update(chunk));
+    input.on("error", reject);
+    input.on("end", resolve);
+  });
+}
+
+async function hashDirectoryContents(root: string): Promise<string> {
+  const hash = createHash("sha256");
+  async function visit(current: string): Promise<void> {
+    const entries = (await readdir(current, { withFileTypes: true })).sort(
+      (a, b) => a.name.localeCompare(b.name)
+    );
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      const relativePath = path.relative(root, fullPath).split(path.sep).join("/");
+      if (entry.isDirectory()) {
+        hash.update(`dir:${relativePath}\0`);
+        await visit(fullPath);
+      } else if (entry.isFile()) {
+        hash.update(`file:${relativePath}\0`);
+        await updateHashWithFile(hash, fullPath);
+        hash.update("\0");
+      }
+    }
+  }
+  await visit(root);
+  return hash.digest("hex");
 }
 
 async function copyPackageEntryIfExists(
@@ -549,12 +785,15 @@ async function resolveBundledBackendWheelhouse(root: string): Promise<string> {
 async function buildBackendCliPackage(
   log: string[],
   onLog?: LogSink
-): Promise<string> {
+): Promise<BackendCliPackage> {
   const root = getWorkspaceRoot();
   const prebuiltArchive = path.join(root, BACKEND_CLI_ARCHIVE_NAME);
   if (await fileExists(prebuiltArchive)) {
     pushLog(log, "使用 desktop 内置 backend CLI 包。", onLog);
-    return prebuiltArchive;
+    return {
+      artifactPath: prebuiltArchive,
+      fingerprint: (await hashFile(prebuiltArchive)).slice(0, 16),
+    };
   }
   if (process.env.INTERNAGENTS_DESKTOP === "1") {
     throw new Error(
@@ -594,6 +833,7 @@ async function buildBackendCliPackage(
       verbatimSymlinks: false,
     }
   );
+  const fingerprint = (await hashDirectoryContents(stagingDir)).slice(0, 16);
 
   try {
     pushLog(log, "打包独立 InternAgents backend CLI...", onLog);
@@ -601,7 +841,10 @@ async function buildBackendCliPackage(
       timeout: 120_000,
       maxBuffer: COMMAND_MAX_BUFFER,
     });
-    return artifactPath;
+    return {
+      artifactPath,
+      fingerprint,
+    };
   } finally {
     await rm(stagingDir, { recursive: true, force: true });
   }
@@ -642,71 +885,63 @@ async function streamFileOverSsh(
   });
 }
 
-async function uploadBackendCliPackageToRemote(
+async function readRemoteBackendCliMarker(
   sshCommand: string,
-  installDir: string,
-  log: string[],
-  onLog?: LogSink
-): Promise<void> {
-  const artifactPath = await buildBackendCliPackage(log, onLog);
-  const stopExistingRuntime = [
-    `install_dir=${shellQuote(installDir)}`,
-    'pids=$(ps -eo pid=,comm=,args= | awk -v dir="$install_dir" \'$2 ~ /^python/ && index($0, dir) && index($0, " -m langgraph_cli dev ") {print $1}\' || true)',
-    'if [ -n "$pids" ]; then for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done; sleep 1; for pid in $pids; do kill -KILL "$pid" 2>/dev/null || true; done; fi',
-  ].join(" && ");
-  const remoteScript = [
-    "set -e",
-    stopExistingRuntime,
-    `rm -rf ${shellQuote(path.posix.join(installDir, "package"))}`,
-    `mkdir -p ${shellQuote(path.posix.join(installDir, "package"))}`,
-    `tar -xzf - -C ${shellQuote(path.posix.join(installDir, "package"))}`,
-  ].join(" && ");
-
-  pushLog(
-    log,
-    `上传 backend CLI 包到远端安装目录: ${installDir}/package`,
-    onLog
-  );
-  await streamFileOverSsh(sshCommand, artifactPath, remoteScript);
-}
-
-async function uploadEnvToRemotePackage(
-  sshCommand: string,
-  installDir: string,
-  log: string[],
-  onLog?: LogSink
-): Promise<void> {
-  const envPath = path.join(getWorkspaceRoot(), ".env");
-  if (!(await fileExists(envPath))) {
-    throw new Error("已选择同步 .env，但本机仓库根目录没有 .env 文件。");
-  }
-  const remoteEnvPath = path.posix.join(installDir, "package", ".env");
-  pushLog(log, "同步本机 .env 到远端 backend CLI 包。", onLog);
-  await streamFileOverSsh(
-    sshCommand,
-    envPath,
-    `set -e && cat > ${shellQuote(remoteEnvPath)}`
-  );
-}
-
-async function installAndStartRemoteRuntime(
-  sshCommand: string,
-  installDir: string,
-  resource: ResourceRecord,
-  log: string[],
-  onLog?: LogSink
-): Promise<void> {
-  const workspace = assertRemoteWorkspace(resource.workspace || "");
+  backendDir: string,
+  fingerprint: string
+): Promise<string | null> {
+  const markerPath = path.posix.join(backendDir, ".internagents-backend-cli.env");
   const script = String.raw`
 set -euo pipefail
+marker=__MARKER_PATH__
+expected_fingerprint=__FINGERPRINT__
+if [ ! -f "$marker" ]; then
+  exit 0
+fi
+installed_fingerprint="$(sed -n 's/^fingerprint=//p' "$marker" | head -n 1)"
+backend_cli="$(sed -n 's/^backend_cli=//p' "$marker" | head -n 1)"
+if [ "$installed_fingerprint" = "$expected_fingerprint" ] && [ -n "$backend_cli" ] && [ -x "$backend_cli" ]; then
+  printf '%s\n' "$backend_cli"
+fi
+`
+    .replace(/__MARKER_PATH__/g, () => shellQuote(markerPath))
+    .replace(/__FINGERPRINT__/g, () => shellQuote(fingerprint));
+
+  const result = await runSshCommand(sshCommand, script, 15_000);
+  const backendCli = result.stdout.trim().split(/\r?\n/).pop()?.trim() || "";
+  return backendCli || null;
+}
+
+function backendCliInstallScript(
+  backendDir: string,
+  fingerprint: string,
+  installOptions: RemoteInstallOptions
+): string {
+  const packageDir = path.posix.join(backendDir, "package");
+  const markerPath = path.posix.join(backendDir, ".internagents-backend-cli.env");
+  return String.raw`
+set -euo pipefail
 cd __PACKAGE_DIR__
-mkdir -p __RESOURCE_WORKSPACE__
-python3 -m venv __VENV_DIR__
 if [ ! -d __WHEELHOUSE_DIR__ ] || ! find __WHEELHOUSE_DIR__ -name '*.whl' -print -quit | grep -q .; then
   echo "backend-wheelhouse is missing from backend CLI package" >&2
   exit 1
 fi
-__VENV_PYTHON__ - <<'PY'
+
+install_mode=__INSTALL_MODE__
+custom_python=__CUSTOM_PYTHON__
+conda_command=__CONDA_COMMAND__
+venv_dir=__VENV_DIR__
+conda_env_dir=__CONDA_ENV_DIR__
+active_python=""
+backend_cli=""
+
+fail_python_env() {
+  echo "远端缺少可用 Python 环境，请安装 Python 3.11/3.12 + venv，或配置 conda/mamba。" >&2
+  exit 1
+}
+
+validate_python() {
+  "$1" - <<'PY'
 import platform
 import sys
 if sys.version_info[:2] not in {(3, 11), (3, 12)}:
@@ -719,46 +954,321 @@ if libc_name == "glibc":
     if version < (2, 28):
         raise SystemExit("Remote glibc must be >= 2.28 for the bundled backend wheelhouse.")
 PY
-__VENV_PYTHON__ -m pip install --no-index --find-links __WHEELHOUSE_DIR__ --upgrade pip setuptools wheel
-__VENV_PYTHON__ -m pip install --no-index --find-links __WHEELHOUSE_DIR__ --no-build-isolation .
+}
+
+try_venv() {
+  python_bin="$1"
+  label="$2"
+  if [ -z "$python_bin" ]; then
+    return 1
+  fi
+  if ! "$python_bin" -c 'import sys' >/dev/null 2>&1; then
+    echo "$label 不可用，跳过。"
+    return 1
+  fi
+  if ! validate_python "$python_bin" >/dev/null 2>&1; then
+    echo "$label 不符合 Python 版本、架构或 glibc 要求，跳过。"
+    return 1
+  fi
+  rm -rf "$venv_dir"
+  if ! "$python_bin" -m venv "$venv_dir"; then
+    echo "$label 无法创建 venv，跳过。"
+    return 1
+  fi
+  active_python="$venv_dir/bin/python"
+  backend_cli="$venv_dir/bin/internagents-backend"
+  validate_python "$active_python"
+  echo "检测到 $label，使用 venv 安装。"
+  return 0
+}
+
+find_conda_command() {
+  if [ -n "$conda_command" ]; then
+    printf '%s\n' "$conda_command"
+    return 0
+  fi
+  if command -v mamba >/dev/null 2>&1; then
+    command -v mamba
+    return 0
+  fi
+  if command -v conda >/dev/null 2>&1; then
+    command -v conda
+    return 0
+  fi
+  return 1
+}
+
+try_conda() {
+  conda_bin="$(find_conda_command)" || return 1
+  if ! "$conda_bin" --version >/dev/null 2>&1; then
+    echo "Conda/Mamba 命令不可用，跳过。"
+    return 1
+  fi
+  rm -rf "$conda_env_dir"
+  if ! "$conda_bin" create -y -p "$conda_env_dir" python=3.12 pip; then
+    echo "Conda/Mamba 创建环境失败，跳过。"
+    return 1
+  fi
+  active_python="$conda_env_dir/bin/python"
+  backend_cli="$conda_env_dir/bin/internagents-backend"
+  validate_python "$active_python"
+  echo "venv 不可用，检测到 $(basename "$conda_bin")，使用 conda-env 安装。"
+  return 0
+}
+
+case "$install_mode" in
+  auto)
+    if try_venv "python3" "python3 + venv"; then
+      :
+    elif [ -n "$custom_python" ] && try_venv "$custom_python" "自定义 Python + venv"; then
+      :
+    elif try_conda; then
+      :
+    else
+      fail_python_env
+    fi
+    ;;
+  venv)
+    try_venv "python3" "python3 + venv" || fail_python_env
+    ;;
+  pythonPath)
+    try_venv "$custom_python" "自定义 Python + venv" || fail_python_env
+    ;;
+  conda)
+    try_conda || fail_python_env
+    ;;
+  *)
+    fail_python_env
+    ;;
+esac
+
+"$active_python" -m pip install --no-index --find-links __WHEELHOUSE_DIR__ --upgrade pip setuptools wheel
+"$active_python" -m pip install --no-index --find-links __WHEELHOUSE_DIR__ --no-build-isolation .
+{
+  printf 'fingerprint=%s\n' __FINGERPRINT__
+  printf 'backend_cli=%s\n' "$backend_cli"
+  printf 'package_dir=%s\n' __PACKAGE_DIR__
+} > __MARKER_PATH__
+printf '__BACKEND_CLI__%s\n' "$backend_cli"
+`
+    .replace(/__PACKAGE_DIR__/g, () => shellQuote(packageDir))
+    .replace(/__VENV_DIR__/g, () =>
+      shellQuote(path.posix.join(backendDir, ".venv"))
+    )
+    .replace(/__CONDA_ENV_DIR__/g, () =>
+      shellQuote(path.posix.join(backendDir, "conda-env"))
+    )
+    .replace(/__WHEELHOUSE_DIR__/g, () =>
+      shellQuote(path.posix.join(packageDir, BACKEND_CLI_WHEELHOUSE_DIR))
+    )
+    .replace(/__INSTALL_MODE__/g, () => shellQuote(installOptions.installMode))
+    .replace(/__CUSTOM_PYTHON__/g, () =>
+      shellQuote(installOptions.pythonPath || "")
+    )
+    .replace(/__CONDA_COMMAND__/g, () =>
+      shellQuote(installOptions.condaCommand || "")
+    )
+    .replace(/__FINGERPRINT__/g, () => shellQuote(fingerprint))
+    .replace(/__MARKER_PATH__/g, () => shellQuote(markerPath));
+}
+
+async function ensureBackendCliInstalled(
+  sshCommand: string,
+  backendDir: string,
+  backendPackage: BackendCliPackage,
+  installOptions: RemoteInstallOptions,
+  log: string[],
+  onLog?: LogSink
+): Promise<{ packageDir: string; backendCliPath: string }> {
+  const packageDir = path.posix.join(backendDir, "package");
+  const installed = await readRemoteBackendCliMarker(
+    sshCommand,
+    backendDir,
+    backendPackage.fingerprint
+  );
+  if (installed) {
+    pushLog(
+      log,
+      `复用已安装 backend CLI: ${backendPackage.fingerprint}`,
+      onLog
+    );
+    return { packageDir, backendCliPath: installed };
+  }
+
+  pushLog(log, `安装 backend CLI: ${backendPackage.fingerprint}`, onLog);
+  const remoteScript = [
+    "set -euo pipefail",
+    `rm -rf ${shellQuote(packageDir)}`,
+    `mkdir -p ${shellQuote(packageDir)}`,
+    `tar -xzf - -C ${shellQuote(packageDir)}`,
+  ].join(" && ");
+  await streamFileOverSsh(sshCommand, backendPackage.artifactPath, remoteScript);
+
+  const result = await runSshCommand(
+    sshCommand,
+    backendCliInstallScript(
+      backendDir,
+      backendPackage.fingerprint,
+      installOptions
+    ),
+    300_000
+  );
+  let backendCliPath = "";
+  for (const line of result.stdout.split(/\r?\n/)) {
+    if (line.startsWith("__BACKEND_CLI__")) {
+      backendCliPath = line.slice("__BACKEND_CLI__".length).trim();
+    } else if (line.trim()) {
+      pushLog(log, line.trim(), onLog);
+    }
+  }
+  if (!backendCliPath) {
+    throw new Error("backend CLI 安装完成，但未返回可执行文件路径。");
+  }
+  return { packageDir, backendCliPath };
+}
+
+async function uploadEnvToRemoteState(
+  sshCommand: string,
+  stateDir: string,
+  log: string[],
+  onLog?: LogSink
+): Promise<void> {
+  const envPath = path.join(getWorkspaceRoot(), ".env");
+  if (!(await fileExists(envPath))) {
+    throw new Error("已选择同步 .env，但本机仓库根目录没有 .env 文件。");
+  }
+  const remoteEnvPath = path.posix.join(stateDir, ".env");
+  pushLog(log, "同步本机 .env 到远端 runtime 状态目录。", onLog);
+  await streamFileOverSsh(
+    sshCommand,
+    envPath,
+    `set -e && mkdir -p ${shellQuote(stateDir)} && cat > ${shellQuote(remoteEnvPath)}`
+  );
+}
+
+function remoteInstallPreflightScript(options: RemoteInstallOptions): string {
+  return String.raw`
+set -u
+install_mode=__INSTALL_MODE__
+custom_python=__CUSTOM_PYTHON__
+conda_command=__CONDA_COMMAND__
+
+echo "远端安装环境预检..."
+echo "安装方式: $install_mode"
+
+check_python() {
+  label="$1"
+  python_bin="$2"
+  if [ -z "$python_bin" ]; then
+    return 0
+  fi
+  if "$python_bin" -c 'import platform, sys; print(f"python={sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} arch={platform.machine()} libc=%s.%s" % platform.libc_ver())' 2>/dev/null; then
+    if "$python_bin" -m venv --help >/dev/null 2>&1; then
+      echo "$label venv: 可用"
+    else
+      echo "$label venv: 不可用"
+    fi
+  else
+    echo "$label: 不可用"
+  fi
+}
+
+if command -v python3 >/dev/null 2>&1; then
+  check_python "python3" "$(command -v python3)"
+else
+  echo "python3: 未检测到"
+fi
+
+if [ -n "$custom_python" ]; then
+  check_python "自定义 Python" "$custom_python"
+fi
+
+if [ -n "$conda_command" ]; then
+  if "$conda_command" --version >/dev/null 2>&1; then
+    echo "Conda/Mamba: 使用 $conda_command"
+  else
+    echo "Conda/Mamba: $conda_command 不可用"
+  fi
+elif command -v mamba >/dev/null 2>&1; then
+  echo "Conda/Mamba: 检测到 $(command -v mamba)"
+elif command -v conda >/dev/null 2>&1; then
+  echo "Conda/Mamba: 检测到 $(command -v conda)"
+else
+  echo "Conda/Mamba: 未检测到"
+fi
+`
+    .replace(/__INSTALL_MODE__/g, () => shellQuote(options.installMode))
+    .replace(/__CUSTOM_PYTHON__/g, () =>
+      shellQuote(options.pythonPath || "")
+    )
+    .replace(/__CONDA_COMMAND__/g, () =>
+      shellQuote(options.condaCommand || "")
+    );
+}
+
+async function runRemoteInstallPreflight(
+  sshCommand: string,
+  options: RemoteInstallOptions,
+  log: string[],
+  onLog?: LogSink
+): Promise<void> {
+  const result = await runSshCommand(
+    sshCommand,
+    remoteInstallPreflightScript(options),
+    20_000
+  );
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const message = line.trim();
+    if (message) {
+      pushLog(log, message, onLog);
+    }
+  }
+}
+
+async function startResourceRuntime(
+  sshCommand: string,
+  packageDir: string,
+  backendCliPath: string,
+  stateDir: string,
+  resource: ResourceRecord,
+  remoteRuntimePort: number,
+  log: string[],
+  onLog?: LogSink
+): Promise<void> {
+  const workspace = assertRemoteWorkspace(resource.workspace || "");
+  const script = String.raw`
+set -euo pipefail
+mkdir -p __RESOURCE_WORKSPACE__
+mkdir -p __STATE_DIR__
+__BACKEND_CLI__ runtime stop \
+  --install-dir __PACKAGE_DIR__ \
+  --state-dir __STATE_DIR__ \
+  --resource-id __RESOURCE_ID__ >/dev/null 2>&1 || true
 __BACKEND_CLI__ runtime start \
   --install-dir __PACKAGE_DIR__ \
+  --state-dir __STATE_DIR__ \
   --resource-id __RESOURCE_ID__ \
   --label __RESOURCE_LABEL__ \
   --workspace __RESOURCE_WORKSPACE__ \
   --host 127.0.0.1 \
   --port __REMOTE_RUNTIME_PORT__
 `
-    .replace(/__PACKAGE_DIR__/g, () =>
-      shellQuote(path.posix.join(installDir, "package"))
-    )
-    .replace(/__VENV_DIR__/g, () =>
-      shellQuote(path.posix.join(installDir, ".venv"))
-    )
-    .replace(/__VENV_PYTHON__/g, () =>
-      shellQuote(path.posix.join(installDir, ".venv", "bin", "python"))
-    )
-    .replace(/__WHEELHOUSE_DIR__/g, () =>
-      shellQuote(path.posix.join(installDir, "package", BACKEND_CLI_WHEELHOUSE_DIR))
-    )
-    .replace(/__BACKEND_CLI__/g, () =>
-      shellQuote(
-        path.posix.join(installDir, ".venv", "bin", "internagents-backend")
-      )
-    )
+    .replace(/__PACKAGE_DIR__/g, () => shellQuote(packageDir))
+    .replace(/__STATE_DIR__/g, () => shellQuote(stateDir))
+    .replace(/__BACKEND_CLI__/g, () => shellQuote(backendCliPath))
     .replace(/__RESOURCE_WORKSPACE__/g, () => shellQuote(workspace))
-    .replace(/__RESOURCE_ID__/g, resource.id)
+    .replace(/__RESOURCE_ID__/g, () => shellQuote(resource.id))
     .replace(/__RESOURCE_LABEL__/g, () =>
       shellQuote(resource.label || resource.id)
     )
-    .replace(/__REMOTE_RUNTIME_PORT__/g, String(REMOTE_RUNTIME_PORT));
+    .replace(/__REMOTE_RUNTIME_PORT__/g, String(remoteRuntimePort));
 
   pushLog(
     log,
-    "离线安装 backend CLI 并启动远端 runtime，这一步可能需要几分钟...",
+    `启动远端 runtime: 127.0.0.1:${remoteRuntimePort}`,
     onLog
   );
-  const result = await runSshCommand(sshCommand, script, 180_000);
+  const result = await runSshCommand(sshCommand, script, 90_000);
   pushLog(log, result.stdout.trim() || "远端 runtime 已启动。", onLog);
 }
 
@@ -766,6 +1276,7 @@ async function ensureRuntimeTunnel(
   sshCommand: string,
   resourceId: string,
   localPort: number,
+  remotePort: number,
   log: string[],
   onLog?: LogSink
 ): Promise<string> {
@@ -794,7 +1305,7 @@ async function ensureRuntimeTunnel(
   const [sshBinary, ...baseSshArgs] = sshArgsFromCommand(sshCommand, [
     "-N",
     "-L",
-    `${localPort}:127.0.0.1:${REMOTE_RUNTIME_PORT}`,
+    `${localPort}:127.0.0.1:${remotePort}`,
   ]);
   const logFile = path.join(logDir, `remote-tunnel-${resourceId}.log`);
   const out = createWriteStream(logFile, { flags: "a" });
@@ -806,7 +1317,7 @@ async function ensureRuntimeTunnel(
   child.stderr?.pipe(out);
   child.unref();
   await writeFile(pidFile, `${child.pid}\n`);
-  pushLog(log, `启动本地 tunnel: ${url}`, onLog);
+  pushLog(log, `启动本地 tunnel: ${url} -> 127.0.0.1:${remotePort}`, onLog);
 
   if (!(await waitForUrl(`${url}/ok`))) {
     throw new Error(
@@ -824,14 +1335,37 @@ async function resolveRemotePath(
   onLog?: LogSink
 ): Promise<string> {
   pushLog(log, `解析${description}: ${remotePath}`, onLog);
-  const script = [
-    "python3 - <<'PY'",
-    "from pathlib import Path",
-    `print(Path(${JSON.stringify(
-      remotePath
-    )}).expanduser().resolve(strict=False))`,
-    "PY",
-  ].join("\n");
+  const script = String.raw`
+set -euo pipefail
+raw_path=__REMOTE_PATH__
+case "$raw_path" in
+  "~")
+    expanded="$HOME"
+    ;;
+  "~/"*)
+    expanded="$HOME/\${raw_path#~/}"
+    ;;
+  /*)
+    expanded="$raw_path"
+    ;;
+  *)
+    echo "Remote path must be absolute or start with ~/" >&2
+    exit 2
+    ;;
+esac
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$expanded" <<'PY'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).resolve(strict=False))
+PY
+elif readlink -m / >/dev/null 2>&1; then
+  readlink -m "$expanded"
+else
+  printf '%s\n' "$expanded"
+fi
+`.replace(/__REMOTE_PATH__/g, () => shellQuote(remotePath));
   const result = await runSshCommand(sshCommand, script, 15_000);
   const resolved = result.stdout.trim().split(/\r?\n/).pop()?.trim() || "";
   if (!resolved.startsWith("/")) {
@@ -863,6 +1397,7 @@ export async function setupRemoteConnection(
   const connection = await resolveSshConnection(request);
   const sshCommand = connection.sshCommand;
   const requestedWorkspace = assertRemoteWorkspace(request.workspace);
+  const installOptions = normalizeInstallOptions(request);
   const { configPath, config } = await getWritableResourcesConfig();
   const resources = config.resources || [];
   const resourceId = nextRemoteResourceId(resources, request.resourceId);
@@ -874,6 +1409,13 @@ export async function setupRemoteConnection(
     throw new Error(`SSH 连接失败: ${test.stderr || test.stdout}`);
   }
   pushLog(log, `SSH 连接可用: ${connection.displayName}`, onLog);
+  const remoteRuntimePort = await chooseRemoteRuntimePort(
+    sshCommand,
+    resourceId,
+    resources,
+    log,
+    onLog
+  );
   const workspace = await resolveRemotePath(
     sshCommand,
     requestedWorkspace,
@@ -881,17 +1423,38 @@ export async function setupRemoteConnection(
     log,
     onLog
   );
-  const installDir = await resolveRemotePath(
+  const backendPackage = await buildBackendCliPackage(log, onLog);
+  const backendDir = await resolveRemotePath(
     sshCommand,
-    defaultRemoteInstallDir(resourceId),
-    "远端 runtime 安装目录",
+    defaultRemoteBackendCliDir(backendPackage.fingerprint),
+    "远端 backend CLI 共享安装目录",
     log,
     onLog
   );
+  const runtimeDir = await resolveRemotePath(
+    sshCommand,
+    defaultRemoteRuntimeDir(resourceId),
+    "远端 runtime 状态目录",
+    log,
+    onLog
+  );
+  await runRemoteInstallPreflight(sshCommand, installOptions, log, onLog);
 
-  await uploadBackendCliPackageToRemote(sshCommand, installDir, log, onLog);
+  const backendInstall = await ensureBackendCliInstalled(
+    sshCommand,
+    backendDir,
+    backendPackage,
+    installOptions,
+    log,
+    onLog
+  );
   if (request.copyEnv) {
-    await uploadEnvToRemotePackage(sshCommand, installDir, log, onLog);
+    await uploadEnvToRemoteState(
+      sshCommand,
+      runtimeDir,
+      log,
+      onLog
+    );
   }
 
   const resource: ResourceRecord = {
@@ -901,13 +1464,17 @@ export async function setupRemoteConnection(
     ssh_command: sshCommand,
     workspace,
     remote_url: `http://127.0.0.1:${localPort}`,
+    remote_runtime_port: remoteRuntimePort,
     remote_assistant_id: "agent",
     enabled: true,
   };
-  await installAndStartRemoteRuntime(
+  await startResourceRuntime(
     sshCommand,
-    installDir,
+    backendInstall.packageDir,
+    backendInstall.backendCliPath,
+    runtimeDir,
     resource,
+    remoteRuntimePort,
     log,
     onLog
   );
@@ -915,6 +1482,7 @@ export async function setupRemoteConnection(
     sshCommand,
     resourceId,
     localPort,
+    remoteRuntimePort,
     log,
     onLog
   );
@@ -933,6 +1501,7 @@ export async function setupRemoteConnection(
     label,
     assistantId: assistantIdForResource(resourceId),
     runtimeUrl: remoteUrl,
+    remoteRuntimePort,
     workspacePath: workspace,
   };
   return {

@@ -35,7 +35,16 @@ from kb_sync_middleware import KbSyncMiddleware
 from mineru_middleware import PdfMinerUMiddleware
 from ssh_backend import SshShellBackend
 
-load_dotenv(ROOT_DIR / ".env")
+
+def _load_environment() -> None:
+    env_file = os.getenv("INTERNAGENT_ENV_FILE")
+    if env_file:
+        load_dotenv(Path(env_file).expanduser())
+        return
+    load_dotenv(ROOT_DIR / ".env")
+
+
+_load_environment()
 
 
 def _env_value(name: str) -> str | None:
