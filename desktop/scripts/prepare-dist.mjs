@@ -61,8 +61,7 @@ function commandForPlatform(command, args) {
   }
 
   return {
-    executable:
-      process.platform === "win32" && !path.extname(command) ? `${command}.cmd` : command,
+    executable: command,
     args,
   };
 }
@@ -361,19 +360,32 @@ function pythonBuildBinary() {
   }
 
   const explicitRuntime = process.env.INTERNAGENTS_PYTHON_RUNTIME_SOURCE;
-  const candidates = [
-    explicitRuntime ? path.join(explicitRuntime, "bin", "python") : "",
-    path.join(rootDir, ".venv", "bin", "python"),
-    path.join(rootDir, ".conda", "bin", "python"),
-    "python3",
-  ].filter(Boolean);
+  const candidates =
+    process.platform === "win32"
+      ? [
+          explicitRuntime ? path.join(explicitRuntime, "venv", "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, ".venv", "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, "python.exe") : "",
+          path.join(rootDir, ".venv", "Scripts", "python.exe"),
+          path.join(rootDir, ".conda", "python.exe"),
+          "python",
+        ].filter(Boolean)
+      : [
+          explicitRuntime ? path.join(explicitRuntime, "venv", "bin", "python") : "",
+          explicitRuntime ? path.join(explicitRuntime, ".venv", "bin", "python") : "",
+          explicitRuntime ? path.join(explicitRuntime, "bin", "python") : "",
+          path.join(rootDir, ".venv", "bin", "python"),
+          path.join(rootDir, ".conda", "bin", "python"),
+          "python3",
+        ].filter(Boolean);
 
   for (const candidate of candidates) {
     if (!candidate.includes(path.sep) || existsSync(candidate)) {
       return candidate;
     }
   }
-  return "python3";
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 function projectDependencyRequirements(pythonBin) {
