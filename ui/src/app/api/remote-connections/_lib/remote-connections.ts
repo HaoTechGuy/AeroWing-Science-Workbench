@@ -1335,35 +1335,43 @@ async function resolveRemotePath(
   onLog?: LogSink
 ): Promise<string> {
   pushLog(log, `解析${description}: ${remotePath}`, onLog);
+  const tildePathSuffixExpansion = "${raw_path#~/}";
+  const absolutePathSuffixExpansion = "${raw_path#/}";
   const script = String.raw`
 set -euo pipefail
 raw_path=__REMOTE_PATH__
-case "$raw_path" in
-  "~")
-    expanded="$HOME"
-    ;;
-  "~/"*)
-    expanded="$HOME/\${raw_path#~/}"
-    ;;
-  /*)
-    expanded="$raw_path"
-    ;;
-  *)
-    echo "Remote path must be absolute or start with ~/" >&2
-    exit 2
-    ;;
-esac
-
 if command -v python3 >/dev/null 2>&1; then
-  python3 - "$expanded" <<'PY'
+  python3 - "$raw_path" <<'PY'
 from pathlib import Path
+import os
 import sys
-print(Path(sys.argv[1]).resolve(strict=False))
+raw = sys.argv[1]
+if raw == "~" or raw.startswith("~/"):
+    expanded = os.path.expanduser(raw)
+elif raw.startswith("/"):
+    expanded = raw
+else:
+    raise SystemExit("Remote path must be absolute or start with ~/")
+print(Path(expanded).resolve(strict=False))
 PY
-elif readlink -m / >/dev/null 2>&1; then
-  readlink -m "$expanded"
+elif [ "$raw_path" = "~" ]; then
+  printf '%s\n' "$HOME"
+elif [ "${tildePathSuffixExpansion}" != "$raw_path" ]; then
+  expanded="$HOME/${tildePathSuffixExpansion}"
+  if readlink -m / >/dev/null 2>&1; then
+    readlink -m "$expanded"
+  else
+    printf '%s\n' "$expanded"
+  fi
+elif [ "${absolutePathSuffixExpansion}" != "$raw_path" ]; then
+  if readlink -m / >/dev/null 2>&1; then
+    readlink -m "$raw_path"
+  else
+    printf '%s\n' "$raw_path"
+  fi
 else
-  printf '%s\n' "$expanded"
+  echo "Remote path must be absolute or start with ~/" >&2
+  exit 2
 fi
 `.replace(/__REMOTE_PATH__/g, () => shellQuote(remotePath));
   const result = await runSshCommand(sshCommand, script, 15_000);
