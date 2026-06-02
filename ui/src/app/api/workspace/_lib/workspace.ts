@@ -1,11 +1,14 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import crypto from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
-import type { WorkspaceEntry, WorkspacePreviewKind } from "@/app/types/workspace";
+import type {
+  WorkspaceEntry,
+  WorkspacePreviewKind,
+} from "@/app/types/workspace";
 
 const execFileAsync = promisify(execFile);
 
@@ -103,6 +106,7 @@ export interface ResourceRecord {
   workspace?: string;
   ssh_command?: string;
   remote_url?: string;
+  remote_runtime_port?: number;
   remote_assistant_id?: string;
   kb_path?: string;
   enabled?: boolean;
@@ -149,7 +153,9 @@ const DEFAULT_RESOURCES_FILE = "internagent.resources.json";
 const LOCAL_RESOURCES_FILE = "internagent.resources.local.json";
 
 function defaultLocalRuntimeUrl() {
-  return `http://127.0.0.1:${process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT || "22024"}`;
+  return `http://127.0.0.1:${
+    process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT || "22024"
+  }`;
 }
 
 function defaultLocalWorkspacePath() {
@@ -234,7 +240,7 @@ export function readWorkspaceResourcesConfig(): ResourcesFile {
   return readResourcesConfig();
 }
 
-async function writeResourcesConfigAtPath(
+export async function writeResourcesConfigAtPath(
   configPath: string,
   config: ResourcesFile
 ) {
@@ -276,13 +282,15 @@ async function writeRootEnvValues(updates: Record<string, string>) {
   }
 
   const nextContent = `${nextLines
-    .filter((_, index) => index < nextLines.length - 1 || nextLines[index] !== "")
+    .filter(
+      (_, index) => index < nextLines.length - 1 || nextLines[index] !== ""
+    )
     .join("\n")}\n`;
 
   await fs.writeFile(envPath, nextContent);
 }
 
-async function getWritableResourcesConfig(): Promise<{
+export async function getWritableResourcesConfig(): Promise<{
   configPath: string;
   config: ResourcesFile;
 }> {
@@ -293,7 +301,9 @@ async function getWritableResourcesConfig(): Promise<{
     const configPath = path.resolve(getWorkspaceRoot(), explicit);
     return {
       configPath,
-      config: JSON.parse(await fs.readFile(configPath, "utf8")) as ResourcesFile,
+      config: JSON.parse(
+        await fs.readFile(configPath, "utf8")
+      ) as ResourcesFile,
     };
   }
 
@@ -448,7 +458,11 @@ export async function listLocalWorkspaces(): Promise<{
 
 export async function updateLocalResourceWorkspace(
   workspacePath: string
-): Promise<{ resourcesPath: string; workspacePath: string; workspaceId: string }> {
+): Promise<{
+  resourcesPath: string;
+  workspacePath: string;
+  workspaceId: string;
+}> {
   const realWorkspacePath = await normalizeWorkspacePath(workspacePath);
   const workspaceId = workspaceIdForPath(realWorkspacePath);
   const { configPath, config } = await getWritableResourcesConfig();
@@ -536,7 +550,9 @@ function enabledResources(): ResourceRecord[] {
   return resources.filter((resource) => resource.enabled !== false);
 }
 
-export function getWorkspaceResource(resourceId?: string | null): ResourceRecord {
+export function getWorkspaceResource(
+  resourceId?: string | null
+): ResourceRecord {
   const resources = enabledResources();
   const defaultResourceId =
     readResourcesConfig().default_resource || resources[0]?.id || "local";
@@ -603,7 +619,10 @@ export async function resolveWorkspacePath(
   const target = path.resolve(rootReal, cleanPath);
   const targetReal = await fs.realpath(target);
 
-  if (targetReal !== rootReal && !targetReal.startsWith(`${rootReal}${path.sep}`)) {
+  if (
+    targetReal !== rootReal &&
+    !targetReal.startsWith(`${rootReal}${path.sep}`)
+  ) {
     throw new Error("Path is outside the workspace.");
   }
 
@@ -621,7 +640,10 @@ function resolveLocalWorkspaceRoot(
 ): string {
   if (workspaceId) {
     const fallbackRoot = resolveConfiguredLocalWorkspaceRoot(resource);
-    const records = normalizeWorkspaceRecords(readResourcesConfig(), fallbackRoot);
+    const records = normalizeWorkspaceRecords(
+      readResourcesConfig(),
+      fallbackRoot
+    );
     const selected = records.find((workspace) => workspace.id === workspaceId);
     if (selected) {
       const expandedPath = expandHomePath(selected.path);
@@ -729,11 +751,124 @@ async function runRemoteWorkspacePython<T>(
     throw new Error("Remote workspace command returned no data.");
   }
 
-  const result = JSON.parse(trimmed) as { ok: boolean; error?: string; data?: T };
+  const result = JSON.parse(trimmed) as {
+    ok: boolean;
+    error?: string;
+    data?: T;
+  };
   if (!result.ok) {
     throw new Error(result.error || "Remote workspace command failed.");
   }
   return result.data as T;
+}
+
+function runRemoteWorkspacePythonWithInput<T>(
+  resource: ResourceRecord,
+  operation: string,
+  relativePath = "",
+  input: unknown,
+  extra: Record<string, unknown> = {}
+): Promise<T> {
+  if (!resource.ssh_command) {
+    throw new Error(`Resource ${resource.id} does not define ssh_command.`);
+  }
+
+  const payload = JSON.stringify({
+    op: operation,
+    root: resource.workspace || ".",
+    path: normalizeRelativePath(relativePath),
+    maxTextFileSize: MAX_TEXT_FILE_SIZE,
+    maxRawFileSize: MAX_RAW_FILE_SIZE,
+    ignoredNames: Array.from(DEFAULT_IGNORED_NAMES),
+    ...extra,
+  });
+  const command = `${resource.ssh_command} ${shellQuote(
+    `python3 -c ${shellQuote(REMOTE_WORKSPACE_SCRIPT)} ${shellQuote(payload)}`
+  )}`;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("bash", ["-lc", command], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const chunks: Buffer[] = [];
+    const errorChunks: Buffer[] = [];
+    let outputBytes = 0;
+    let settled = false;
+    const maxBuffer = Math.max(
+      resource.max_output_bytes || 0,
+      REMOTE_WORKSPACE_MAX_BUFFER
+    );
+    const timeout = setTimeout(
+      () => {
+        if (settled) return;
+        child.kill("SIGTERM");
+        settled = true;
+        reject(new Error("Remote workspace command timed out."));
+      },
+      resource.timeout ? resource.timeout * 1000 : REMOTE_WORKSPACE_TIMEOUT_MS
+    );
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      outputBytes += chunk.length;
+      if (outputBytes > maxBuffer && !settled) {
+        child.kill("SIGTERM");
+        settled = true;
+        clearTimeout(timeout);
+        reject(new Error("Remote workspace command returned too much data."));
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      errorChunks.push(chunk);
+    });
+
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      const stdout = Buffer.concat(chunks).toString("utf8").trim();
+      const stderr = Buffer.concat(errorChunks).toString("utf8").trim();
+      if (code !== 0) {
+        reject(new Error(stderr || `Remote workspace command exited ${code}.`));
+        return;
+      }
+      if (!stdout) {
+        reject(new Error("Remote workspace command returned no data."));
+        return;
+      }
+      try {
+        const result = JSON.parse(stdout) as {
+          ok: boolean;
+          error?: string;
+          data?: T;
+        };
+        if (!result.ok) {
+          reject(new Error(result.error || "Remote workspace command failed."));
+          return;
+        }
+        resolve(result.data as T);
+      } catch (error) {
+        reject(
+          new Error(
+            `Invalid remote workspace JSON response: ${
+              error instanceof Error ? error.message : String(error)
+            }: ${stdout.slice(0, 1000)}`
+          )
+        );
+      }
+    });
+
+    child.stdin.end(JSON.stringify(input));
+  });
 }
 
 const REMOTE_WORKSPACE_SCRIPT = String.raw`
@@ -824,6 +959,26 @@ def file_data(root, target, rel, max_text, max_raw, raw):
     return payload
 
 
+def write_raw_file(root, target, rel, max_raw):
+    request_stdin = sys.stdin.read()
+    payload = json.loads(request_stdin or "{}")
+    raw = base64.b64decode(payload.get("dataBase64") or "")
+    if len(raw) > max_raw:
+        raise ValueError("File is too large to upload to remote workspace.")
+    if target.exists() and target.is_dir():
+        raise ValueError("Selected workspace path is a directory.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(raw)
+    stat = target.stat()
+    return {
+        "path": rel,
+        "name": target.name,
+        "size": stat.st_size,
+        "modifiedAt": __import__("datetime").datetime.fromtimestamp(stat.st_mtime, __import__("datetime").timezone.utc).isoformat(),
+        "isFile": True,
+    }
+
+
 def main():
     request = json.loads(sys.argv[1])
     root, target, rel = safe_resolve(request.get("root") or ".", request.get("path") or "")
@@ -834,6 +989,8 @@ def main():
         return file_data(root, target, rel, int(request.get("maxTextFileSize") or 0), int(request.get("maxRawFileSize") or 0), False)
     if op == "raw":
         return file_data(root, target, rel, int(request.get("maxTextFileSize") or 0), int(request.get("maxRawFileSize") or 0), True)
+    if op == "writeRaw":
+        return write_raw_file(root, target, rel, int(request.get("maxRawFileSize") or 0))
     raise ValueError("Unknown workspace operation.")
 
 try:
@@ -845,7 +1002,8 @@ except Exception as exc:
 function withPreviewKind(entry: WorkspaceEntry): WorkspaceEntry {
   return {
     ...entry,
-    previewKind: entry.kind === "directory" ? undefined : getPreviewKind(entry.path),
+    previewKind:
+      entry.kind === "directory" ? undefined : getPreviewKind(entry.path),
   };
 }
 
@@ -918,7 +1076,11 @@ export async function readWorkspaceFileData(
     );
   }
 
-  const resolved = await resolveWorkspacePath(relativePath, resourceId, workspaceId);
+  const resolved = await resolveWorkspacePath(
+    relativePath,
+    resourceId,
+    workspaceId
+  );
   const stats = await fs.stat(resolved.absolutePath);
   if (!stats.isFile()) {
     throw new Error("Selected workspace path is not a file.");
@@ -960,7 +1122,11 @@ export async function readWorkspaceRawFile(
     };
   }
 
-  const resolved = await resolveWorkspacePath(relativePath, resourceId, workspaceId);
+  const resolved = await resolveWorkspacePath(
+    relativePath,
+    resourceId,
+    workspaceId
+  );
   const stats = await fs.stat(resolved.absolutePath);
   if (!stats.isFile()) {
     throw new Error("Selected workspace path is not a file.");
@@ -975,5 +1141,70 @@ export async function readWorkspaceRawFile(
     modifiedAt: stats.mtime.toISOString(),
     isFile: true,
     data: await fs.readFile(resolved.absolutePath),
+  };
+}
+
+async function resolveWorkspaceWritePath(
+  relativePath: string,
+  resourceId?: string | null,
+  workspaceId?: string | null
+): Promise<WorkspaceResolvedPath> {
+  const resource = getWorkspaceResource(resourceId);
+  if ((resource.backend || "local_shell") !== "local_shell") {
+    return resolveRemoteWorkspacePath(resource, relativePath);
+  }
+
+  const root = resolveLocalWorkspaceRoot(resource, workspaceId);
+  const rootReal = await fs.realpath(root);
+  const cleanPath = normalizeRelativePath(relativePath);
+  const target = path.resolve(rootReal, cleanPath);
+
+  if (target !== rootReal && !target.startsWith(`${rootReal}${path.sep}`)) {
+    throw new Error("Path is outside the workspace.");
+  }
+
+  return {
+    root: rootReal,
+    absolutePath: target,
+    relativePath: toWorkspacePath(rootReal, target),
+    resource,
+  };
+}
+
+export async function writeWorkspaceRawFile(
+  relativePath: string,
+  data: Buffer,
+  resourceId?: string | null,
+  workspaceId?: string | null
+): Promise<WorkspaceFileData> {
+  if (data.length > MAX_RAW_FILE_SIZE) {
+    throw new Error("File is too large to upload to workspace.");
+  }
+
+  const resource = getWorkspaceResource(resourceId);
+  if ((resource.backend || "local_shell") === "ssh_shell") {
+    return runRemoteWorkspacePythonWithInput<WorkspaceFileData>(
+      resource,
+      "writeRaw",
+      relativePath,
+      { dataBase64: data.toString("base64") }
+    );
+  }
+
+  const resolved = await resolveWorkspaceWritePath(
+    relativePath,
+    resourceId,
+    workspaceId
+  );
+  await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
+  await fs.writeFile(resolved.absolutePath, data);
+  const stats = await fs.stat(resolved.absolutePath);
+
+  return {
+    path: resolved.relativePath,
+    name: path.basename(resolved.relativePath),
+    size: stats.size,
+    modifiedAt: stats.mtime.toISOString(),
+    isFile: true,
   };
 }

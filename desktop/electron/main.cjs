@@ -277,6 +277,10 @@ function pythonBinary() {
   const candidates =
     process.platform === "win32"
       ? [
+          path.join(runtimeDir, "venv", "Scripts", "pythonw.exe"),
+          path.join(runtimeDir, "venv", "Scripts", "python.exe"),
+          path.join(runtimeDir, ".venv", "Scripts", "pythonw.exe"),
+          path.join(runtimeDir, ".venv", "Scripts", "python.exe"),
           path.join(runtimeDir, "pythonw.exe"),
           path.join(runtimeDir, "python.exe"),
           path.join(runtimeDir, "Scripts", "pythonw.exe"),
@@ -284,9 +288,14 @@ function pythonBinary() {
           path.join(runtimeDir, "bin", "pythonw.exe"),
           path.join(runtimeDir, "bin", "python.exe"),
         ]
-      : ["python3.12", "python3.11", "python3", "python"].map((name) =>
-          path.join(runtimeDir, "bin", name),
-        );
+      : [
+          path.join(runtimeDir, "venv", "bin", "python"),
+          path.join(runtimeDir, ".venv", "bin", "python"),
+          path.join(runtimeDir, "bin", "python3.12"),
+          path.join(runtimeDir, "bin", "python3.11"),
+          path.join(runtimeDir, "bin", "python3"),
+          path.join(runtimeDir, "bin", "python"),
+        ];
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -313,6 +322,13 @@ function nodeHostBinary() {
     }
   }
   return process.execPath;
+}
+
+function appBundlePath() {
+  if (!app.isPackaged) {
+    return "";
+  }
+  return path.resolve(path.dirname(process.execPath), "..", "..");
 }
 
 function runtimePidFile(name) {
@@ -372,6 +388,9 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
     INTERNAGENTS_BACKEND_PORT: String(backendPort),
     INTERNAGENTS_LOCAL_RUNTIME_PORT: String(runtimePort),
     INTERNAGENTS_PYTHON_BIN: pythonBinary(),
+    INTERNAGENTS_APP_BUNDLE_PATH: appBundlePath(),
+    INTERNAGENTS_APP_PID: String(process.pid),
+    INTERNAGENTS_APP_VERSION: app.getVersion(),
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONNOUSERSITE: "1",
     PYTHONUTF8: "1",
@@ -434,12 +453,9 @@ async function boot() {
 
   await startNextServer(uiPort, backendPort, runtimePort);
 
-  const configured = hasInitialConfig();
-  if (configured) {
-    await restartBackend(uiPort);
-  }
+  await restartBackend(uiPort);
 
-  const startPath = configured ? "/?assistantId=agent_local" : "/config?onboarding=1";
+  const startPath = "/?assistantId=agent_local";
   await createWindow(`http://${HOST}:${uiPort}${startPath}`);
 }
 

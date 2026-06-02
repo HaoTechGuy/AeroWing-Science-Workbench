@@ -3,22 +3,31 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ExternalLink,
-  File,
-  FileText,
   Loader2,
   PanelRight,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { WorkspaceFileResponse } from "@/app/types/workspace";
 
 interface WorkspaceViewerProps {
   selectedPath?: string | null;
   resourceId?: string;
   workspaceId?: string;
+  compact?: boolean;
+  onCollapse?: () => void;
+  onExpand?: () => void;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -69,14 +78,61 @@ function EmptyViewer() {
   return (
     <div className="flex h-full items-center justify-center px-8 text-center">
       <div className="max-w-xs">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-border bg-muted">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-md border border-border bg-card shadow-sm shadow-black/[0.025]">
           <PanelRight className="h-5 w-5 text-muted-foreground" />
         </div>
-        <h2 className="text-sm font-semibold">No file selected</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          从工作区选择 Markdown、文本、图片或 PDF 文件后，会在这里预览。
+          从工作区选择代码、文本、图片或 PDF 文件后，会在这里预览。
         </p>
       </div>
+    </div>
+  );
+}
+
+function CollapsePreviewButton({ onCollapse }: { onCollapse?: () => void }) {
+  if (!onCollapse) {
+    return null;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+          aria-label="缩小文件预览"
+          onClick={onCollapse}
+        >
+          <PanelRightClose className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={6}
+        className="whitespace-nowrap"
+      >
+        缩小文件预览
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ViewerHeader({
+  title,
+  onCollapse,
+}: {
+  title: string;
+  onCollapse?: () => void;
+}) {
+  return (
+    <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-card/90 px-4 py-2">
+      <div className="min-w-0">
+        <h2 className="truncate text-sm font-semibold leading-5">{title}</h2>
+      </div>
+      <CollapsePreviewButton onCollapse={onCollapse} />
     </div>
   );
 }
@@ -85,10 +141,14 @@ export function WorkspaceViewer({
   selectedPath,
   resourceId,
   workspaceId,
+  compact,
+  onCollapse,
+  onExpand,
 }: WorkspaceViewerProps) {
   const [file, setFile] = useState<WorkspaceFileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isOpeningFile, setIsOpeningFile] = useState(false);
 
   useEffect(() => {
     if (!selectedPath) {
@@ -129,52 +189,111 @@ export function WorkspaceViewer({
     return file?.extension ? LANGUAGE_MAP[file.extension] || "text" : "text";
   }, [file?.extension]);
 
+  async function openFileInSystemViewer() {
+    if (!file || isOpeningFile) {
+      return;
+    }
+
+    setIsOpeningFile(true);
+    try {
+      const response = await fetch("/api/workspace/open-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: file.path,
+          resourceId,
+          workspaceId,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "无法打开本地文件。");
+      }
+    } catch (openError) {
+      const message =
+        openError instanceof Error ? openError.message : "无法打开本地文件。";
+      toast.error(message);
+    } finally {
+      setIsOpeningFile(false);
+    }
+  }
+
+  if (compact) {
+    return (
+      <div className="flex h-full w-full items-start justify-center border-l border-border bg-card/70 py-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+              aria-label="展开文件预览"
+              onClick={onExpand}
+            >
+              <PanelRightOpen className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent
+            side="left"
+            align="center"
+            sideOffset={8}
+            className="whitespace-nowrap"
+          >
+            展开文件预览
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+
   if (!selectedPath) {
     return (
-      <div className="h-full bg-background">
+      <div className="flex h-full flex-col bg-card">
+        <ViewerHeader
+          title="文件预览"
+          onCollapse={onCollapse}
+        />
         <EmptyViewer />
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      <div className="flex min-h-16 items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
-            {file?.previewKind === "pdf" ? (
-              <FileText className="h-4 w-4 text-[#A83232]" />
-            ) : (
-              <File className="h-4 w-4 text-[#2F6868]" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold">
-              {file?.name || selectedPath}
-            </h2>
-            <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-              {file && <span>{formatBytes(file.size)}</span>}
-              {file?.previewKind && <span>{file.previewKind}</span>}
-            </div>
+    <div className="flex h-full flex-col bg-card">
+      <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-card/90 px-4 py-2">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="min-w-0 truncate text-sm font-semibold leading-5">
+            {file?.name || selectedPath}
+          </h2>
+          <div className="flex shrink-0 items-center gap-2 text-xs leading-4 text-muted-foreground">
+            {file && <span>{formatBytes(file.size)}</span>}
+            {file?.previewKind && <span>{file.previewKind}</span>}
           </div>
         </div>
-        {file?.rawUrl && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            asChild
-          >
-            <a
-              href={file.rawUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open raw file"
+        <div className="flex shrink-0 items-center gap-1">
+          {file?.rawUrl && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => void openFileInSystemViewer()}
+              disabled={isOpeningFile}
+              aria-label="用系统查看器打开文件"
+              title="用系统查看器打开文件"
             >
-              <ExternalLink className="h-4 w-4" />
-            </a>
-          </Button>
-        )}
+              {isOpeningFile ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ExternalLink className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+          <CollapsePreviewButton onCollapse={onCollapse} />
+        </div>
       </div>
 
       <div className="min-h-0 flex-1">
@@ -204,7 +323,7 @@ export function WorkspaceViewer({
             <img
               src={file.rawUrl}
               alt={file.name}
-              className="max-h-full max-w-full rounded-md border border-border bg-background shadow-sm"
+              className="max-h-full max-w-full rounded-md border border-border bg-card shadow-sm shadow-black/[0.025]"
             />
           </div>
         )}
@@ -227,14 +346,16 @@ export function WorkspaceViewer({
               ) : (
                 <SyntaxHighlighter
                   language={language}
-                  style={oneDark}
+                  style={oneLight}
                   showLineNumbers
                   wrapLongLines
                   customStyle={{
                     margin: 0,
+                    border: "1px solid hsl(var(--border))",
                     borderRadius: "0.5rem",
                     fontSize: "0.8125rem",
                     minHeight: "100%",
+                    background: "hsl(var(--card))",
                   }}
                 >
                   {file.content || ""}

@@ -20,6 +20,17 @@ import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { FileViewDialog } from "@/app/components/FileViewDialog";
 
+function todoStatusLabel(status: TodoItem["status"]): string {
+  switch (status) {
+    case "completed":
+      return "已完成";
+    case "in_progress":
+      return "进行中";
+    default:
+      return "待处理";
+  }
+}
+
 export function FilesPopover({
   files,
   setFiles,
@@ -175,19 +186,13 @@ export const TasksFilesSidebar = React.memo<{
     };
   }, [todos]);
 
-  const groupedLabels = {
-    pending: "Pending",
-    in_progress: "In Progress",
-    completed: "Completed",
-  };
-
   return (
     <div className="min-h-0 w-full flex-1">
       <div className="font-inter flex h-full w-full flex-col p-0">
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-2">
             <span className="text-xs font-semibold tracking-wide text-zinc-600">
-              AGENT TASKS
+              子任务
             </span>
             <button
               onClick={() => setTasksOpen((v) => !v)}
@@ -213,8 +218,8 @@ export const TasksFilesSidebar = React.memo<{
                   <div className="ml-1 p-0.5">
                     {Object.entries(groupedTodos).map(([status, todos]) => (
                       <div className="mb-4">
-                        <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-tertiary">
-                          {groupedLabels[status as keyof typeof groupedLabels]}
+                        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-tertiary">
+                          {todoStatusLabel(status as TodoItem["status"])}
                         </h3>
                         {todos.map((todo, index) => (
                           <div

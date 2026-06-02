@@ -17,22 +17,22 @@
 
   :root {
     /* App-specific color variables */
-    --color-primary: #1c3c3c;
-    --color-user-message: #076699;
-    --color-user-message-bg: #e8f4f8;
-    --color-avatar-bg: #e8ebeb;
-    --color-secondary: #1c3c3c;
+    --color-primary: #214f4d;
+    --color-user-message: #0f6b7c;
+    --color-user-message-bg: #e9f4f3;
+    --color-avatar-bg: #e5eceb;
+    --color-secondary: #214f4d;
     --color-success: #10b981;
     --color-warning: #f59e0b;
     --color-error: #ef4444;
-    --color-background: #f9f9f9;
-    --color-subagent-hover: #bbc4c4;
-    --color-surface: #f9fafb;
-    --color-border: #e5e7eb;
-    --color-border-light: #f3f4f6;
-    --color-text-primary: #111827;
-    --color-text-secondary: #6b7280;
-    --color-text-tertiary: #9ca3af;
+    --color-background: #f4f7f7;
+    --color-subagent-hover: #d7e5e3;
+    --color-surface: #fbfcfc;
+    --color-border: #dce5e5;
+    --color-border-light: #edf2f2;
+    --color-text-primary: #172424;
+    --color-text-secondary: #617172;
+    --color-text-tertiary: #91a0a1;
     --color-file-button: #ffffff;
     --color-file-button-hover: #e5e7eb;
 
@@ -104,31 +104,32 @@
     --sidebar-width: 320px;
     --sidebar-collapsed-width: 60px;
     --header-height: 64px;
+    --app-footer-height: 28px;
     --panel-width: 40vw;
     --chat-max-width: 900px;
 
     /* Tailwind/Radix UI component variables */
     --radius: 0.5rem;
-    --background: 0 0% 98%;
-    --foreground: 220 13% 13%;
+    --background: 180 20% 96%;
+    --foreground: 180 22% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 220 13% 13%;
+    --card-foreground: 180 22% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 13% 13%;
-    --primary: 180 35% 17%;
+    --popover-foreground: 180 22% 12%;
+    --primary: 177 41% 22%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 13% 91%;
-    --secondary-foreground: 220 13% 13%;
-    --muted: 220 13% 95%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 13% 95%;
-    --accent-foreground: 220 13% 13%;
+    --secondary: 180 18% 92%;
+    --secondary-foreground: 180 22% 12%;
+    --muted: 180 16% 94%;
+    --muted-foreground: 184 8% 42%;
+    --accent: 175 27% 92%;
+    --accent-foreground: 177 41% 22%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 180 35% 17%;
-    --sidebar: 220 13% 95%;
+    --border: 180 17% 88%;
+    --input: 180 17% 86%;
+    --ring: 177 41% 22%;
+    --sidebar: 180 18% 97%;
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
@@ -189,44 +190,44 @@
   }
 
   html[data-theme="light"] {
-    --color-primary: #1c3c3c;
-    --color-user-message: #076699;
-    --color-user-message-bg: #e8f4f8;
-    --color-avatar-bg: #e8ebeb;
-    --color-secondary: #1c3c3c;
+    --color-primary: #214f4d;
+    --color-user-message: #0f6b7c;
+    --color-user-message-bg: #e9f4f3;
+    --color-avatar-bg: #e5eceb;
+    --color-secondary: #214f4d;
     --color-success: #10b981;
     --color-warning: #f59e0b;
     --color-error: #ef4444;
-    --color-background: #f9f9f9;
-    --color-subagent-hover: #bbc4c4;
-    --color-surface: #f9fafb;
-    --color-border: #e5e7eb;
-    --color-border-light: #f3f4f6;
-    --color-text-primary: #111827;
-    --color-text-secondary: #6b7280;
-    --color-text-tertiary: #9ca3af;
+    --color-background: #f4f7f7;
+    --color-subagent-hover: #d7e5e3;
+    --color-surface: #fbfcfc;
+    --color-border: #dce5e5;
+    --color-border-light: #edf2f2;
+    --color-text-primary: #172424;
+    --color-text-secondary: #617172;
+    --color-text-tertiary: #91a0a1;
     --color-file-button: #ffffff;
     --color-file-button-hover: #e5e7eb;
-    --background: 0 0% 98%;
-    --foreground: 220 13% 13%;
+    --background: 180 20% 96%;
+    --foreground: 180 22% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 220 13% 13%;
+    --card-foreground: 180 22% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 13% 13%;
-    --primary: 180 35% 17%;
+    --popover-foreground: 180 22% 12%;
+    --primary: 177 41% 22%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 13% 91%;
-    --secondary-foreground: 220 13% 13%;
-    --muted: 220 13% 95%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 13% 95%;
-    --accent-foreground: 220 13% 13%;
+    --secondary: 180 18% 92%;
+    --secondary-foreground: 180 22% 12%;
+    --muted: 180 16% 94%;
+    --muted-foreground: 184 8% 42%;
+    --accent: 175 27% 92%;
+    --accent-foreground: 177 41% 22%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 180 35% 17%;
-    --sidebar: 220 13% 95%;
+    --border: 180 17% 88%;
+    --input: 180 17% 86%;
+    --ring: 177 41% 22%;
+    --sidebar: 180 18% 97%;
   }
 
   html[data-theme="dark"] {
@@ -286,6 +287,10 @@ body {
   line-height: 1.5;
   color: var(--color-text-primary);
   background-color: var(--color-background);
+  background-image:
+    linear-gradient(rgba(33, 79, 77, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 79, 77, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -414,6 +419,65 @@ button {
   border-width: 0;
 }
 
+.internagents-home {
+  --internagents-home-text-size: 0.875rem;
+  --internagents-home-caption-size: 0.75rem;
+  font-size: var(--internagents-home-text-size);
+}
+
+.internagents-home :where(
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  span,
+  a,
+  button,
+  input,
+  textarea,
+  select,
+  label,
+  li,
+  div,
+  pre,
+  code,
+  kbd,
+  samp,
+  small,
+  strong,
+  em,
+  th,
+  td
+) {
+  font-size: inherit;
+}
+
+.internagents-home.text-xs,
+.internagents-home.text-\[10px\],
+.internagents-home.text-\[11px\],
+.internagents-home.text-\[12px\],
+.internagents-home.text-\[0\.9em\],
+.internagents-home :where(.text-xs, .text-\[10px\], .text-\[11px\], .text-\[12px\], .text-\[0\.9em\]) {
+  font-size: var(--internagents-home-caption-size);
+}
+
+.internagents-home.text-sm,
+.internagents-home.text-base,
+.internagents-home.text-lg,
+.internagents-home.text-xl,
+.internagents-home.text-2xl,
+.internagents-home.text-3xl,
+.internagents-home.text-\[13px\],
+.internagents-home.text-\[14px\],
+.internagents-home.text-\[15px\],
+.internagents-home.text-\[16px\],
+.internagents-home :where(.text-sm, .text-base, .text-lg, .text-xl, .text-2xl, .text-3xl, .text-\[13px\], .text-\[14px\], .text-\[15px\], .text-\[16px\]) {
+  font-size: var(--internagents-home-text-size);
+}
+
 /* Optimization Window animations */
 @keyframes fadeIn {
   from {
@@ -474,4 +538,279 @@ button {
   font-weight: 600;
   text-decoration: line-through;
   text-decoration-color: #f85149;
+}
+
+
+.water-ripple-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  overflow: hidden;
+  isolation: isolate;
+  contain: layout paint style;
+  background:
+    radial-gradient(circle at 50% 48%, hsl(0 0% 100% / 0.56), transparent 34%),
+    radial-gradient(circle at 50% 56%, hsl(191 74% 50% / 0.1), transparent 52%),
+    linear-gradient(
+      135deg,
+      hsl(var(--background) / 0.94),
+      hsl(var(--card) / 0.9)
+    );
+  animation: waterRippleIntroFade 1180ms cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}
+
+.water-ripple-intro__field,
+.water-ripple-intro__caustics,
+.water-ripple-intro__lens,
+.water-ripple-intro__ring,
+.water-ripple-intro__flash,
+.water-ripple-intro__brand {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  will-change: opacity, transform;
+}
+
+.water-ripple-intro__field {
+  width: min(86vmax, 980px);
+  height: min(86vmax, 980px);
+  background:
+    radial-gradient(circle, transparent 0 26%, hsl(191 74% 44% / 0.16) 27% 28%, transparent 29% 42%, hsl(var(--foreground) / 0.1) 43% 44%, transparent 45% 100%),
+    radial-gradient(circle, hsl(0 0% 100% / 0.26), transparent 58%);
+  opacity: 0;
+  animation: waterRippleField 1080ms cubic-bezier(0.2, 0.9, 0.14, 1) forwards;
+}
+
+.water-ripple-intro__caustics {
+  width: min(70vmax, 820px);
+  height: min(70vmax, 820px);
+  border-radius: 0;
+  background:
+    linear-gradient(115deg, transparent 0 31%, hsl(0 0% 100% / 0.34) 33%, transparent 39% 100%),
+    linear-gradient(64deg, transparent 0 42%, hsl(191 74% 46% / 0.12) 45%, transparent 51% 100%);
+  opacity: 0;
+  animation: waterRippleCaustics 1120ms ease-out forwards;
+}
+
+.water-ripple-intro__lens {
+  width: min(42vmax, 620px);
+  height: min(42vmax, 620px);
+  background:
+    radial-gradient(circle, hsl(0 0% 100% / 0.46) 0%, hsl(191 74% 48% / 0.08) 36%, transparent 68%);
+  box-shadow: inset 0 0 42px hsl(0 0% 100% / 0.3);
+  opacity: 0;
+  animation: waterRippleLens 1040ms cubic-bezier(0.18, 1, 0.24, 1) forwards;
+}
+
+.water-ripple-intro__ring {
+  width: min(40vmax, 620px);
+  height: min(40vmax, 620px);
+  border: 1px solid hsl(191 74% 42% / 0.24);
+  background: transparent;
+  box-shadow: 0 0 0 1px hsl(0 0% 100% / 0.32) inset;
+  opacity: 0;
+  animation: waterRippleNeonRing 980ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.water-ripple-intro__ring--one {
+  animation-delay: 0ms;
+}
+
+.water-ripple-intro__ring--two {
+  animation-delay: 90ms;
+}
+
+.water-ripple-intro__ring--three {
+  animation-delay: 180ms;
+}
+
+.water-ripple-intro__ring--four {
+  animation-delay: 270ms;
+}
+
+.water-ripple-intro__flash {
+  width: min(18vmax, 240px);
+  height: min(18vmax, 240px);
+  background: radial-gradient(circle, hsl(0 0% 100% / 0.44), transparent 68%);
+  opacity: 0;
+  animation: waterRippleFlash 520ms ease-out forwards;
+}
+
+.water-ripple-intro__brand {
+  display: flex;
+  width: min(72vw, 680px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border-radius: 0;
+  color: hsl(var(--foreground) / 0.92);
+  text-align: center;
+  text-shadow:
+    0 1px 0 hsl(0 0% 100% / 0.5),
+    0 10px 28px hsl(var(--foreground) / 0.12);
+  opacity: 0;
+  animation: waterRippleBrand 1120ms cubic-bezier(0.2, 0.9, 0.18, 1) forwards;
+}
+
+.water-ripple-intro__title {
+  font-size: clamp(2.6rem, 8vw, 7rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: 0;
+}
+
+.water-ripple-intro__subtitle {
+  font-size: clamp(0.9rem, 2vw, 1.35rem);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: hsl(var(--foreground) / 0.58);
+}
+
+@keyframes waterRippleIntroFade {
+  0% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes waterRippleField {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.58);
+  }
+  42% {
+    opacity: 0.76;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.14);
+  }
+}
+
+@keyframes waterRippleCaustics {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72) rotate(-8deg);
+  }
+  18% {
+    opacity: 0.5;
+  }
+  52% {
+    opacity: 0.32;
+    transform: translate(-50%, -50%) scale(0.98) rotate(4deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.16) rotate(8deg);
+  }
+}
+
+@keyframes waterRippleLens {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+  16% {
+    opacity: 0.78;
+    transform: translate(-50%, -50%) scale(0.94);
+  }
+  38% {
+    opacity: 0.44;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.28);
+  }
+}
+
+@keyframes waterRippleNeonRing {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.18);
+  }
+  10% {
+    opacity: 0.88;
+  }
+  32% {
+    opacity: 0.58;
+  }
+  72% {
+    opacity: 0.24;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.1);
+  }
+}
+
+@keyframes waterRippleFlash {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.18);
+  }
+  18% {
+    opacity: 0.82;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.22);
+  }
+}
+
+@keyframes waterRippleBrand {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  54% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .water-ripple-intro {
+    background: hsl(var(--background) / 0.16);
+    animation: waterRippleIntroReduced 220ms ease-out forwards;
+  }
+
+  .water-ripple-intro__field,
+  .water-ripple-intro__caustics,
+  .water-ripple-intro__lens,
+  .water-ripple-intro__ring,
+  .water-ripple-intro__flash {
+    display: none;
+  }
+
+  .water-ripple-intro__brand {
+    animation: waterRippleIntroReduced 220ms ease-out forwards;
+  }
+}
+
+@keyframes waterRippleIntroReduced {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 0;
+  }
 }

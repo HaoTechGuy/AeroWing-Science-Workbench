@@ -9,7 +9,14 @@ import {
   useState,
 } from "react";
 import { format } from "date-fns";
-import { Archive, Loader2, MessageSquare, SquarePen, X } from "lucide-react";
+import {
+  Archive,
+  Loader2,
+  MessageSquare,
+  PanelLeftClose,
+  SquarePen,
+  X,
+} from "lucide-react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -90,6 +97,7 @@ interface ThreadListProps {
   onNewThread?: () => void;
   onMutateReady?: (mutate: () => void) => void;
   onClose?: () => void;
+  onCollapse?: () => void;
   onInterruptCountChange?: (count: number) => void;
   resourceId?: string;
   runtimeUrl?: string;
@@ -102,6 +110,7 @@ export function ThreadList({
   onNewThread,
   onMutateReady,
   onClose,
+  onCollapse,
   onInterruptCountChange,
   resourceId,
   runtimeUrl,
@@ -227,18 +236,39 @@ export function ThreadList({
   );
 
   return (
-    <div className="absolute inset-0 flex flex-col">
+    <div className="absolute inset-0 flex flex-col bg-sidebar">
       {/* Header with title and actions */}
-      <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold tracking-tight">
-            会话
+      <div className="flex min-h-11 flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-card/60 px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {onCollapse && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={onCollapse}
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                  aria-label="缩小会话"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="center"
+                sideOffset={6}
+                className="whitespace-nowrap"
+              >
+                缩小会话
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <h2 className="truncate text-sm font-semibold leading-none tracking-tight text-foreground">
+            项目会话
           </h2>
-          <p className="truncate text-xs text-muted-foreground">
-            项目对话记录
-          </p>
         </div>
-        <div className="ml-auto flex items-center justify-end gap-2">
+        <div className="ml-auto flex items-center justify-end gap-1">
           {onNewThread && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -246,7 +276,7 @@ export function ThreadList({
                   variant="ghost"
                   size="icon"
                   onClick={onNewThread}
-                  className="h-8 w-8 shrink-0 hover:text-[#2F6868]"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
                   aria-label="新建会话"
                 >
                   <SquarePen className="h-4 w-4" />
@@ -256,7 +286,7 @@ export function ThreadList({
                 side="bottom"
                 align="center"
                 sideOffset={6}
-                className="whitespace-nowrap px-2 py-1"
+                className="whitespace-nowrap"
               >
                 新建会话
               </TooltipContent>
@@ -267,7 +297,7 @@ export function ThreadList({
               variant="ghost"
               size="icon"
               onClick={onClose}
-              className="h-8 w-8"
+              className="h-7 w-7 text-muted-foreground hover:text-primary"
               aria-label="关闭会话侧栏"
             >
               <X className="h-4 w-4" />
@@ -286,7 +316,7 @@ export function ThreadList({
         {!threads.error && !threads.isLoading && isEmpty && <EmptyState />}
 
         {!threads.error && !isEmpty && (
-          <div className="box-border w-full max-w-full overflow-hidden px-4 py-1.5">
+          <div className="box-border w-full max-w-full overflow-hidden px-4 py-2">
             {(
               Object.keys(GROUP_LABELS) as Array<keyof typeof GROUP_LABELS>
             ).map((group) => {
@@ -298,7 +328,7 @@ export function ThreadList({
                   key={group}
                   className="mb-2"
                 >
-                  <h4 className="m-0 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <h4 className="m-0 px-2 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     {GROUP_LABELS[group]}
                   </h4>
                   <div className="flex flex-col gap-0.5">
@@ -307,10 +337,10 @@ export function ThreadList({
                         key={thread.id}
                         className={cn(
                           "group/thread flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-md pr-1 transition-colors duration-200",
-                          "hover:bg-accent",
+                          "border hover:border-border hover:bg-card",
                           currentThreadId === thread.id
-                            ? "border border-primary bg-accent hover:bg-accent"
-                            : "border border-transparent bg-transparent"
+                            ? "border-primary/30 bg-primary/10 hover:bg-primary/10"
+                            : "border-transparent bg-transparent"
                         )}
                       >
                         <button
@@ -322,10 +352,10 @@ export function ThreadList({
                           <div className="w-full min-w-0 overflow-hidden">
                             {/* Title + Timestamp Row */}
                             <div className="mb-0.5 flex min-w-0 items-center justify-between gap-2">
-                              <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5">
+                              <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-5 text-foreground">
                                 {thread.title}
                               </h3>
-                              <span className="shrink-0 text-[11px] text-muted-foreground">
+                              <span className="shrink-0 text-xs text-muted-foreground">
                                 {formatTime(thread.updatedAt)}
                               </span>
                             </div>
@@ -354,7 +384,7 @@ export function ThreadList({
                               onClick={(event) => archiveThread(thread, event)}
                               disabled={archivingThreadId === thread.id}
                               className={cn(
-                                "h-7 w-7 shrink-0 text-muted-foreground opacity-70 transition-opacity hover:text-[#2F6868] hover:opacity-100",
+                                "h-7 w-7 shrink-0 text-muted-foreground opacity-70 transition-opacity hover:text-primary hover:opacity-100",
                                 currentThreadId === thread.id && "opacity-100"
                               )}
                               aria-label={`归档会话 ${thread.title}`}
@@ -367,12 +397,12 @@ export function ThreadList({
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent
-                            side="bottom"
+                            side="right"
                             align="center"
-                            sideOffset={6}
-                            className="whitespace-nowrap px-2 py-1"
+                            sideOffset={8}
+                            className="whitespace-nowrap"
                           >
-                            归档：隐藏，不删除
+                            归档会话
                           </TooltipContent>
                         </Tooltip>
                       </div>

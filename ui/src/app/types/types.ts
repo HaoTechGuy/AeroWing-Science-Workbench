@@ -44,9 +44,11 @@ export interface ChatAttachment {
   name: string;
   mimeType: string;
   size: number;
-  kind: "image" | "text" | "file";
+  kind: "image" | "text" | "pdf" | "file";
   dataUrl?: string;
   text?: string;
+  workspacePath?: string;
+  pageCount?: number;
   truncated?: boolean;
   error?: string;
 }

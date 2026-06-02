@@ -32,9 +32,19 @@ from goal_middleware import GoalContextMiddleware, goal_system_prompt
 from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
+from mineru_middleware import PdfMinerUMiddleware
 from ssh_backend import SshShellBackend
 
-load_dotenv(ROOT_DIR / ".env")
+
+def _load_environment() -> None:
+    env_file = os.getenv("INTERNAGENT_ENV_FILE")
+    if env_file:
+        load_dotenv(Path(env_file).expanduser())
+        return
+    load_dotenv(ROOT_DIR / ".env")
+
+
+_load_environment()
 
 
 def _env_value(name: str) -> str | None:
@@ -62,10 +72,29 @@ def _env_positive_int(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+def _config_model() -> str | None:
+    try:
+        config = json.loads(DEFAULT_CONFIG_FILE.read_text())
+    except Exception:
+        return None
+
+    if config.get("openrouter_direct_enabled") is True:
+        model = config.get("openrouter_model")
+    elif config.get("model_selection_mode") == "manual":
+        model = config.get("manual_model")
+    else:
+        model = "openrouter/auto"
+    return model.strip() if isinstance(model, str) and model.strip() else None
+
+
 def _resolve_model() -> str:
     explicit_model = _env_value("DEEPAGENT_MODEL")
     if explicit_model:
         return explicit_model
+
+    config_model = _config_model()
+    if config_model:
+        return f"openrouter:{config_model}"
 
     provider = _env_value("LLM_PROVIDER")
     model = _env_value("LLM_MODEL")
@@ -590,6 +619,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     backend = _create_backend_for_resource(resource)
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
+    middleware.append(PdfMinerUMiddleware(backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
@@ -653,6 +683,7 @@ def create_runtime_agent():  # noqa: ANN201
     middleware = list(agent_config.get("middleware") or [])
     if runtime_resource is not None and runtime_resource.kb_path:
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
+    middleware.append(PdfMinerUMiddleware(backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
@@ -667,10 +698,18 @@ def create_runtime_agent():  # noqa: ANN201
 
 
 def create_missing_resource_agent(resource_id: str):  # noqa: ANN201
-    async def missing_resource(
+    async def resolve_or_missing_resource(
         state: InternAgentState,
         config: RunnableConfig,
     ) -> dict[str, Any]:
+        try:
+            _, resources = load_resource_config()
+            resource = resources.get(resource_id)
+        except Exception:
+            resource = None
+        if resource is not None:
+            agent_for_resource = create_agent_for_resource(resource)
+            return await agent_for_resource.ainvoke(state, config=config)
         raise ValueError(
             f"Resource {resource_id!r} is not configured. "
             "Create an untracked resource config and point "
@@ -678,9 +717,9 @@ def create_missing_resource_agent(resource_id: str):  # noqa: ANN201
         )
 
     graph = StateGraph(InternAgentState)
-    graph.add_node("missing_resource", missing_resource)
-    graph.add_edge(START, "missing_resource")
-    graph.add_edge("missing_resource", END)
+    graph.add_node("resolve_or_missing_resource", resolve_or_missing_resource)
+    graph.add_edge(START, "resolve_or_missing_resource")
+    graph.add_edge("resolve_or_missing_resource", END)
     return graph.compile()
 
 
@@ -697,6 +736,12 @@ if (_env_value("INTERNAGENT_PROCESS_ROLE") or "").lower() == "runtime":
     agent_local = agent
     agent_remote1 = agent
     agent_remote2 = agent
+    agent_remote3 = agent
+    agent_remote4 = agent
+    agent_remote5 = agent
+    agent_remote6 = agent
+    agent_remote7 = agent
+    agent_remote8 = agent
 else:
     _default_resource_id, _resource_agents = _build_resource_agents()
 
@@ -710,4 +755,22 @@ else:
     )
     agent_remote2 = _resource_agents.get("remote2") or create_missing_resource_agent(
         "remote2"
+    )
+    agent_remote3 = _resource_agents.get("remote3") or create_missing_resource_agent(
+        "remote3"
+    )
+    agent_remote4 = _resource_agents.get("remote4") or create_missing_resource_agent(
+        "remote4"
+    )
+    agent_remote5 = _resource_agents.get("remote5") or create_missing_resource_agent(
+        "remote5"
+    )
+    agent_remote6 = _resource_agents.get("remote6") or create_missing_resource_agent(
+        "remote6"
+    )
+    agent_remote7 = _resource_agents.get("remote7") or create_missing_resource_agent(
+        "remote7"
+    )
+    agent_remote8 = _resource_agents.get("remote8") or create_missing_resource_agent(
+        "remote8"
     )
