@@ -11,23 +11,24 @@ permissions:
 env:
   # Public release-only repository. The source repository only triggers CI.
   INTERNAGENTS_RELEASE_REPO: shuyuehu/InternAgents
+  INTERNAGENTS_RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
-  release:
-    runs-on: macos-14
+  build:
+    name: Build macOS DMG (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x64
+            runner: macos-15-intel
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
-      - name: Require cross-repository release token
-        env:
-          INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
-        run: |
-          if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions."
-            exit 1
-          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -115,25 +116,56 @@ jobs:
           npm --prefix ui run build
 
       - name: Build macOS DMG
+        env:
+          INTERNAGENTS_DESKTOP_ARCH: ${{ matrix.arch }}
         run: npm --prefix desktop run build
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: internagents-dmg-${{ matrix.arch }}
+          path: desktop/release/InternAgents-*-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+
+  release:
+    name: Publish binary release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require cross-repository release token
+        env:
+          INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
+            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Download DMG artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: internagents-dmg-*
+          path: release-assets
+          merge-multiple: true
 
       - name: Publish binary release
         env:
           GH_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
         run: |
           shopt -s nullglob
-          dmg_assets=(desktop/release/InternAgents-*.dmg)
-          if [ "${#dmg_assets[@]}" -ne 1 ]; then
-            printf 'Expected exactly one DMG, found %s:\n' "${#dmg_assets[@]}"
+          dmg_assets=(release-assets/InternAgents-*.dmg)
+          if [ "${#dmg_assets[@]}" -ne 2 ]; then
+            printf 'Expected exactly two DMGs, found %s:\n' "${#dmg_assets[@]}"
             printf '  %s\n' "${dmg_assets[@]}"
             exit 1
           fi
 
-          DMG_PATH="${dmg_assets[0]}"
           NOTES="InternAgents macOS App release ${INTERNAGENTS_RELEASE_TAG}
 
           Source tag: ${GITHUB_REF_NAME}
-          Source commit: ${GITHUB_SHA}"
+          Source commit: ${GITHUB_SHA}
+          Assets: arm64 Apple Silicon DMG and x64 Intel DMG"
 
           if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
             existing_assets="$(gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" --json assets --jq '.assets[].name')"
@@ -143,7 +175,7 @@ jobs:
             done <<< "$existing_assets"
 
             gh release upload "$INTERNAGENTS_RELEASE_TAG" \
-              "$DMG_PATH" \
+              "${dmg_assets[@]}" \
               --repo "$INTERNAGENTS_RELEASE_REPO" \
               --clobber
             gh release edit "$INTERNAGENTS_RELEASE_TAG" \
@@ -153,7 +185,7 @@ jobs:
               --latest
           else
             gh release create "$INTERNAGENTS_RELEASE_TAG" \
-              "$DMG_PATH" \
+              "${dmg_assets[@]}" \
               --repo "$INTERNAGENTS_RELEASE_REPO" \
               --title "$INTERNAGENTS_RELEASE_TAG" \
               --notes "$NOTES" \

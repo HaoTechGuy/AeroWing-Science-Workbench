@@ -198,7 +198,7 @@ shuyuehu/InternAgents
 Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
 a public release-only repository. The source repository can stay private; the
 release repository only needs GitHub Releases with assets named like
-`InternAgents-0.1.1-arm64.dmg`.
+`InternAgents-0.1.1-arm64.dmg` and `InternAgents-0.1.1-x64.dmg`.
 
 The browser never receives a shell command or user-provided repository URL. It
 calls local Next.js API routes under `/api/update/*`; those routes are the only
@@ -215,9 +215,10 @@ git push origin v0.1.1
 ```
 
 The workflow uses that tag as the App version, runs on macOS, validates Python
-files, lints and builds the UI, builds the DMG, clears any existing uploaded
-release assets, and uploads one DMG asset to `shuyuehu/InternAgents`. If the
-workflow runs in a private source repository, set:
+files, lints and builds the UI, builds the architecture-specific DMGs, clears
+any existing uploaded release assets, and uploads both DMGs to
+`shuyuehu/InternAgents`. If the workflow runs in a private source repository,
+set:
 
 ```text
 Repository secret:   INTERNAGENTS_RELEASE_TOKEN=<PAT with contents:write on that repo>
@@ -297,13 +298,19 @@ http://127.0.0.1:3000/?assistantId=agent
 
 The desktop packaging entrypoint lives in `desktop/`. It builds the Next.js UI
 as a standalone server, copies an InternAgents runtime template, bundles a
-Python runtime, and asks `electron-builder` to produce an Apple Silicon DMG.
+Python runtime, and asks `electron-builder` to produce a macOS DMG for the
+current machine architecture.
 
 ```bash
 cd desktop
 npm install
 npm run build
 ```
+
+To build a specific architecture, run `npm run build:arm64` for Apple Silicon
+or `npm run build:x64` for Intel. The bundled Python runtime must match the
+target architecture, so the release workflow builds each DMG on a matching
+GitHub-hosted macOS runner.
 
 By default `desktop/scripts/prepare-dist.mjs` copies `.conda` as the bundled
 Python runtime, falling back to `.venv`. To use a prepared portable runtime,
@@ -358,9 +365,10 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-The GitHub Actions workflow builds the macOS DMG and publishes it to the public
-release repository `shuyuehu/InternAgents`. Because the workflow runs in the
-source repository, configure the cross-repository token there:
+The GitHub Actions workflow builds Apple Silicon (`arm64`) and Intel (`x64`)
+macOS DMGs and publishes them to the public release repository
+`shuyuehu/InternAgents`. Because the workflow runs in the source repository,
+configure the cross-repository token there:
 
 ```text
 qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions

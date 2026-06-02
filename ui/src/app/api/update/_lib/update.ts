@@ -405,15 +405,22 @@ function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
     arch === "arm64" ? ["arm64", "aarch64", "apple-silicon", "silicon"] : ["x64", "x86_64", "amd64", "intel"];
   const otherTokens =
     arch === "arm64" ? ["x64", "x86_64", "amd64", "intel"] : ["arm64", "aarch64", "apple-silicon", "silicon"];
+  const hasWantedToken = wantedTokens.some((token) => lowerName.includes(token));
+  const hasOtherToken = otherTokens.some((token) => lowerName.includes(token));
+
+  if (hasOtherToken && !hasWantedToken) {
+    return -1;
+  }
+
   let score = 0;
 
   if (lowerName.includes("internagents")) {
     score += 100;
   }
-  if (wantedTokens.some((token) => lowerName.includes(token))) {
+  if (hasWantedToken) {
     score += 80;
   }
-  if (otherTokens.some((token) => lowerName.includes(token))) {
+  if (hasOtherToken) {
     score -= 80;
   }
   if (lowerName.includes(normalizeVersion(tagName).toLowerCase()) || lowerName.includes(tagName.toLowerCase())) {
