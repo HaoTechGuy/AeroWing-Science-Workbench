@@ -29,19 +29,24 @@ function targetArch() {
 }
 
 function run(command, args) {
-  const executable =
-    process.platform === "win32" && !path.extname(command) ? `${command}.cmd` : command;
-  const result = spawnSync(executable, args, {
+  const result = spawnSync(command, args, {
     cwd: desktopDir,
     stdio: "inherit",
     shell: false,
   });
   if (result.status !== 0) {
     if (result.error) {
-      throw new Error(`${executable} ${args.join(" ")} failed: ${result.error.message}`);
+      throw new Error(`${command} ${args.join(" ")} failed: ${result.error.message}`);
     }
     throw new Error(`${command} ${args.join(" ")} failed`);
   }
+}
+
+function runElectronBuilder(args) {
+  run(process.execPath, [
+    path.join(desktopDir, "node_modules", "electron-builder", "cli.js"),
+    ...args,
+  ]);
 }
 
 async function walk(directory, visit) {
@@ -87,7 +92,7 @@ async function assertWindowsArtifact(target, arch) {
 }
 
 async function buildTargets(targets, arch) {
-  run("electron-builder", ["--win", ...targets, `--${arch}`]);
+  runElectronBuilder(["--win", ...targets, `--${arch}`]);
   for (const target of targets) {
     if (target !== "dir") {
       await assertWindowsArtifact(target, arch);
