@@ -485,8 +485,8 @@ export function RemoteConnectionDialog({
         </div>
 
         <div className="rounded-lg border border-border bg-muted/30 p-3">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+            <div className="min-w-0 space-y-1">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <ShieldCheck className="h-4 w-4 text-[#2F6868]" />
                 同步模型配置到远端
@@ -499,6 +499,7 @@ export function RemoteConnectionDialog({
             <Switch
               checked={copyEnv}
               onCheckedChange={setCopyEnv}
+              aria-label="同步模型配置到远端"
             />
           </div>
         </div>
