@@ -3,3 +3,4 @@ langchain-openai
 langchain-openrouter>=0.2.0
 langgraph-cli[inmem]
 python-dotenv
+socksio
