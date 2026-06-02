@@ -25,6 +25,7 @@ class ResourceConfig:
     kb_path: str | None = None
     kb_command: str = "kb"
     remote_url: str | None = None
+    remote_runtime_port: int | None = None
     remote_assistant_id: str | None = None
     timeout: int = 120
     max_output_bytes: int = 100_000
@@ -114,6 +115,11 @@ def load_resource_config() -> tuple[str, dict[str, ResourceConfig]]:
             kb_path=(str(item.get("kb_path")).strip() if item.get("kb_path") else None),
             kb_command=str(item.get("kb_command") or "kb"),
             remote_url=(str(item.get("remote_url")).strip() if item.get("remote_url") else None),
+            remote_runtime_port=(
+                int(item.get("remote_runtime_port"))
+                if item.get("remote_runtime_port")
+                else None
+            ),
             remote_assistant_id=(
                 str(item.get("remote_assistant_id")).strip()
                 if item.get("remote_assistant_id")

@@ -25,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import type { ResourceConfig } from "@/lib/config";
 
 type ConnectionMode = "sshConfig" | "sshCommand";
+type RemoteInstallMode = "auto" | "venv" | "pythonPath" | "conda";
 
 interface SshHostEntry {
   host: string;
@@ -91,6 +92,9 @@ export function RemoteConnectionDialog({
   const [workspace, setWorkspace] = useState("");
   const [localPort, setLocalPort] = useState("");
   const [copyEnv, setCopyEnv] = useState(false);
+  const [installMode, setInstallMode] = useState<RemoteInstallMode>("auto");
+  const [pythonPath, setPythonPath] = useState("");
+  const [condaCommand, setCondaCommand] = useState("");
   const [loadingHosts, setLoadingHosts] = useState(false);
   const [testing, setTesting] = useState(false);
   const [settingUp, setSettingUp] = useState(false);
@@ -121,11 +125,15 @@ export function RemoteConnectionDialog({
 
   const connectionReady =
     connectionMode === "sshConfig" ? selectedHost.trim() : sshCommand.trim();
+  const installReady =
+    installMode !== "pythonPath" || Boolean(pythonPath.trim());
   const canSubmit = useMemo(
     () =>
-      Boolean(connectionReady && label.trim() && workspace.trim()) &&
+      Boolean(
+        connectionReady && label.trim() && workspace.trim() && installReady
+      ) &&
       !settingUp,
-    [connectionReady, label, settingUp, workspace]
+    [connectionReady, installReady, label, settingUp, workspace]
   );
 
   function switchConnectionMode(mode: ConnectionMode) {
@@ -203,6 +211,9 @@ export function RemoteConnectionDialog({
           workspace,
           localPort: Number.isFinite(port) && port > 0 ? port : undefined,
           copyEnv,
+          installMode,
+          pythonPath: pythonPath.trim() || undefined,
+          condaCommand: condaCommand.trim() || undefined,
         }),
       });
       const contentType = response.headers.get("content-type") || "";
@@ -412,6 +423,64 @@ export function RemoteConnectionDialog({
             <p className="text-xs text-muted-foreground">
               通常无需填写，系统会自动选择可用端口。只有需要固定端口时再手动填写。
             </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-3">
+          <div className="mb-3">
+            <div className="text-sm font-semibold">高级安装选项</div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              默认自动检测远端 python3 + venv；不可用时会尝试你填写的 Python
+              路径或 Conda/Mamba。
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
+            <div className="space-y-2">
+              <Label>安装方式</Label>
+              <Select
+                value={installMode}
+                onValueChange={(value) =>
+                  setInstallMode(value as RemoteInstallMode)
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">自动检测</SelectItem>
+                  <SelectItem value="venv">系统 python3 + venv</SelectItem>
+                  <SelectItem value="pythonPath">指定 Python</SelectItem>
+                  <SelectItem value="conda">Conda/Mamba</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="remote-python-path">
+                自定义 Python 路径
+                {installMode === "pythonPath" ? "" : "（可选）"}
+              </Label>
+              <Input
+                id="remote-python-path"
+                value={pythonPath}
+                onChange={(event) => setPythonPath(event.target.value)}
+                placeholder="/opt/python3.12/bin/python3"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="remote-conda-command">
+                Conda/Mamba 命令路径（可选）
+              </Label>
+              <Input
+                id="remote-conda-command"
+                value={condaCommand}
+                onChange={(event) => setCondaCommand(event.target.value)}
+                placeholder="mamba 或 /opt/conda/bin/conda"
+              />
+              <p className="text-xs leading-5 text-muted-foreground">
+                自动模式下，venv 不可用时会优先使用这里填写的命令；未填写则依次检测
+                mamba 和 conda。
+              </p>
+            </div>
           </div>
         </div>
 

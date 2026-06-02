@@ -23,14 +23,14 @@ def _is_running(pid: int) -> bool:
 
 
 def _write_runtime_config(
-    install_dir: Path,
+    state_dir: Path,
     *,
     resource_id: str,
     label: str,
     workspace: str,
     remote_url: str,
 ) -> Path:
-    config_path = install_dir / "internagent.runtime.local.json"
+    config_path = state_dir / "internagent.runtime.local.json"
     config = {
         "default_resource": resource_id,
         "resources": [
@@ -49,21 +49,41 @@ def _write_runtime_config(
     return config_path
 
 
-def _ensure_env_points_to_runtime_config(install_dir: Path) -> None:
-    env_path = install_dir / ".env"
-    key = "INTERNAGENT_RESOURCES_FILE"
-    lines = env_path.read_text().splitlines() if env_path.exists() else []
-    next_lines: list[str] = []
-    seen = False
-    for line in lines:
-        if line.strip().startswith(f"{key}="):
-            next_lines.append(f'{key}="internagent.runtime.local.json"')
-            seen = True
-        else:
-            next_lines.append(line)
-    if not seen:
-        next_lines.append(f'{key}="internagent.runtime.local.json"')
-    env_path.write_text("\n".join(next_lines).rstrip() + "\n")
+def _state_dir(args: argparse.Namespace, install_dir: Path) -> Path:
+    value = getattr(args, "state_dir", None)
+    if value:
+        return Path(value).expanduser().resolve()
+    return install_dir
+
+
+def _runtime_pid_file(state_dir: Path, resource_id: str) -> Path:
+    return state_dir / ".internagents" / "pids" / f"runtime-{resource_id}.pid"
+
+
+def _state_env(state_dir: Path) -> dict[str, str]:
+    env_path = state_dir / ".env"
+    if not env_path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for line in env_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, separator, value = stripped.partition("=")
+        if separator != "=":
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if (
+            len(value) >= 2
+            and value[0] == value[-1]
+            and value[0] in {'"', "'"}
+        ):
+            value = value[1:-1]
+        values[key] = value
+    return values
 
 
 def _wait_for_health(url: str, timeout_seconds: int) -> None:
@@ -81,26 +101,27 @@ def _wait_for_health(url: str, timeout_seconds: int) -> None:
 
 def _start_runtime(args: argparse.Namespace) -> int:
     install_dir = Path(args.install_dir).expanduser().resolve()
+    state_dir = _state_dir(args, install_dir)
     workspace = Path(args.workspace).expanduser()
     install_dir.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
     workspace.mkdir(parents=True, exist_ok=True)
 
     remote_url = f"http://{args.host}:{args.port}"
-    _write_runtime_config(
-        install_dir,
+    config_path = _write_runtime_config(
+        state_dir,
         resource_id=args.resource_id,
         label=args.label,
         workspace=str(workspace.resolve(strict=False)),
         remote_url=remote_url,
     )
-    _ensure_env_points_to_runtime_config(install_dir)
 
-    runtime_dir = install_dir / ".internagents"
+    runtime_dir = state_dir / ".internagents"
     log_dir = runtime_dir / "logs"
     pid_dir = runtime_dir / "pids"
     log_dir.mkdir(parents=True, exist_ok=True)
     pid_dir.mkdir(parents=True, exist_ok=True)
-    pid_file = pid_dir / f"runtime-{args.resource_id}.pid"
+    pid_file = _runtime_pid_file(state_dir, args.resource_id)
     log_file = log_dir / f"runtime-{args.resource_id}.log"
 
     if pid_file.exists():
@@ -114,9 +135,12 @@ def _start_runtime(args: argparse.Namespace) -> int:
             return 0
 
     env = {
+        **_state_env(state_dir),
         **os.environ,
         "INTERNAGENT_PROCESS_ROLE": "runtime",
         "INTERNAGENT_RUNTIME_ID": args.resource_id,
+        "INTERNAGENT_ENV_FILE": str(state_dir / ".env"),
+        "INTERNAGENT_RESOURCES_FILE": str(config_path),
     }
     command = [
         sys.executable,
@@ -150,7 +174,8 @@ def _start_runtime(args: argparse.Namespace) -> int:
 
 def _stop_runtime(args: argparse.Namespace) -> int:
     install_dir = Path(args.install_dir).expanduser().resolve()
-    pid_file = install_dir / ".internagents" / "pids" / f"runtime-{args.resource_id}.pid"
+    state_dir = _state_dir(args, install_dir)
+    pid_file = _runtime_pid_file(state_dir, args.resource_id)
     if not pid_file.exists():
         print("runtime pid file not found")
         return 0
@@ -179,6 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     start = runtime_subcommands.add_parser("start")
     start.add_argument("--install-dir", required=True)
+    start.add_argument("--state-dir")
     start.add_argument("--resource-id", required=True)
     start.add_argument("--label", required=True)
     start.add_argument("--workspace", required=True)
@@ -189,6 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     stop = runtime_subcommands.add_parser("stop")
     stop.add_argument("--install-dir", required=True)
+    stop.add_argument("--state-dir")
     stop.add_argument("--resource-id", required=True)
     stop.set_defaults(func=_stop_runtime)
 
