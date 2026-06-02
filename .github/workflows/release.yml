@@ -163,8 +163,11 @@ jobs:
 
           NOTES="InternAgents macOS App release ${INTERNAGENTS_RELEASE_TAG}
 
+          Release highlights:
+          - macOS desktop app packaged for Apple Silicon and Intel Macs.
+          - Auto-update assets are published separately by architecture.
+
           Source tag: ${GITHUB_REF_NAME}
-          Source commit: ${GITHUB_SHA}
           Assets: arm64 Apple Silicon DMG and x64 Intel DMG"
 
           if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
