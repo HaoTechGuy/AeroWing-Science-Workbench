@@ -665,7 +665,9 @@ async function fetchLatestRelease(): Promise<UpdateReleaseInfo> {
             fallbackError instanceof Error
               ? fallbackError.message
               : "公开 Release 页面回退检查失败。";
-          throw new Error(`${apiError} 公开 Release 回退也失败：${fallbackMessage}`);
+          throw new Error(`${apiError} 公开 Release 回退也失败：${fallbackMessage}`, {
+            cause: fallbackError,
+          });
         }
       }
       throw new Error(apiError);

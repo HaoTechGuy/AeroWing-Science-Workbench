@@ -100,7 +100,7 @@ def _config_model() -> str | None:
     elif config.get("model_selection_mode") == "manual":
         model = config.get("manual_model")
     else:
-        model = "openrouter/auto"
+        model = "deepseek-v4-flash"
     return model.strip() if isinstance(model, str) and model.strip() else None
 
 
@@ -151,7 +151,7 @@ def _resolve_model() -> str:
     if provider == "openrouter" and model:
         return f"openrouter:{model}"
 
-    return "openrouter:openrouter/auto"
+    return "openrouter:deepseek-v4-flash"
 
 
 _lock_gateway_environment()

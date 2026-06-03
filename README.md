@@ -106,7 +106,7 @@ DEEPAGENT_MODEL=
 Set `DEEPAGENT_MODEL` to override the model explicitly:
 
 ```env
-DEEPAGENT_MODEL=openrouter:qwen3.5-397b-a17b
+DEEPAGENT_MODEL=openrouter:deepseek-v4-flash
 ```
 
 集思 exposes an OpenAI-compatible chat-completions endpoint, while the local
