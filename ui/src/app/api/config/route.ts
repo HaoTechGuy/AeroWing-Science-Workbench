@@ -9,6 +9,12 @@ import {
   resolveWorkspacePath,
   updateLocalResourceWorkspace,
 } from "@/app/api/workspace/_lib/workspace";
+import {
+  fixedGatewayUrl,
+  gatewayApiBaseUrl,
+  gatewayBootstrapUrl,
+  normalizeGatewayUrl,
+} from "@/app/api/gateway/_lib/gateway";
 
 export const runtime = "nodejs";
 
@@ -35,14 +41,14 @@ interface UpdateConfigRequest {
   model?: unknown;
   modelSelectionMode?: unknown;
   gatewayEmail?: unknown;
-  gatewayBaseUrl?: unknown;
+  gatewayUsername?: unknown;
+  gatewayInviteCode?: unknown;
   authorizationMode?: unknown;
   workspacePath?: unknown;
 }
 
 const AUTO_MODEL = "jisi/auto";
-const DEFAULT_MANUAL_MODEL = "deepseek/deepseek-v4-flash";
-const DEFAULT_GATEWAY_URL = "https://jisi.example.com";
+const DEFAULT_MANUAL_MODEL = "qwen3.5-397b-a17b";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
 const COMMON_TOOLS = [
@@ -122,7 +128,7 @@ async function readEnvValues(): Promise<Record<string, string>> {
   }
 }
 
-async function writeEnvValues(updates: Record<string, string>) {
+async function writeEnvValues(updates: Record<string, string | null>) {
   let content = "";
   try {
     content = await fs.readFile(envPath(), "utf8");
@@ -134,23 +140,27 @@ async function writeEnvValues(updates: Record<string, string>) {
 
   const lines = content ? content.split(/\r?\n/) : [];
   const seen = new Set<string>();
-  const nextLines = lines.map((line) => {
+  const nextLines = lines.flatMap((line) => {
     const match = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*)$/);
     if (!match || line.trim().startsWith("#")) {
-      return line;
+      return [line];
     }
 
     const key = match[2];
     if (!(key in updates)) {
-      return line;
+      return [line];
     }
 
     seen.add(key);
-    return `${match[1]}${key}${match[3]}${JSON.stringify(updates[key])}`;
+    const value = updates[key];
+    if (value === null) {
+      return [];
+    }
+    return [`${match[1]}${key}${match[3]}${JSON.stringify(value)}`];
   });
 
   for (const [key, value] of Object.entries(updates)) {
-    if (!seen.has(key)) {
+    if (!seen.has(key) && value !== null) {
       nextLines.push(`${key}=${JSON.stringify(value)}`);
     }
   }
@@ -186,13 +196,6 @@ function normalizeModel(model: unknown) {
   return trimmed;
 }
 
-function previewApiKey(apiKey: string | undefined) {
-  if (!apiKey) {
-    return "";
-  }
-  return `已保存，末尾 ${apiKey.slice(-4)}`;
-}
-
 function isAuthorizationMode(value: unknown): value is AuthorizationMode {
   return value === "auto" || value === "write" || value === "all";
 }
@@ -205,30 +208,16 @@ function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function normalizeUsername(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeInviteCode(value: unknown): string {
+  return typeof value === "string" ? value.trim().toUpperCase() : "";
+}
+
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function normalizeGatewayUrl(value: unknown): string {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) {
-    return DEFAULT_GATEWAY_URL;
-  }
-  const parsed = new URL(raw);
-  parsed.hash = "";
-  parsed.search = "";
-  return parsed.toString().replace(/\/+$/, "");
-}
-
-function gatewayApiBaseUrl(gatewayUrl: string) {
-  const trimmed = gatewayUrl.replace(/\/+$/, "");
-  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
-}
-
-function gatewayBootstrapUrl(gatewayUrl: string) {
-  const trimmed = gatewayUrl.replace(/\/+$/, "");
-  const origin = trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
-  return `${origin.replace(/\/+$/, "")}/api/bootstrap-key`;
 }
 
 function inferModelSelectionMode(config: AgentConfig): ModelSelectionMode {
@@ -308,13 +297,9 @@ async function normalizedResponse(config: AgentConfig) {
     modelSelectionMode === "auto" ? AUTO_MODEL : manualModel;
   const gatewayKey = env.INTERNAGENTS_GATEWAY_KEY || env.OPENAI_API_KEY;
   const gatewayEmail = env.INTERNAGENTS_USER_EMAIL || "";
-  const gatewayBaseUrl = normalizeGatewayUrl(
-    env.INTERNAGENTS_GATEWAY_URL ||
-      config.gateway_base_url ||
-      process.env.NEXT_PUBLIC_INTERNAGENTS_GATEWAY_URL ||
-      process.env.INTERNAGENTS_GATEWAY_URL ||
-      DEFAULT_GATEWAY_URL
-  );
+  const gatewayUsername = env.INTERNAGENTS_USER_NAME || "";
+  const gatewayInviteCode =
+    env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE || "";
   const gatewayModel = effectiveModel;
   let workspacePath = ".";
   let workspaceResolvedPath = "";
@@ -330,7 +315,13 @@ async function normalizedResponse(config: AgentConfig) {
   }
 
   const missing: OnboardingMissing[] = [];
-  if (modelProvider === "gateway" && !gatewayKey?.trim()) {
+  if (
+    modelProvider === "gateway" &&
+    (!gatewayKey?.trim() ||
+      !gatewayEmail.trim() ||
+      !gatewayUsername.trim() ||
+      !gatewayInviteCode.trim())
+  ) {
     missing.push("gatewayEmail");
   }
   if (workspaceError) {
@@ -351,11 +342,11 @@ async function normalizedResponse(config: AgentConfig) {
     effectiveModel,
     autoModel: AUTO_MODEL,
     gatewayEmail,
-    gatewayBaseUrl,
-    gatewayApiBaseUrl: gatewayApiBaseUrl(gatewayBaseUrl),
+    gatewayUsername,
+    gatewayInviteCode,
     gatewayModel,
     gatewayApiKeySet: Boolean(gatewayKey),
-    gatewayApiKeyPreview: previewApiKey(gatewayKey),
+    gatewayApiKeyPreview: "",
     gatewayCreditRmb: env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "",
     gatewayRemainingRmb: env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "",
     authorizationMode: inferAuthorizationMode(config),
@@ -456,6 +447,8 @@ interface GatewayBootstrapResponse {
   model?: unknown;
   creditRmb?: unknown;
   remainingRmb?: unknown;
+  username?: unknown;
+  inviteCode?: unknown;
   error?: unknown;
 }
 
@@ -474,27 +467,46 @@ async function buildGatewayEnvUpdates({
   if (!gatewayEmail || !isValidEmail(gatewayEmail)) {
     throw new Error("请填写有效的邮箱，用于领取集思 key。");
   }
+  const gatewayUsername =
+    normalizeUsername(body.gatewayUsername) ||
+    normalizeUsername(env.INTERNAGENTS_USER_NAME);
+  if (!gatewayUsername) {
+    throw new Error("请填写用户名，用于绑定集思账号。");
+  }
+  if (gatewayUsername.length > 64) {
+    throw new Error("用户名不能超过 64 个字符。");
+  }
+  const gatewayInviteCode =
+    normalizeInviteCode(body.gatewayInviteCode) ||
+    normalizeInviteCode(
+      env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE
+    );
+  if (!gatewayInviteCode) {
+    throw new Error("请填写邀请码，用于领取集思 key。");
+  }
 
-  const gatewayUrl = normalizeGatewayUrl(
-    body.gatewayBaseUrl ||
-      env.INTERNAGENTS_GATEWAY_URL ||
-      config.gateway_base_url ||
-      process.env.NEXT_PUBLIC_INTERNAGENTS_GATEWAY_URL ||
-      process.env.INTERNAGENTS_GATEWAY_URL ||
-      DEFAULT_GATEWAY_URL
-  );
+  const gatewayUrl = fixedGatewayUrl();
+  const fixedApiBaseUrl = gatewayApiBaseUrl(gatewayUrl);
   const installId = env.INTERNAGENTS_INSTALL_ID || randomUUID();
   const existingGatewayKey = env.INTERNAGENTS_GATEWAY_KEY || env.OPENAI_API_KEY;
+  const storedApiBaseUrl = normalizeGatewayUrl(
+    env.INTERNAGENTS_GATEWAY_BASE_URL ||
+      env.OPENAI_BASE_URL ||
+      env.OPENAI_API_BASE ||
+      ""
+  );
   const shouldBootstrap =
     !existingGatewayKey ||
     gatewayEmail !== normalizeEmail(env.INTERNAGENTS_USER_EMAIL) ||
-    gatewayUrl !== normalizeGatewayUrl(env.INTERNAGENTS_GATEWAY_URL || gatewayUrl);
+    gatewayUsername !== normalizeUsername(env.INTERNAGENTS_USER_NAME) ||
+    gatewayInviteCode !==
+      normalizeInviteCode(
+        env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE
+      ) ||
+    storedApiBaseUrl !== fixedApiBaseUrl;
 
   let apiKey = existingGatewayKey;
-  let apiBaseUrl =
-    env.INTERNAGENTS_GATEWAY_BASE_URL ||
-    env.OPENAI_BASE_URL ||
-    gatewayApiBaseUrl(gatewayUrl);
+  const apiBaseUrl = fixedApiBaseUrl;
   let creditRmb = env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "";
   let remainingRmb = env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "";
 
@@ -503,9 +515,10 @@ async function buildGatewayEnvUpdates({
       gatewayUrl,
       email: gatewayEmail,
       installId,
+      username: gatewayUsername,
+      inviteCode: gatewayInviteCode,
     });
     apiKey = bootstrap.apiKey;
-    apiBaseUrl = bootstrap.baseUrl;
     creditRmb =
       typeof bootstrap.creditRmb === "number"
         ? String(bootstrap.creditRmb)
@@ -517,27 +530,33 @@ async function buildGatewayEnvUpdates({
   }
 
   if (!apiKey) {
-    throw new Error("集思 key 不存在，请重新绑定邮箱。");
+    throw new Error("集思 key 不存在，请重新绑定集思账号。");
   }
 
   const model = selectedGatewayModel(config);
 
-  config.gateway_base_url = gatewayUrl;
+  delete config.gateway_base_url;
   config.gateway_model = model;
 
   return {
     INTERNAGENTS_MODEL_PROVIDER: "gateway",
     INTERNAGENTS_INSTALL_ID: installId,
     INTERNAGENTS_USER_EMAIL: gatewayEmail,
-    INTERNAGENTS_GATEWAY_URL: gatewayUrl,
+    INTERNAGENTS_USER_NAME: gatewayUsername,
+    INTERNAGENTS_INVITE_CODE: gatewayInviteCode,
+    INTERNAGENTS_GATEWAY_INVITE_CODE: null,
+    INTERNAGENTS_GATEWAY_URL: null,
     INTERNAGENTS_GATEWAY_BASE_URL: apiBaseUrl,
     INTERNAGENTS_GATEWAY_MODEL: model,
     INTERNAGENTS_GATEWAY_KEY: apiKey,
     INTERNAGENTS_GATEWAY_CREDIT_RMB: creditRmb,
     INTERNAGENTS_GATEWAY_REMAINING_RMB: remainingRmb,
-    LLM_PROVIDER: "openai",
+    LLM_PROVIDER: "openrouter",
     LLM_MODEL: model,
-    DEEPAGENT_MODEL: `openai:${model}`,
+    DEEPAGENT_MODEL: `openrouter:${model}`,
+    OPENROUTER_API_KEY: apiKey,
+    OPENROUTER_API_BASE: apiBaseUrl,
+    OPENROUTER_BASE_URL: apiBaseUrl,
     OPENAI_API_KEY: apiKey,
     OPENAI_BASE_URL: apiBaseUrl,
     OPENAI_API_BASE: apiBaseUrl,
@@ -548,10 +567,14 @@ async function requestGatewayBootstrap({
   gatewayUrl,
   email,
   installId,
+  username,
+  inviteCode,
 }: {
   gatewayUrl: string;
   email: string;
   installId: string;
+  username: string;
+  inviteCode: string;
 }): Promise<{
   apiKey: string;
   baseUrl: string;
@@ -565,7 +588,7 @@ async function requestGatewayBootstrap({
     const response = await fetch(gatewayBootstrapUrl(gatewayUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, installId }),
+      body: JSON.stringify({ email, installId, username, inviteCode }),
       signal: controller.signal,
     });
     const payload = (await response.json().catch(() => ({}))) as
@@ -574,7 +597,7 @@ async function requestGatewayBootstrap({
       throw new Error(
         typeof payload.error === "string"
           ? payload.error
-          : "集思绑定失败，请检查邮箱和集思地址。"
+          : "集思绑定失败，请稍后重试。"
       );
     }
     if (

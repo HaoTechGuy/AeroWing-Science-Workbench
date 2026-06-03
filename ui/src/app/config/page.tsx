@@ -14,6 +14,8 @@ import {
   Shield,
   ShieldCheck,
   Sun,
+  Ticket,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -45,8 +47,8 @@ interface ConfigResponse {
   autoModel: string;
   effectiveModel: string;
   gatewayEmail: string;
-  gatewayBaseUrl: string;
-  gatewayApiBaseUrl: string;
+  gatewayUsername: string;
+  gatewayInviteCode: string;
   gatewayModel: string;
   gatewayApiKeySet: boolean;
   gatewayApiKeyPreview: string;
@@ -77,6 +79,24 @@ interface BackendStatusResult {
   interruptedThreads: number;
 }
 
+interface GatewayModelOption {
+  id: string;
+  title: string;
+  provider: string;
+  description: string;
+  upstreamModel?: string;
+  upstreamProvider?: string;
+  inputPriceRmbPer1m?: number;
+  outputPriceRmbPer1m?: number;
+  isDefault?: boolean;
+}
+
+interface GatewayModelsPayload {
+  defaultModel?: unknown;
+  models?: unknown;
+  error?: unknown;
+}
+
 const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
@@ -84,14 +104,14 @@ const DEFAULT_CONFIG: ConfigResponse = {
   workspacePath: ".",
   workspaceResolvedPath: "",
   modelProvider: "gateway",
-  model: "deepseek/deepseek-v4-flash",
+  model: "qwen3.5-397b-a17b",
   modelSelectionMode: "auto",
   autoModel: "jisi/auto",
   effectiveModel: "jisi/auto",
   gatewayEmail: "",
-  gatewayBaseUrl: "https://jisi.example.com",
-  gatewayApiBaseUrl: "https://jisi.example.com/v1",
-  gatewayModel: "deepseek-v4-flash",
+  gatewayUsername: "",
+  gatewayInviteCode: "",
+  gatewayModel: "qwen3.5-397b-a17b",
   gatewayApiKeySet: false,
   gatewayApiKeyPreview: "",
   gatewayCreditRmb: "",
@@ -118,34 +138,6 @@ const MODEL_SELECTION_OPTIONS: Array<{
     id: "manual",
     title: "手动指定模型",
     description: "固定使用下方选择或填写的模型。",
-  },
-];
-
-const JISI_MODEL_OPTIONS: Array<{
-  id: string;
-  title: string;
-  vendor: string;
-  description: string;
-  badge?: string;
-}> = [
-  {
-    id: "deepseek/deepseek-v4-flash",
-    title: "DeepSeek V4 Flash",
-    vendor: "DeepSeek",
-    description: "默认推荐，速度优先，适合日常对话、代码协作和轻量分析。",
-    badge: "默认",
-  },
-  {
-    id: "deepseek/deepseek-v4-pro",
-    title: "DeepSeek V4 Pro",
-    vendor: "DeepSeek",
-    description: "能力优先，适合复杂规划、代码协作和多步骤分析。",
-  },
-  {
-    id: "shlab/intern-s1-pro",
-    title: "Intern S1 Pro",
-    vendor: "SH-Lab",
-    description: "上海人工智能实验室模型，适合科研分析和科学问答。",
   },
 ];
 
@@ -195,9 +187,84 @@ const THEME_OPTIONS: Array<{
 ];
 
 const ONBOARDING_MISSING_LABELS: Record<OnboardingMissing, string> = {
-  gatewayEmail: "集思绑定邮箱",
+  gatewayEmail: "集思账号绑定",
   workspacePath: "本机工作区",
 };
+
+function normalizeGatewayModelOption(value: unknown): GatewayModelOption | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || !record.id.trim()) {
+    return null;
+  }
+  const id = record.id.trim();
+  return {
+    id,
+    title:
+      typeof record.title === "string" && record.title.trim()
+        ? record.title.trim()
+        : id,
+    provider:
+      typeof record.provider === "string" && record.provider.trim()
+        ? record.provider.trim()
+        : "集思",
+    description:
+      typeof record.description === "string" && record.description.trim()
+        ? record.description.trim()
+        : "集思网关可用模型。",
+    upstreamModel:
+      typeof record.upstreamModel === "string" ? record.upstreamModel : undefined,
+    upstreamProvider:
+      typeof record.upstreamProvider === "string"
+        ? record.upstreamProvider
+        : undefined,
+    inputPriceRmbPer1m:
+      typeof record.inputPriceRmbPer1m === "number"
+        ? record.inputPriceRmbPer1m
+        : undefined,
+    outputPriceRmbPer1m:
+      typeof record.outputPriceRmbPer1m === "number"
+        ? record.outputPriceRmbPer1m
+        : undefined,
+    isDefault: record.isDefault === true,
+  };
+}
+
+async function fetchGatewayModels(signal: AbortSignal): Promise<GatewayModelOption[]> {
+  const response = await fetch("/api/gateway/models", {
+    cache: "no-store",
+    signal,
+  });
+  const payload = (await response.json().catch(() => ({}))) as GatewayModelsPayload;
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.error === "string"
+        ? payload.error
+        : "集思模型列表读取失败。"
+    );
+  }
+  const models = Array.isArray(payload.models)
+    ? payload.models
+        .map(normalizeGatewayModelOption)
+        .filter((model): model is GatewayModelOption => Boolean(model))
+    : [];
+  if (models.length === 0) {
+    throw new Error("集思未返回可用模型。");
+  }
+  return models;
+}
+
+function priceSummary(option: GatewayModelOption) {
+  if (
+    typeof option.inputPriceRmbPer1m !== "number" ||
+    typeof option.outputPriceRmbPer1m !== "number"
+  ) {
+    return "";
+  }
+  return `¥${option.inputPriceRmbPer1m}/百万输入 · ¥${option.outputPriceRmbPer1m}/百万输出`;
+}
 
 export default function ConfigPage() {
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
@@ -216,13 +283,21 @@ export default function ConfigPage() {
   const [restartResult, setRestartResult] =
     useState<BackendRestartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [gatewayModelOptions, setGatewayModelOptions] = useState<
+    GatewayModelOption[]
+  >([]);
+  const [gatewayModelsLoading, setGatewayModelsLoading] = useState(false);
+  const [gatewayModelsError, setGatewayModelsError] = useState<string | null>(
+    null
+  );
 
   const actionBusy = loading || saving || restarting;
   const isBusy = actionBusy || checkingStatus;
   const hasChanges = useMemo(() => {
     return (
       config.gatewayEmail !== savedConfig.gatewayEmail ||
-      config.gatewayBaseUrl !== savedConfig.gatewayBaseUrl ||
+      config.gatewayUsername !== savedConfig.gatewayUsername ||
+      config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode ||
@@ -230,39 +305,44 @@ export default function ConfigPage() {
     );
   }, [
     config.authorizationMode,
-    config.gatewayBaseUrl,
     config.gatewayEmail,
+    config.gatewayInviteCode,
+    config.gatewayUsername,
     config.model,
     config.modelSelectionMode,
     config.workspacePath,
     savedConfig.authorizationMode,
-    savedConfig.gatewayBaseUrl,
     savedConfig.gatewayEmail,
+    savedConfig.gatewayInviteCode,
+    savedConfig.gatewayUsername,
     savedConfig.model,
     savedConfig.modelSelectionMode,
     savedConfig.workspacePath,
   ]);
   const selectedJisiModel = useMemo(
-    () => JISI_MODEL_OPTIONS.find((option) => option.id === config.model),
-    [config.model]
+    () => gatewayModelOptions.find((option) => option.id === config.model),
+    [config.model, gatewayModelOptions]
   );
   const restartSensitiveChanged = useMemo(() => {
     return (
       config.gatewayEmail !== savedConfig.gatewayEmail ||
-      config.gatewayBaseUrl !== savedConfig.gatewayBaseUrl ||
+      config.gatewayUsername !== savedConfig.gatewayUsername ||
+      config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode
     );
   }, [
     config.authorizationMode,
-    config.gatewayBaseUrl,
     config.gatewayEmail,
+    config.gatewayInviteCode,
+    config.gatewayUsername,
     config.model,
     config.modelSelectionMode,
     savedConfig.authorizationMode,
-    savedConfig.gatewayBaseUrl,
     savedConfig.gatewayEmail,
+    savedConfig.gatewayInviteCode,
+    savedConfig.gatewayUsername,
     savedConfig.model,
     savedConfig.modelSelectionMode,
   ]);
@@ -320,7 +400,8 @@ export default function ConfigPage() {
           modelProvider: "gateway",
           modelSelectionMode: config.modelSelectionMode,
           gatewayEmail: config.gatewayEmail.trim() || undefined,
-          gatewayBaseUrl: config.gatewayBaseUrl.trim() || undefined,
+          gatewayUsername: config.gatewayUsername.trim() || undefined,
+          gatewayInviteCode: config.gatewayInviteCode.trim() || undefined,
           authorizationMode: config.authorizationMode,
           workspacePath: config.workspacePath,
         }),
@@ -492,6 +573,44 @@ export default function ConfigPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRestart, requiresRestart, hasChanges, actionBusy]);
 
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const debounce = window.setTimeout(() => {
+      setGatewayModelsLoading(true);
+      setGatewayModelsError(null);
+      void fetchGatewayModels(controller.signal)
+        .then((models) => {
+          if (!controller.signal.aborted) {
+            setGatewayModelOptions(models);
+          }
+        })
+        .catch((modelError) => {
+          if (!controller.signal.aborted) {
+            const message =
+              modelError instanceof Error
+                ? modelError.message
+                : "集思模型列表读取失败。";
+            setGatewayModelOptions([]);
+            setGatewayModelsError(message);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setGatewayModelsLoading(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(debounce);
+    };
+  }, [loading]);
+
   return (
     <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
       <header
@@ -649,7 +768,7 @@ export default function ConfigPage() {
           <section className="rounded-lg border border-[#BFD9D4] bg-[#F1F7F5] p-4 text-sm text-[#24595A] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
             <div className="font-medium">配置指引</div>
             <div className="mt-2 grid gap-2 md:grid-cols-3">
-              <div>1. 先填写 OpenRouter API Key，或保留已经保存的 key。</div>
+              <div>1. 先绑定集思邮箱，或保留已经保存的 key。</div>
               <div>2. 选择本机工作区；远程工作区在工作台左上角添加。</div>
               <div>3. 改完后点“空闲时应用”；需要马上生效再点“立即应用”。</div>
             </div>
@@ -680,9 +799,9 @@ export default function ConfigPage() {
               <div className="rounded-md border border-border bg-background p-4">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <Label htmlFor="gateway-email">集思绑定邮箱</Label>
+                    <Label htmlFor="gateway-email">集思账号绑定</Label>
                     <div className="mt-1 text-xs text-muted-foreground">
-                      保存时会用这个邮箱领取或复用集思 key，并写入本机 `.env`。
+                      保存时会校验邮箱、用户名和邀请码，并完成集思账号绑定。
                     </div>
                   </div>
                   <span
@@ -693,13 +812,11 @@ export default function ConfigPage() {
                         : "bg-muted text-muted-foreground"
                     )}
                   >
-                    {config.gatewayApiKeySet
-                      ? config.gatewayApiKeyPreview || "已绑定"
-                      : "未绑定"}
+                    {config.gatewayApiKeySet ? "已绑定" : "未绑定"}
                   </span>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                       <Mail className="h-3.5 w-3.5" />
@@ -722,20 +839,42 @@ export default function ConfigPage() {
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <ServerCog className="h-3.5 w-3.5" />
-                      集思地址
+                      <User className="h-3.5 w-3.5" />
+                      用户名
                     </div>
                     <Input
-                      id="gateway-base-url"
-                      value={config.gatewayBaseUrl}
+                      id="gateway-username"
+                      type="text"
+                      autoComplete="name"
+                      value={config.gatewayUsername}
                       disabled={loading}
                       onChange={(event) =>
                         setConfig((current) => ({
                           ...current,
-                          gatewayBaseUrl: event.target.value,
+                          gatewayUsername: event.target.value,
                         }))
                       }
-                      placeholder="https://jisi.example.com"
+                      placeholder="你的用户名"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Ticket className="h-3.5 w-3.5" />
+                      邀请码
+                    </div>
+                    <Input
+                      id="gateway-invite-code"
+                      type="text"
+                      autoComplete="off"
+                      value={config.gatewayInviteCode}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          gatewayInviteCode: event.target.value,
+                        }))
+                      }
+                      placeholder="JISI-XXXXXXXXXX"
                     />
                   </div>
                 </div>
@@ -790,9 +929,9 @@ export default function ConfigPage() {
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-end justify-between gap-2">
                         <div>
-                          <Label>集思国产模型</Label>
+                          <Label>集思可用模型</Label>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            选择集思系统中可用的国产模型；也可以在下方填写模型 ID。
+                            从集思后端读取可用模型；也可以在下方填写模型 ID。
                           </div>
                         </div>
                         {selectedJisiModel ? (
@@ -806,9 +945,24 @@ export default function ConfigPage() {
                         )}
                       </div>
 
-                      <div className="grid gap-1.5 md:grid-cols-2">
-                        {JISI_MODEL_OPTIONS.map((option) => {
+                      {gatewayModelsLoading && (
+                        <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          正在从集思读取可用模型...
+                        </div>
+                      )}
+
+                      {gatewayModelsError && !gatewayModelsLoading && (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                          {gatewayModelsError} 你仍然可以在下方手动填写模型 ID。
+                        </div>
+                      )}
+
+                      {gatewayModelOptions.length > 0 ? (
+                        <div className="grid gap-1.5 md:grid-cols-2">
+                          {gatewayModelOptions.map((option) => {
                           const active = config.model === option.id;
+                          const price = priceSummary(option);
                           return (
                             <button
                               key={option.id}
@@ -832,12 +986,12 @@ export default function ConfigPage() {
                                     {option.title}
                                   </div>
                                   <div className="shrink-0 text-[11px] text-muted-foreground">
-                                    {option.vendor}
+                                    {option.provider}
                                   </div>
                                 </div>
-                                {option.badge && (
+                                {option.isDefault && (
                                   <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
-                                    {option.badge}
+                                    默认
                                   </span>
                                 )}
                               </div>
@@ -847,10 +1001,20 @@ export default function ConfigPage() {
                               <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
                                 {option.id}
                               </div>
+                              {price && (
+                                <div className="mt-0.5 truncate text-[10px] leading-4 text-muted-foreground">
+                                  {price}
+                                </div>
+                              )}
                             </button>
                           );
-                        })}
-                      </div>
+                          })}
+                        </div>
+                      ) : !gatewayModelsLoading && !gatewayModelsError ? (
+                        <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+                          暂无可展示模型。请稍后重试，或在下方手动填写模型 ID。
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="space-y-2">
@@ -864,7 +1028,7 @@ export default function ConfigPage() {
                             model: event.target.value,
                           }))
                         }
-                        placeholder="deepseek/deepseek-v4-flash"
+                        placeholder={gatewayModelOptions[0]?.id || "deepseek-v4-flash"}
                       />
                       <div className="text-xs text-muted-foreground">
                         可以直接粘贴集思支持的模型 ID。
@@ -873,15 +1037,12 @@ export default function ConfigPage() {
                   </div>
                 )}
 
-                <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
                   <div className="min-w-0 truncate">
                     模型：
                     {config.modelSelectionMode === "auto"
                       ? config.autoModel || "jisi/auto"
-                      : config.model || "deepseek/deepseek-v4-flash"}
-                  </div>
-                  <div className="min-w-0 truncate">
-                    API：{config.gatewayApiBaseUrl || "-"}
+                      : config.model || "qwen3.5-397b-a17b"}
                   </div>
                   <div className="min-w-0 truncate">
                     额度：

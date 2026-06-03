@@ -146,11 +146,11 @@ function extractRemoteRuntimeErrorMessage(message: string): string | null {
     null;
 
   if (/Insufficient credits/i.test(extracted ?? normalized)) {
-    return "OpenRouter 余额不足，请充值后重试。";
+    return "集思额度不足，请提额后重试。";
   }
 
   if (/User not found|Unauthorized|401/i.test(extracted ?? normalized)) {
-    return "OpenRouter API key 无效或未授权，请在配置页重新填写。";
+    return "集思 key 无效或未授权，请在配置页重新绑定邮箱。";
   }
 
   return extracted;
