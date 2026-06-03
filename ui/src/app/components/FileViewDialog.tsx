@@ -46,8 +46,12 @@ const LANGUAGE_MAP: Record<string, string> = {
   yml: "yaml",
   toml: "toml",
   ini: "ini",
+  caddyfile: "text",
   dockerfile: "dockerfile",
+  gemfile: "ruby",
   makefile: "makefile",
+  procfile: "text",
+  rakefile: "ruby",
 };
 
 export const FileViewDialog = React.memo<{

@@ -570,7 +570,7 @@ export function useChat({
         : null,
     [runtimeUrl]
   );
-  const streamEventLayer = useStreamEventLayer(remoteAgent);
+  const streamEventLayer = useStreamEventLayer(remoteAgent, threadId ?? null);
   const { clearStreamEvents } = streamEventLayer;
   const markRunStarting = useCallback(() => {
     setRunLifecycle({
@@ -756,7 +756,8 @@ export function useChat({
     (content: string, attachments: ChatAttachment[] = []) => {
       const goalCommand = parseGoalCommand(content);
       const existingGoal = threadId ? stream.values.goal : null;
-      const shouldSeedGoal = Boolean(goalCommand && !existingGoal);
+      const hasActiveGoal = existingGoal?.status === "active";
+      const shouldSeedGoal = Boolean(goalCommand && !hasActiveGoal);
       const pendingNewThreadTitle = pendingNewThreadTitleRef.current;
       const newThreadId =
         !threadId && (shouldSeedGoal || pendingNewThreadTitle)
@@ -883,20 +884,41 @@ export function useChat({
     [remoteAgent, threadId]
   );
 
+  const isThreadScopedStateLoading = Boolean(
+    threadId && (stream.isThreadLoading || threadSnapshot?.isLoading)
+  );
+  const scopedValues = useMemo<StateType>(() => {
+    if (!isThreadScopedStateLoading) {
+      return stream.values;
+    }
+
+    return {
+      messages: [],
+      todos: [],
+      files: {},
+      goal: null,
+    };
+  }, [isThreadScopedStateLoading, stream.values]);
+  const scopedMessages = useMemo(
+    () => (isThreadScopedStateLoading ? [] : stream.messages),
+    [isThreadScopedStateLoading, stream.messages]
+  );
+  const activeGoal = scopedValues.goal ?? null;
+
   const threadTitle = useMemo(() => {
     if (optimisticThreadTitle) {
       return optimisticThreadTitle;
     }
     return inferThreadTitle({
       metadata: threadMetadata,
-      goal: stream.values.goal ?? null,
-      messages: stream.messages,
+      goal: activeGoal,
+      messages: scopedMessages,
       fallback: threadId ? `会话 ${threadId.slice(0, 8)}` : "新会话",
     });
   }, [
+    activeGoal,
     optimisticThreadTitle,
-    stream.messages,
-    stream.values.goal,
+    scopedMessages,
     threadId,
     threadMetadata,
   ]);
@@ -1051,7 +1073,9 @@ export function useChat({
     stream.stop();
   }, [stream]);
 
-  const activeInterrupt = stream.interrupt ?? streamEventLayer.interrupt;
+  const activeInterrupt = isThreadScopedStateLoading
+    ? undefined
+    : stream.interrupt ?? streamEventLayer.interrupt;
   const runStatus: RunLifecycleStatus = stream.error
     ? "error"
     : activeInterrupt
@@ -1062,11 +1086,11 @@ export function useChat({
 
   return {
     stream,
-    todos: stream.values.todos ?? [],
-    files: stream.values.files ?? {},
-    goal: stream.values.goal ?? null,
-    email: stream.values.email,
-    ui: stream.values.ui,
+    todos: scopedValues.todos ?? [],
+    files: scopedValues.files ?? {},
+    goal: activeGoal,
+    email: scopedValues.email,
+    ui: scopedValues.ui,
     threadId,
     resourceId,
     workspaceId,
@@ -1074,10 +1098,10 @@ export function useChat({
     threadMetadata,
     updateThreadTitle,
     setFiles,
-    messages: stream.messages,
+    messages: scopedMessages,
     error: stream.error,
     isLoading: stream.isLoading,
-    isThreadLoading: stream.isThreadLoading,
+    isThreadLoading: stream.isThreadLoading || Boolean(threadSnapshot?.isLoading),
     interrupt: activeInterrupt,
     runStatus,
     runUpdatedAt: runLifecycle.updatedAt,

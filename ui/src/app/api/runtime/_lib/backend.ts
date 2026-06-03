@@ -532,6 +532,7 @@ async function startLangGraphServer({
   configFile,
   logPath,
   pidFile,
+  allowBlocking = false,
   env,
 }: {
   root: string;
@@ -540,32 +541,47 @@ async function startLangGraphServer({
   configFile: string;
   logPath: string;
   pidFile: string;
+  allowBlocking?: boolean;
   env?: NodeJS.ProcessEnv;
 }) {
   const paths = runtimePaths(root);
   mkdirSync(paths.logDir, { recursive: true });
   mkdirSync(paths.pidDir, { recursive: true });
 
+  const shouldAllowBlocking = allowBlocking && IS_WINDOWS;
+  const args = [
+    "-m",
+    "langgraph_cli",
+    "dev",
+    "--host",
+    host,
+    "--port",
+    String(port),
+    "--no-browser",
+    "--no-reload",
+    ...(shouldAllowBlocking ? ["--allow-blocking"] : []),
+    "--config",
+    configFile,
+  ];
+  const serverEnv = {
+    ...process.env,
+    ...(env || {}),
+    ...(IS_WINDOWS
+      ? {
+          PYTHONUTF8: "1",
+          PYTHONIOENCODING: "utf-8",
+        }
+      : {}),
+  };
+
   const fd = openSync(logPath, "a");
   const child = spawn(
     pythonBinary(root),
-    [
-      "-m",
-      "langgraph_cli",
-      "dev",
-      "--host",
-      host,
-      "--port",
-      String(port),
-      "--no-browser",
-      "--no-reload",
-      "--config",
-      configFile,
-    ],
+    args,
     {
       cwd: root,
       detached: true,
-      env: env || process.env,
+      env: serverEnv,
       stdio: ["ignore", fd, fd],
       windowsHide: true,
     }
@@ -628,6 +644,7 @@ export async function restartBackend(): Promise<BackendRestartResult> {
       configFile: "langgraph.runtime.json",
       logPath: paths.localRuntimeLog,
       pidFile: paths.localRuntimePidFile,
+      allowBlocking: IS_WINDOWS,
       env: {
         ...process.env,
         INTERNAGENT_PROCESS_ROLE: "runtime",

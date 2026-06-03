@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveWorkspacePath } from "@/app/api/workspace/_lib/workspace";
@@ -17,9 +17,12 @@ async function openFolder(folderPath: string) {
   }
 
   if (process.platform === "win32") {
-    await execFileAsync("explorer.exe", [folderPath], {
-      timeout: OPEN_FOLDER_TIMEOUT_MS,
+    const child = spawn("explorer.exe", [folderPath], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
     });
+    child.unref();
     return;
   }
 

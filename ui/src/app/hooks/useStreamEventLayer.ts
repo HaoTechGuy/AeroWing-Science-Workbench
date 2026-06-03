@@ -19,6 +19,7 @@ export interface StreamEventRecord {
   id: string;
   kind: StreamEventKind;
   at: number;
+  threadId?: string | null;
   mode: string;
   rawEvent: string;
   namespace?: string[];
@@ -59,15 +60,27 @@ function getEventKind(event: RemoteAgentStreamEvent): StreamEventKind {
   return "other";
 }
 
-export function useStreamEventLayer(agent: WebRemoteAgent) {
+export function useStreamEventLayer(
+  agent: WebRemoteAgent,
+  currentThreadId?: string | null
+) {
   const [streamEvents, setStreamEvents] = useState<StreamEventRecord[]>([]);
 
   useEffect(() => {
     return agent.subscribe((event) => {
+      if (
+        currentThreadId &&
+        event.threadId &&
+        event.threadId !== currentThreadId
+      ) {
+        return;
+      }
+
       const record: StreamEventRecord = {
         id: event.id,
         kind: getEventKind(event),
         at: event.at,
+        threadId: event.threadId,
         mode: event.mode,
         rawEvent: event.rawEvent,
         namespace: event.namespace,
@@ -76,7 +89,7 @@ export function useStreamEventLayer(agent: WebRemoteAgent) {
 
       setStreamEvents((prev) => [...prev, record].slice(-MAX_STREAM_EVENTS));
     });
-  }, [agent]);
+  }, [agent, currentThreadId]);
 
   const clearStreamEvents = useCallback(() => {
     setStreamEvents([]);

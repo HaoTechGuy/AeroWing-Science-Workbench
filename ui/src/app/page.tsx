@@ -118,6 +118,10 @@ function HomePageInner({
   const handleFileSelect = useCallback(
     async (entry: WorkspaceEntry) => {
       if (entry.kind === "file") {
+        setViewerPanelCompact(false);
+        window.requestAnimationFrame(() => {
+          viewerPanelRef.current?.resize(31);
+        });
         await setSelectedFilePath(entry.path);
       }
     },

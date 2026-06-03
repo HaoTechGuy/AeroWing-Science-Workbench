@@ -183,10 +183,11 @@ export function WorkspaceExplorer({
               "hover:border-border hover:bg-card",
               dragPayload && "cursor-grab active:cursor-grabbing",
               isSelected &&
-                "border-primary/25 bg-primary/10 text-primary hover:bg-primary/10"
+                "border-[#BFD9D4] bg-[#F1F7F5] text-[#24595A] ring-1 ring-inset ring-[#2F6868]/15 hover:bg-[#E6F0EE] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100 dark:ring-teal-300/15 dark:hover:bg-teal-950/40"
             )}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             aria-expanded={isDirectory ? isExpanded : undefined}
+            aria-current={isSelected ? "page" : undefined}
             title={dragPayload ? "拖拽到会话区添加为附件" : undefined}
           >
             <span className="flex h-5 w-5 items-center justify-center">

@@ -32,11 +32,17 @@ interface WorkspaceViewerProps {
 
 const LANGUAGE_MAP: Record<string, string> = {
   ".css": "css",
+  caddyfile: "text",
+  dockerfile: "dockerfile",
   ".html": "html",
   ".js": "javascript",
   ".json": "json",
   ".jsx": "javascript",
+  gemfile: "ruby",
+  makefile: "makefile",
+  procfile: "text",
   ".py": "python",
+  rakefile: "ruby",
   ".sh": "bash",
   ".toml": "toml",
   ".ts": "typescript",
@@ -337,8 +343,8 @@ export function WorkspaceViewer({
         )}
 
         {!isLoading && !error && file?.previewKind === "text" && (
-          <ScrollArea className="h-full">
-            <div className="p-4">
+          <div className="h-full overflow-auto">
+            <div className="min-w-0 p-4">
               {file.tooLarge ? (
                 <div className="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
                   This text file is too large to preview inline.
@@ -348,21 +354,41 @@ export function WorkspaceViewer({
                   language={language}
                   style={oneLight}
                   showLineNumbers
+                  wrapLines
                   wrapLongLines
+                  codeTagProps={{
+                    style: {
+                      overflowWrap: "anywhere",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    },
+                  }}
+                  lineProps={{
+                    style: {
+                      overflowWrap: "anywhere",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    },
+                  }}
                   customStyle={{
                     margin: 0,
                     border: "1px solid hsl(var(--border))",
                     borderRadius: "0.5rem",
                     fontSize: "0.8125rem",
                     minHeight: "100%",
+                    maxWidth: "100%",
+                    overflowWrap: "anywhere",
+                    overflowX: "auto",
                     background: "hsl(var(--card))",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
                   }}
                 >
                   {file.content || ""}
                 </SyntaxHighlighter>
               )}
             </div>
-          </ScrollArea>
+          </div>
         )}
 
         {!isLoading &&

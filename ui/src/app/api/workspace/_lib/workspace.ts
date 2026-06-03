@@ -32,7 +32,10 @@ const DEFAULT_IGNORED_NAMES = new Set([
 const TEXT_EXTENSIONS = new Set([
   ".css",
   ".csv",
+  "caddyfile",
+  "dockerfile",
   ".env.example",
+  "gemfile",
   ".gitignore",
   ".html",
   ".ini",
@@ -42,7 +45,10 @@ const TEXT_EXTENSIONS = new Set([
   ".lock",
   ".log",
   ".mjs",
+  "makefile",
+  "procfile",
   ".py",
+  "rakefile",
   ".sh",
   ".sql",
   ".toml",
@@ -53,6 +59,15 @@ const TEXT_EXTENSIONS = new Set([
   ".yaml",
   ".yml",
   ".zsh",
+]);
+
+const EXTENSIONLESS_TEXT_FILENAMES = new Set([
+  "caddyfile",
+  "dockerfile",
+  "gemfile",
+  "makefile",
+  "procfile",
+  "rakefile",
 ]);
 
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown", ".mdx"]);
@@ -69,7 +84,10 @@ const MIME_TYPES: Record<string, string> = {
   ".apng": "image/apng",
   ".css": "text/css; charset=utf-8",
   ".csv": "text/csv; charset=utf-8",
+  caddyfile: "text/plain; charset=utf-8",
+  dockerfile: "text/x-dockerfile; charset=utf-8",
   ".env.example": "text/plain; charset=utf-8",
+  gemfile: "text/plain; charset=utf-8",
   ".gif": "image/gif",
   ".gitignore": "text/plain; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -79,9 +97,12 @@ const MIME_TYPES: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".mdx": "text/markdown; charset=utf-8",
+  makefile: "text/x-makefile; charset=utf-8",
   ".pdf": "application/pdf",
   ".png": "image/png",
+  procfile: "text/plain; charset=utf-8",
   ".py": "text/x-python; charset=utf-8",
+  rakefile: "text/plain; charset=utf-8",
   ".sh": "text/x-shellscript; charset=utf-8",
   ".toml": "application/toml; charset=utf-8",
   ".ts": "text/typescript; charset=utf-8",
@@ -597,7 +618,11 @@ function normalizeRelativePath(relativePath = ""): string {
 
 export function getFileExtension(filePath: string): string {
   const basename = path.basename(filePath).toLowerCase();
-  if (basename === ".env.example" || basename === ".gitignore") {
+  if (
+    basename === ".env.example" ||
+    basename === ".gitignore" ||
+    EXTENSIONLESS_TEXT_FILENAMES.has(basename)
+  ) {
     return basename;
   }
   return path.extname(filePath).toLowerCase();
@@ -900,7 +925,16 @@ def safe_resolve(root_value, rel_value):
 
 def preview_name(name):
     lower = name.lower()
-    if lower in {".env.example", ".gitignore"}:
+    if lower in {
+        ".env.example",
+        ".gitignore",
+        "caddyfile",
+        "dockerfile",
+        "gemfile",
+        "makefile",
+        "procfile",
+        "rakefile",
+    }:
         return lower
     return pathlib.PurePosixPath(name).suffix.lower()
 

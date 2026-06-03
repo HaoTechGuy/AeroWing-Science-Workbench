@@ -61,13 +61,14 @@ def create_goal(
     """Create a new active goal only when the user explicitly asks for persistent goal mode.
 
     Use token_budget only when the user explicitly provides a positive token budget.
-    This fails when this thread already has a goal; use update_goal only for terminal status.
+    This fails when this thread already has an active goal; terminal goals can be replaced
+    by a new active goal.
     """
 
     current = _current_goal(runtime)
-    if current is not None:
+    if current is not None and current.get("status") == "active":
         return {
-            "error": "cannot create a new goal because this thread already has a goal",
+            "error": "cannot create a new goal because this thread already has an active goal",
             **goal_response(current),
         }
 

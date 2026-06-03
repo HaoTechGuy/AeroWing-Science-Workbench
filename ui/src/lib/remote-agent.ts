@@ -21,6 +21,7 @@ export interface RemoteAgentStreamConfig {
 export interface RemoteAgentStreamEvent {
   id: string;
   at: number;
+  threadId?: string | null;
   rawEvent: string;
   mode: string;
   namespace?: string[];
@@ -192,8 +193,10 @@ export class WebRemoteAgent {
       this: WebRemoteAgent,
       ...args: unknown[]
     ) {
+      const threadId =
+        typeof args[0] === "string" || args[0] === null ? args[0] : undefined;
       for await (const event of originalStream(...args)) {
-        this.captureSdkEvent(event);
+        this.captureSdkEvent(event, threadId);
         yield event;
       }
     }.bind(this);
@@ -202,8 +205,10 @@ export class WebRemoteAgent {
       this: WebRemoteAgent,
       ...args: unknown[]
     ) {
+      const threadId =
+        typeof args[0] === "string" || args[0] === null ? args[0] : undefined;
       for await (const event of originalJoinStream(...args)) {
-        this.captureSdkEvent(event);
+        this.captureSdkEvent(event, threadId);
         yield event;
       }
     }.bind(this);
@@ -213,11 +218,12 @@ export class WebRemoteAgent {
     id?: string;
     event: string;
     data: unknown;
-  }) {
+  }, threadId?: string | null) {
     const { mode, namespace } = splitRawEvent(event.event);
     const record: RemoteAgentStreamEvent = {
       id: event.id ?? `${Date.now()}-${this.eventSequence++}`,
       at: Date.now(),
+      threadId,
       rawEvent: event.event,
       mode,
       namespace,

@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from goal_state import (
     GoalValidationError,
@@ -9,6 +10,7 @@ from goal_state import (
     validate_goal_objective,
 )
 from goal_middleware import render_goal_context
+from goal_tools import create_goal as create_goal_tool
 
 
 class GoalStateTest(unittest.TestCase):
@@ -61,6 +63,38 @@ class GoalStateTest(unittest.TestCase):
 
         self.assertIn("&lt;do&gt;&amp;work", prompt)
         self.assertNotIn("<do>&work", prompt)
+
+    def test_create_goal_tool_replaces_terminal_goal(self) -> None:
+        completed = update_goal_status(
+            create_goal_state("old goal", now=100),
+            "complete",
+            now=120,
+        )
+        runtime = SimpleNamespace(
+            state={"goal": completed},
+            config={"configurable": {"thread_id": "thread-1"}},
+            execution_info=None,
+            tool_call_id="tool-1",
+        )
+
+        command = create_goal_tool.func("new goal", runtime)
+
+        self.assertEqual(command.update["goal"]["objective"], "new goal")
+        self.assertEqual(command.update["goal"]["status"], "active")
+        self.assertEqual(command.update["goal"]["threadId"], "thread-1")
+
+    def test_create_goal_tool_rejects_when_goal_is_active(self) -> None:
+        runtime = SimpleNamespace(
+            state={"goal": create_goal_state("old goal", now=100)},
+            config={},
+            execution_info=None,
+            tool_call_id="tool-1",
+        )
+
+        result = create_goal_tool.func("new goal", runtime)
+
+        self.assertIn("active goal", result["error"])
+        self.assertEqual(result["goal"]["objective"], "old goal")
 
 
 if __name__ == "__main__":
