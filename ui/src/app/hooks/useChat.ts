@@ -94,6 +94,70 @@ function threadToState(
   };
 }
 
+function emptyThreadState(threadId: string): ThreadState<StateType> {
+  const now = new Date().toISOString();
+  return sanitizeThreadState({
+    values: {
+      messages: [],
+      todos: [],
+      files: {},
+      goal: null,
+    },
+    next: [],
+    tasks: [],
+    metadata: {},
+    created_at: now,
+    checkpoint: {
+      thread_id: threadId,
+      checkpoint_ns: "",
+      checkpoint_id: null,
+      checkpoint_map: {},
+    },
+    parent_checkpoint: null,
+  });
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "";
+  }
+}
+
+function isThreadNotFoundError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  const record = error as {
+    status?: unknown;
+    response?: { status?: unknown };
+  };
+  const status =
+    typeof record.status === "number"
+      ? record.status
+      : typeof record.response?.status === "number"
+      ? record.response.status
+      : undefined;
+  if (status === 404) {
+    return true;
+  }
+
+  const message = errorMessage(error).toLowerCase();
+  return (
+    /\b404\b/.test(message) ||
+    message.includes("not found") ||
+    message.includes("thread not found")
+  );
+}
+
 function messagesFromValues(values: unknown): Message[] {
   if (!values || typeof values !== "object") {
     return [];
@@ -279,6 +343,9 @@ async function loadThreadSnapshot({
 
   if (primaryState) {
     return [sanitizeThreadState(primaryState)];
+  }
+  if (isThreadNotFoundError(primaryError)) {
+    return [emptyThreadState(threadId)];
   }
   throw primaryError;
 }
