@@ -1,4 +1,5 @@
 import { promises as fs } from "fs";
+import { randomUUID } from "crypto";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -8,36 +9,46 @@ import {
   resolveWorkspacePath,
   updateLocalResourceWorkspace,
 } from "@/app/api/workspace/_lib/workspace";
+import {
+  fixedGatewayUrl,
+  gatewayApiBaseUrl,
+  gatewayBootstrapUrl,
+  normalizeGatewayUrl,
+} from "@/app/api/gateway/_lib/gateway";
 
 export const runtime = "nodejs";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type OnboardingMissing = "openrouterApiKey" | "workspacePath";
+type ModelProvider = "gateway";
+type OnboardingMissing = "gatewayEmail" | "workspacePath";
 
 interface AgentConfig {
   interrupt_on?: Record<string, unknown>;
   authorization_mode?: AuthorizationMode;
+  model_provider?: ModelProvider;
   model_selection_mode?: ModelSelectionMode;
   manual_model?: string;
   openrouter_direct_enabled?: boolean;
   openrouter_model?: string;
+  gateway_base_url?: string;
+  gateway_model?: string;
   [key: string]: unknown;
 }
 
 interface UpdateConfigRequest {
+  modelProvider?: unknown;
   model?: unknown;
   modelSelectionMode?: unknown;
-  openrouterDirectEnabled?: unknown;
-  openrouterModel?: unknown;
-  openrouterApiKey?: unknown;
+  gatewayEmail?: unknown;
+  gatewayUsername?: unknown;
+  gatewayInviteCode?: unknown;
   authorizationMode?: unknown;
   workspacePath?: unknown;
 }
 
-const AUTO_MODEL = "openrouter/auto";
-const DEFAULT_MANUAL_MODEL = "deepseek/deepseek-v4-flash";
-const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const AUTO_MODEL = "jisi/auto";
+const DEFAULT_MANUAL_MODEL = "qwen3.5-397b-a17b";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
 const COMMON_TOOLS = [
@@ -117,7 +128,7 @@ async function readEnvValues(): Promise<Record<string, string>> {
   }
 }
 
-async function writeEnvValues(updates: Record<string, string>) {
+async function writeEnvValues(updates: Record<string, string | null>) {
   let content = "";
   try {
     content = await fs.readFile(envPath(), "utf8");
@@ -129,23 +140,27 @@ async function writeEnvValues(updates: Record<string, string>) {
 
   const lines = content ? content.split(/\r?\n/) : [];
   const seen = new Set<string>();
-  const nextLines = lines.map((line) => {
+  const nextLines = lines.flatMap((line) => {
     const match = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*)$/);
     if (!match || line.trim().startsWith("#")) {
-      return line;
+      return [line];
     }
 
     const key = match[2];
     if (!(key in updates)) {
-      return line;
+      return [line];
     }
 
     seen.add(key);
-    return `${match[1]}${key}${match[3]}${JSON.stringify(updates[key])}`;
+    const value = updates[key];
+    if (value === null) {
+      return [];
+    }
+    return [`${match[1]}${key}${match[3]}${JSON.stringify(value)}`];
   });
 
   for (const [key, value] of Object.entries(updates)) {
-    if (!seen.has(key)) {
+    if (!seen.has(key) && value !== null) {
       nextLines.push(`${key}=${JSON.stringify(value)}`);
     }
   }
@@ -157,11 +172,16 @@ async function writeEnvValues(updates: Record<string, string>) {
   await fs.writeFile(envPath(), nextContent);
 }
 
-function stripOpenRouterPrefix(model: string | undefined) {
+function stripModelProviderPrefix(model: string | undefined) {
   if (!model) {
     return DEFAULT_MANUAL_MODEL;
   }
-  return model.startsWith("openrouter:") ? model.slice("openrouter:".length) : model;
+  for (const prefix of ["openrouter:", "openai:"]) {
+    if (model.startsWith(prefix)) {
+      return model.slice(prefix.length);
+    }
+  }
+  return model;
 }
 
 function normalizeModel(model: unknown) {
@@ -169,18 +189,11 @@ function normalizeModel(model: unknown) {
     return DEFAULT_MANUAL_MODEL;
   }
 
-  const trimmed = stripOpenRouterPrefix(model.trim());
+  const trimmed = stripModelProviderPrefix(model.trim());
   if (!trimmed) {
     throw new Error("请选择或填写模型。");
   }
   return trimmed;
-}
-
-function previewApiKey(apiKey: string | undefined) {
-  if (!apiKey) {
-    return "";
-  }
-  return `已保存，末尾 ${apiKey.slice(-4)}`;
 }
 
 function isAuthorizationMode(value: unknown): value is AuthorizationMode {
@@ -191,14 +204,36 @@ function isModelSelectionMode(value: unknown): value is ModelSelectionMode {
   return value === "auto" || value === "manual";
 }
 
+function normalizeEmail(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function normalizeUsername(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeInviteCode(value: unknown): string {
+  return typeof value === "string" ? value.trim().toUpperCase() : "";
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function inferModelSelectionMode(config: AgentConfig): ModelSelectionMode {
   return isModelSelectionMode(config.model_selection_mode)
     ? config.model_selection_mode
     : "auto";
 }
 
-function inferOpenRouterDirectEnabled(config: AgentConfig) {
-  return config.openrouter_direct_enabled === true;
+function inferModelProvider(): ModelProvider {
+  return "gateway";
+}
+
+function selectedGatewayModel(config: AgentConfig) {
+  return inferModelSelectionMode(config) === "auto"
+    ? AUTO_MODEL
+    : normalizeModel(config.manual_model || DEFAULT_MANUAL_MODEL);
 }
 
 function inferAuthorizationMode(config: AgentConfig): AuthorizationMode {
@@ -252,23 +287,20 @@ async function normalizedResponse(config: AgentConfig) {
   const envModel = normalizeModel(
     env.DEEPAGENT_MODEL || env.LLM_MODEL || AUTO_MODEL
   );
+  const modelProvider = inferModelProvider();
   const modelSelectionMode = inferModelSelectionMode(config);
-  const openrouterDirectEnabled = inferOpenRouterDirectEnabled(config);
   const manualModel = normalizeModel(
     config.manual_model ||
       (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
   );
-  const openrouterModel = normalizeModel(
-    config.openrouter_model ||
-      (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
-  );
   const effectiveModel =
-    openrouterDirectEnabled
-      ? openrouterModel
-      : modelSelectionMode === "auto"
-      ? AUTO_MODEL
-      : manualModel;
-  const apiKey = env.OPENROUTER_API_KEY;
+    modelSelectionMode === "auto" ? AUTO_MODEL : manualModel;
+  const gatewayKey = env.INTERNAGENTS_GATEWAY_KEY || env.OPENAI_API_KEY;
+  const gatewayEmail = env.INTERNAGENTS_USER_EMAIL || "";
+  const gatewayUsername = env.INTERNAGENTS_USER_NAME || "";
+  const gatewayInviteCode =
+    env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE || "";
+  const gatewayModel = effectiveModel;
   let workspacePath = ".";
   let workspaceResolvedPath = "";
   let workspaceError: string | undefined;
@@ -283,8 +315,14 @@ async function normalizedResponse(config: AgentConfig) {
   }
 
   const missing: OnboardingMissing[] = [];
-  if (!apiKey?.trim()) {
-    missing.push("openrouterApiKey");
+  if (
+    modelProvider === "gateway" &&
+    (!gatewayKey?.trim() ||
+      !gatewayEmail.trim() ||
+      !gatewayUsername.trim() ||
+      !gatewayInviteCode.trim())
+  ) {
+    missing.push("gatewayEmail");
   }
   if (workspaceError) {
     missing.push("workspacePath");
@@ -298,17 +336,22 @@ async function normalizedResponse(config: AgentConfig) {
     workspacePath,
     workspaceResolvedPath,
     workspaceError,
+    modelProvider,
     model: manualModel,
     modelSelectionMode,
-    openrouterDirectEnabled,
-    openrouterModel,
     effectiveModel,
     autoModel: AUTO_MODEL,
-    openrouterApiKeySet: Boolean(apiKey),
-    openrouterApiKeyPreview: previewApiKey(apiKey),
+    gatewayEmail,
+    gatewayUsername,
+    gatewayInviteCode,
+    gatewayModel,
+    gatewayApiKeySet: Boolean(gatewayKey),
+    gatewayApiKeyPreview: "",
+    gatewayCreditRmb: env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "",
+    gatewayRemainingRmb: env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "",
     authorizationMode: inferAuthorizationMode(config),
     desktopMode,
-    needsOnboarding: false,
+    needsOnboarding: missing.length > 0,
     missing,
   };
 }
@@ -330,7 +373,8 @@ export async function PUT(request: NextRequest) {
   try {
     const body = (await request.json()) as UpdateConfigRequest;
     const currentConfig = await readConfig();
-    const openrouterDirectEnabled = body.openrouterDirectEnabled === true;
+    const currentEnv = await readEnvValues();
+    const modelProvider: ModelProvider = "gateway";
     const modelSelectionMode = isModelSelectionMode(body.modelSelectionMode)
       ? body.modelSelectionMode
       : "auto";
@@ -342,24 +386,9 @@ export async function PUT(request: NextRequest) {
               ? body.model
               : DEFAULT_MANUAL_MODEL
           );
-    const openrouterModel = normalizeModel(
-      typeof body.openrouterModel === "string" && body.openrouterModel.trim()
-        ? body.openrouterModel
-        : currentConfig.openrouter_model || DEFAULT_MANUAL_MODEL
-    );
-    const effectiveModel =
-      openrouterDirectEnabled
-        ? openrouterModel
-        : modelSelectionMode === "auto"
-        ? AUTO_MODEL
-        : model;
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
-    const apiKey =
-      typeof body.openrouterApiKey === "string"
-        ? body.openrouterApiKey.trim()
-        : "";
     const workspacePath =
       typeof body.workspacePath === "string"
         ? body.workspacePath.trim()
@@ -374,11 +403,12 @@ export async function PUT(request: NextRequest) {
     const nextConfig: AgentConfig = {
       ...currentConfig,
       authorization_mode: authorizationMode,
+      model_provider: modelProvider,
       model_selection_mode: modelSelectionMode,
       manual_model: model,
-      openrouter_direct_enabled: openrouterDirectEnabled,
-      openrouter_model: openrouterModel,
     };
+    delete nextConfig.openrouter_direct_enabled;
+    delete nextConfig.openrouter_model;
     const interruptOn = buildInterruptOn(authorizationMode);
     if (interruptOn) {
       nextConfig.interrupt_on = interruptOn;
@@ -386,17 +416,12 @@ export async function PUT(request: NextRequest) {
       delete nextConfig.interrupt_on;
     }
 
+    const envUpdates = await buildGatewayEnvUpdates({
+      body,
+      config: nextConfig,
+      env: currentEnv,
+    });
     await writeConfig(nextConfig);
-
-    const envUpdates: Record<string, string> = {
-      OPENROUTER_BASE_URL,
-      LLM_PROVIDER: "openrouter",
-      LLM_MODEL: effectiveModel,
-      DEEPAGENT_MODEL: `openrouter:${effectiveModel}`,
-    };
-    if (apiKey) {
-      envUpdates.OPENROUTER_API_KEY = apiKey;
-    }
     await writeEnvValues(envUpdates);
     if (shouldUpdateWorkspace) {
       await updateLocalResourceWorkspace(workspacePath);
@@ -413,5 +438,192 @@ export async function PUT(request: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+
+interface GatewayBootstrapResponse {
+  apiKey?: unknown;
+  baseUrl?: unknown;
+  model?: unknown;
+  creditRmb?: unknown;
+  remainingRmb?: unknown;
+  username?: unknown;
+  inviteCode?: unknown;
+  error?: unknown;
+}
+
+async function buildGatewayEnvUpdates({
+  body,
+  config,
+  env,
+}: {
+  body: UpdateConfigRequest;
+  config: AgentConfig;
+  env: Record<string, string>;
+}) {
+  const gatewayEmail =
+    normalizeEmail(body.gatewayEmail) ||
+    normalizeEmail(env.INTERNAGENTS_USER_EMAIL);
+  if (!gatewayEmail || !isValidEmail(gatewayEmail)) {
+    throw new Error("请填写有效的邮箱，用于领取集思 key。");
+  }
+  const gatewayUsername =
+    normalizeUsername(body.gatewayUsername) ||
+    normalizeUsername(env.INTERNAGENTS_USER_NAME);
+  if (!gatewayUsername) {
+    throw new Error("请填写用户名，用于绑定集思账号。");
+  }
+  if (gatewayUsername.length > 64) {
+    throw new Error("用户名不能超过 64 个字符。");
+  }
+  const gatewayInviteCode =
+    normalizeInviteCode(body.gatewayInviteCode) ||
+    normalizeInviteCode(
+      env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE
+    );
+  if (!gatewayInviteCode) {
+    throw new Error("请填写邀请码，用于领取集思 key。");
+  }
+
+  const gatewayUrl = fixedGatewayUrl();
+  const fixedApiBaseUrl = gatewayApiBaseUrl(gatewayUrl);
+  const installId = env.INTERNAGENTS_INSTALL_ID || randomUUID();
+  const existingGatewayKey = env.INTERNAGENTS_GATEWAY_KEY || env.OPENAI_API_KEY;
+  const storedApiBaseUrl = normalizeGatewayUrl(
+    env.INTERNAGENTS_GATEWAY_BASE_URL ||
+      env.OPENAI_BASE_URL ||
+      env.OPENAI_API_BASE ||
+      ""
+  );
+  const shouldBootstrap =
+    !existingGatewayKey ||
+    gatewayEmail !== normalizeEmail(env.INTERNAGENTS_USER_EMAIL) ||
+    gatewayUsername !== normalizeUsername(env.INTERNAGENTS_USER_NAME) ||
+    gatewayInviteCode !==
+      normalizeInviteCode(
+        env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE
+      ) ||
+    storedApiBaseUrl !== fixedApiBaseUrl;
+
+  let apiKey = existingGatewayKey;
+  const apiBaseUrl = fixedApiBaseUrl;
+  let creditRmb = env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "";
+  let remainingRmb = env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "";
+
+  if (shouldBootstrap) {
+    const bootstrap = await requestGatewayBootstrap({
+      gatewayUrl,
+      email: gatewayEmail,
+      installId,
+      username: gatewayUsername,
+      inviteCode: gatewayInviteCode,
+    });
+    apiKey = bootstrap.apiKey;
+    creditRmb =
+      typeof bootstrap.creditRmb === "number"
+        ? String(bootstrap.creditRmb)
+        : "";
+    remainingRmb =
+      typeof bootstrap.remainingRmb === "number"
+        ? String(bootstrap.remainingRmb)
+        : "";
+  }
+
+  if (!apiKey) {
+    throw new Error("集思 key 不存在，请重新绑定集思账号。");
+  }
+
+  const model = selectedGatewayModel(config);
+
+  delete config.gateway_base_url;
+  config.gateway_model = model;
+
+  return {
+    INTERNAGENTS_MODEL_PROVIDER: "gateway",
+    INTERNAGENTS_INSTALL_ID: installId,
+    INTERNAGENTS_USER_EMAIL: gatewayEmail,
+    INTERNAGENTS_USER_NAME: gatewayUsername,
+    INTERNAGENTS_INVITE_CODE: gatewayInviteCode,
+    INTERNAGENTS_GATEWAY_INVITE_CODE: null,
+    INTERNAGENTS_GATEWAY_URL: null,
+    INTERNAGENTS_GATEWAY_BASE_URL: apiBaseUrl,
+    INTERNAGENTS_GATEWAY_MODEL: model,
+    INTERNAGENTS_GATEWAY_KEY: apiKey,
+    INTERNAGENTS_GATEWAY_CREDIT_RMB: creditRmb,
+    INTERNAGENTS_GATEWAY_REMAINING_RMB: remainingRmb,
+    LLM_PROVIDER: "openrouter",
+    LLM_MODEL: model,
+    DEEPAGENT_MODEL: `openrouter:${model}`,
+    OPENROUTER_API_KEY: apiKey,
+    OPENROUTER_API_BASE: apiBaseUrl,
+    OPENROUTER_BASE_URL: apiBaseUrl,
+    OPENAI_API_KEY: apiKey,
+    OPENAI_BASE_URL: apiBaseUrl,
+    OPENAI_API_BASE: apiBaseUrl,
+  };
+}
+
+async function requestGatewayBootstrap({
+  gatewayUrl,
+  email,
+  installId,
+  username,
+  inviteCode,
+}: {
+  gatewayUrl: string;
+  email: string;
+  installId: string;
+  username: string;
+  inviteCode: string;
+}): Promise<{
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  creditRmb?: number;
+  remainingRmb?: number;
+}> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(gatewayBootstrapUrl(gatewayUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, installId, username, inviteCode }),
+      signal: controller.signal,
+    });
+    const payload = (await response.json().catch(() => ({}))) as
+      GatewayBootstrapResponse;
+    if (!response.ok) {
+      throw new Error(
+        typeof payload.error === "string"
+          ? payload.error
+          : "集思绑定失败，请稍后重试。"
+      );
+    }
+    if (
+      typeof payload.apiKey !== "string" ||
+      typeof payload.baseUrl !== "string" ||
+      typeof payload.model !== "string"
+    ) {
+      throw new Error("集思返回格式不完整。");
+    }
+    return {
+      apiKey: payload.apiKey,
+      baseUrl: payload.baseUrl,
+      model: payload.model,
+      creditRmb:
+        typeof payload.creditRmb === "number" ? payload.creditRmb : undefined,
+      remainingRmb:
+        typeof payload.remainingRmb === "number"
+          ? payload.remainingRmb
+          : undefined,
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("集思绑定超时，请稍后重试。");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }

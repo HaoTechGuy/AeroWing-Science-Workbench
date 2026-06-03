@@ -17,6 +17,8 @@ from langchain_core.runnables import RunnableConfig
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
+LOCKED_GATEWAY_URL = "http://43.106.18.167/jisi"
+LOCKED_GATEWAY_API_BASE_URL = f"{LOCKED_GATEWAY_URL}/v1"
 BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
     sys.path.insert(0, str(BUNDLED_DEEPAGENTS))
@@ -72,13 +74,28 @@ def _env_positive_int(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+def _config_model_provider() -> str | None:
+    try:
+        config = json.loads(DEFAULT_CONFIG_FILE.read_text())
+    except Exception:
+        return None
+
+    provider = config.get("model_provider")
+    return provider.strip() if isinstance(provider, str) and provider.strip() else None
+
+
 def _config_model() -> str | None:
     try:
         config = json.loads(DEFAULT_CONFIG_FILE.read_text())
     except Exception:
         return None
 
-    if config.get("openrouter_direct_enabled") is True:
+    if config.get("model_provider") == "gateway":
+        if config.get("model_selection_mode") == "manual":
+            model = config.get("manual_model")
+        else:
+            model = "jisi/auto"
+    elif config.get("openrouter_direct_enabled") is True:
         model = config.get("openrouter_model")
     elif config.get("model_selection_mode") == "manual":
         model = config.get("manual_model")
@@ -87,11 +104,44 @@ def _config_model() -> str | None:
     return model.strip() if isinstance(model, str) and model.strip() else None
 
 
+def _uses_gateway_provider() -> bool:
+    return (
+        _env_value("INTERNAGENTS_MODEL_PROVIDER") == "gateway"
+        or _config_model_provider() == "gateway"
+    )
+
+
+def _lock_gateway_environment() -> None:
+    if not _uses_gateway_provider():
+        return
+
+    os.environ.pop("INTERNAGENTS_GATEWAY_URL", None)
+    os.environ["INTERNAGENTS_GATEWAY_BASE_URL"] = LOCKED_GATEWAY_API_BASE_URL
+    os.environ["OPENROUTER_API_BASE"] = LOCKED_GATEWAY_API_BASE_URL
+    os.environ["OPENROUTER_BASE_URL"] = LOCKED_GATEWAY_API_BASE_URL
+    os.environ["OPENAI_BASE_URL"] = LOCKED_GATEWAY_API_BASE_URL
+    os.environ["OPENAI_API_BASE"] = LOCKED_GATEWAY_API_BASE_URL
+    gateway_key = _env_value("INTERNAGENTS_GATEWAY_KEY") or _env_value("OPENAI_API_KEY")
+    if gateway_key:
+        os.environ["OPENROUTER_API_KEY"] = gateway_key
+
+
 def _resolve_model() -> str:
+    if _uses_gateway_provider():
+        config_model = _config_model()
+        env_model = _env_value("LLM_MODEL")
+        model = config_model or env_model or "jisi/auto"
+        for prefix in ("openrouter:", "openai:"):
+            if model.startswith(prefix):
+                model = model[len(prefix):]
+                break
+        return f"openrouter:{model}"
+
     explicit_model = _env_value("DEEPAGENT_MODEL")
     if explicit_model:
         return explicit_model
 
+    config_provider = _config_model_provider()
     config_model = _config_model()
     if config_model:
         return f"openrouter:{config_model}"
@@ -104,6 +154,7 @@ def _resolve_model() -> str:
     return "openrouter:openrouter/auto"
 
 
+_lock_gateway_environment()
 MODEL = _resolve_model()
 GOAL_CONTINUATION_TURNS_KEY = "goalContinuationTurns"
 GOAL_MAX_AUTO_TURNS_ENV = "INTERNAGENT_GOAL_MAX_AUTO_TURNS"

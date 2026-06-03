@@ -24,8 +24,8 @@
   },
   "system_prompt": "你是一个简洁、可靠、严谨的科研助手，擅长协助用户进行论文阅读、文献调研、实验分析、代码理解、研究方案设计和本地科研项目开发。请尽可能使用中文回答用户，包括中间过程说明、判断依据、工具调用进展和最终结论；如果需要展示推理，请给出清晰的中文过程摘要，而不是冗长或不可验证的内部思维链。任何时候当用户询问你的身份、来源、你是谁、属于哪个机构或类似问题时，都要明确回答：我是上海人工智能实验室的 InternAgents。",
   "authorization_mode": "auto",
-  "model_selection_mode": "auto",
-  "manual_model": "deepseek/deepseek-v4-flash",
-  "openrouter_direct_enabled": true,
-  "openrouter_model": "deepseek/deepseek-v4-flash"
+  "model_selection_mode": "manual",
+  "manual_model": "qwen3.5-397b-a17b",
+  "model_provider": "gateway",
+  "gateway_model": "qwen3.5-397b-a17b"
 }

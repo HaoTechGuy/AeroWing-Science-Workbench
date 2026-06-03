@@ -102,7 +102,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     route: "/config",
     target: '[data-tour="config-header"]',
     title: "配置页",
-    body: "这里集中管理模型、工作区、授权和界面设置。默认自动模型选择就可以直接使用，只有需要自定义模型或 API Key 时再修改。",
+    body: "这里集中管理模型、工作区、授权和界面设置。默认自动模型选择就可以直接使用，只有需要自定义模型时再修改。",
   },
   {
     id: "about",

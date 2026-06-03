@@ -25,10 +25,10 @@ The repository includes:
 
 This branch updates the desktop first-run experience:
 
-- First launch now opens the local workbench directly instead of blocking on a
-  configuration page.
-- The committed desktop defaults use OpenRouter with
-  `deepseek/deepseek-v4-flash`.
+- First launch opens the local workbench and redirects to setup only when the
+  selected model provider still needs credentials.
+- The preferred desktop setup uses 集思: the user enters an email, receives a
+  user-scoped virtual key, and the real DeepSeek key stays on the service side.
 - A Quickstart tour introduces the workbench, project selector, workspace,
   conversations, service connection, skills, configuration, and About/Updates.
 - The About/Updates page can restart the tour and exposes local update actions.
@@ -93,21 +93,29 @@ file, or from process environment variables supplied by a packaged desktop
 launcher:
 
 ```env
+INTERNAGENTS_MODEL_PROVIDER=gateway
+INTERNAGENTS_USER_EMAIL=
+INTERNAGENTS_USER_NAME=
+INTERNAGENTS_INVITE_CODE=
+INTERNAGENTS_GATEWAY_KEY=
 OPENROUTER_API_KEY=
+OPENROUTER_API_BASE=
 DEEPAGENT_MODEL=
 ```
 
 Set `DEEPAGENT_MODEL` to override the model explicitly:
 
 ```env
-DEEPAGENT_MODEL=openrouter:deepseek/deepseek-v4-flash
+DEEPAGENT_MODEL=openrouter:qwen3.5-397b-a17b
 ```
 
-If `DEEPAGENT_MODEL` is empty, InternAgents falls back to
-`LLM_PROVIDER=openrouter` plus `LLM_MODEL`, and finally to
-`openrouter:openrouter/auto`. Real keys should stay in an untracked `.env` or in
-the desktop app's Application Support runtime directory; they should not be
-committed.
+集思 exposes an OpenAI-compatible chat-completions endpoint, while the local
+LangChain integration uses the existing OpenRouter ChatModel path. The gateway
+origin itself is fixed by the local backend and is not a UI setting. The UI keeps
+the model mode configurable: automatic selection writes `jisi/auto`, while
+manual selection writes the chosen model ID. Real keys should stay in an
+untracked `.env` or in the desktop app's Application Support runtime directory;
+they should not be committed.
 
 ## DeepAgent Configuration
 
@@ -199,6 +207,12 @@ Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
 a public release-only repository. The source repository can stay private; the
 release repository only needs GitHub Releases with assets named like
 `InternAgents-0.1.1-arm64.dmg` and `InternAgents-0.1.1-x64.dmg`.
+
+Public release repositories do not require a token. The updater first tries the
+GitHub Releases API and, if the unauthenticated API is rate-limited, falls back
+to the public release page plus `releases/latest/download/...`. Set
+`INTERNAGENTS_UPDATE_GITHUB_TOKEN` only when you want a higher GitHub API rate
+limit or when you intentionally check a private release repository.
 
 The browser never receives a shell command or user-provided repository URL. It
 calls local Next.js API routes under `/api/update/*`; those routes are the only
@@ -370,9 +384,10 @@ NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
 ```
 
-First launch opens the local workbench directly. The committed default model
-configuration uses `openrouter/auto`; real OpenRouter API keys still belong in
-the user's untracked `.env` or desktop runtime configuration.
+First launch opens the local workbench and redirects to setup if 集思 is missing
+credentials. The user's virtual key belongs in the desktop runtime `.env`; real
+DeepSeek and LiteLLM master keys belong only in the separate
+`internagents-gateway` deployment.
 
 ### Publishing Desktop Releases
 

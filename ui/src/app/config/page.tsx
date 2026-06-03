@@ -7,12 +7,15 @@ import {
   Cpu,
   FolderOpen,
   Loader2,
+  Mail,
   Moon,
   Save,
   ServerCog,
   Shield,
   ShieldCheck,
   Sun,
+  Ticket,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -29,7 +32,8 @@ import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type OnboardingMissing = "openrouterApiKey" | "workspacePath";
+type ModelProvider = "gateway";
+type OnboardingMissing = "gatewayEmail" | "workspacePath";
 
 interface ConfigResponse {
   configPath: string;
@@ -37,13 +41,19 @@ interface ConfigResponse {
   resourcesPath: string;
   workspacePath: string;
   workspaceResolvedPath: string;
+  modelProvider: ModelProvider;
   model: string;
   modelSelectionMode: ModelSelectionMode;
-  openrouterDirectEnabled: boolean;
-  openrouterModel: string;
-  openrouterApiKey: string;
-  openrouterApiKeySet: boolean;
-  openrouterApiKeyPreview: string;
+  autoModel: string;
+  effectiveModel: string;
+  gatewayEmail: string;
+  gatewayUsername: string;
+  gatewayInviteCode: string;
+  gatewayModel: string;
+  gatewayApiKeySet: boolean;
+  gatewayApiKeyPreview: string;
+  gatewayCreditRmb: string;
+  gatewayRemainingRmb: string;
   authorizationMode: AuthorizationMode;
   desktopMode: boolean;
   needsOnboarding: boolean;
@@ -69,19 +79,43 @@ interface BackendStatusResult {
   interruptedThreads: number;
 }
 
+interface GatewayModelOption {
+  id: string;
+  title: string;
+  provider: string;
+  description: string;
+  upstreamModel?: string;
+  upstreamProvider?: string;
+  inputPriceRmbPer1m?: number;
+  outputPriceRmbPer1m?: number;
+  isDefault?: boolean;
+}
+
+interface GatewayModelsPayload {
+  defaultModel?: unknown;
+  models?: unknown;
+  error?: unknown;
+}
+
 const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
   resourcesPath: "",
   workspacePath: ".",
   workspaceResolvedPath: "",
-  model: "deepseek/deepseek-v4-flash",
+  modelProvider: "gateway",
+  model: "qwen3.5-397b-a17b",
   modelSelectionMode: "auto",
-  openrouterDirectEnabled: false,
-  openrouterModel: "deepseek/deepseek-v4-flash",
-  openrouterApiKey: "",
-  openrouterApiKeySet: false,
-  openrouterApiKeyPreview: "",
+  autoModel: "jisi/auto",
+  effectiveModel: "jisi/auto",
+  gatewayEmail: "",
+  gatewayUsername: "",
+  gatewayInviteCode: "",
+  gatewayModel: "qwen3.5-397b-a17b",
+  gatewayApiKeySet: false,
+  gatewayApiKeyPreview: "",
+  gatewayCreditRmb: "",
+  gatewayRemainingRmb: "",
   authorizationMode: "auto",
   desktopMode: false,
   needsOnboarding: false,
@@ -104,64 +138,6 @@ const MODEL_SELECTION_OPTIONS: Array<{
     id: "manual",
     title: "手动指定模型",
     description: "固定使用下方选择或填写的模型。",
-  },
-];
-
-const JISI_MODEL_OPTIONS: Array<{
-  id: string;
-  title: string;
-  vendor: string;
-  description: string;
-  badge?: string;
-}> = [
-  {
-    id: "deepseek/deepseek-v4-flash",
-    title: "DeepSeek V4 Flash",
-    vendor: "DeepSeek",
-    description: "默认推荐，速度优先，适合日常对话、代码协作和轻量分析。",
-    badge: "默认",
-  },
-  {
-    id: "deepseek/deepseek-r1",
-    title: "DeepSeek R1",
-    vendor: "DeepSeek",
-    description: "推理能力更强，适合复杂规划、数学推导和多步骤分析。",
-  },
-  {
-    id: "deepseek/deepseek-chat",
-    title: "DeepSeek Chat",
-    vendor: "DeepSeek",
-    description: "通用中文对话和代码任务，输出稳定，成本友好。",
-  },
-  {
-    id: "qwen/Qwen3-235B",
-    title: "通义千问 Qwen3 235B",
-    vendor: "Qwen",
-    description: "大参数通用模型，适合中文写作、知识问答和研究整理。",
-  },
-  {
-    id: "moonshot/kimi-k2.5",
-    title: "Kimi K2.5",
-    vendor: "Moonshot",
-    description: "长文本理解和中文材料处理友好，适合文档阅读场景。",
-  },
-  {
-    id: "shlab/intern-s1-pro",
-    title: "Intern S1 Pro",
-    vendor: "SH-Lab",
-    description: "上海人工智能实验室模型，适合科研分析和科学问答。",
-  },
-  {
-    id: "zhipu/glm-5",
-    title: "GLM-5",
-    vendor: "Zhipu",
-    description: "国产通用模型，适合中文知识问答和结构化生成。",
-  },
-  {
-    id: "minimax/minimax2.5",
-    title: "MiniMax 2.5",
-    vendor: "MiniMax",
-    description: "轻量通用模型，适合快速对话、摘要和改写任务。",
   },
 ];
 
@@ -211,9 +187,84 @@ const THEME_OPTIONS: Array<{
 ];
 
 const ONBOARDING_MISSING_LABELS: Record<OnboardingMissing, string> = {
-  openrouterApiKey: "OpenRouter API Key",
+  gatewayEmail: "集思账号绑定",
   workspacePath: "本机工作区",
 };
+
+function normalizeGatewayModelOption(value: unknown): GatewayModelOption | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== "string" || !record.id.trim()) {
+    return null;
+  }
+  const id = record.id.trim();
+  return {
+    id,
+    title:
+      typeof record.title === "string" && record.title.trim()
+        ? record.title.trim()
+        : id,
+    provider:
+      typeof record.provider === "string" && record.provider.trim()
+        ? record.provider.trim()
+        : "集思",
+    description:
+      typeof record.description === "string" && record.description.trim()
+        ? record.description.trim()
+        : "集思网关可用模型。",
+    upstreamModel:
+      typeof record.upstreamModel === "string" ? record.upstreamModel : undefined,
+    upstreamProvider:
+      typeof record.upstreamProvider === "string"
+        ? record.upstreamProvider
+        : undefined,
+    inputPriceRmbPer1m:
+      typeof record.inputPriceRmbPer1m === "number"
+        ? record.inputPriceRmbPer1m
+        : undefined,
+    outputPriceRmbPer1m:
+      typeof record.outputPriceRmbPer1m === "number"
+        ? record.outputPriceRmbPer1m
+        : undefined,
+    isDefault: record.isDefault === true,
+  };
+}
+
+async function fetchGatewayModels(signal: AbortSignal): Promise<GatewayModelOption[]> {
+  const response = await fetch("/api/gateway/models", {
+    cache: "no-store",
+    signal,
+  });
+  const payload = (await response.json().catch(() => ({}))) as GatewayModelsPayload;
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.error === "string"
+        ? payload.error
+        : "集思模型列表读取失败。"
+    );
+  }
+  const models = Array.isArray(payload.models)
+    ? payload.models
+        .map(normalizeGatewayModelOption)
+        .filter((model): model is GatewayModelOption => Boolean(model))
+    : [];
+  if (models.length === 0) {
+    throw new Error("集思未返回可用模型。");
+  }
+  return models;
+}
+
+function priceSummary(option: GatewayModelOption) {
+  if (
+    typeof option.inputPriceRmbPer1m !== "number" ||
+    typeof option.outputPriceRmbPer1m !== "number"
+  ) {
+    return "";
+  }
+  return `¥${option.inputPriceRmbPer1m}/百万输入 · ¥${option.outputPriceRmbPer1m}/百万输出`;
+}
 
 export default function ConfigPage() {
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
@@ -232,59 +283,68 @@ export default function ConfigPage() {
   const [restartResult, setRestartResult] =
     useState<BackendRestartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [gatewayModelOptions, setGatewayModelOptions] = useState<
+    GatewayModelOption[]
+  >([]);
+  const [gatewayModelsLoading, setGatewayModelsLoading] = useState(false);
+  const [gatewayModelsError, setGatewayModelsError] = useState<string | null>(
+    null
+  );
 
   const actionBusy = loading || saving || restarting;
   const isBusy = actionBusy || checkingStatus;
   const hasChanges = useMemo(() => {
     return (
+      config.gatewayEmail !== savedConfig.gatewayEmail ||
+      config.gatewayUsername !== savedConfig.gatewayUsername ||
+      config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
-      config.openrouterApiKey.trim().length > 0 ||
-      config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
-      config.openrouterModel !== savedConfig.openrouterModel ||
       config.authorizationMode !== savedConfig.authorizationMode ||
       config.workspacePath !== savedConfig.workspacePath
     );
   }, [
     config.authorizationMode,
+    config.gatewayEmail,
+    config.gatewayInviteCode,
+    config.gatewayUsername,
     config.model,
     config.modelSelectionMode,
-    config.openrouterApiKey,
-    config.openrouterDirectEnabled,
-    config.openrouterModel,
     config.workspacePath,
     savedConfig.authorizationMode,
+    savedConfig.gatewayEmail,
+    savedConfig.gatewayInviteCode,
+    savedConfig.gatewayUsername,
     savedConfig.model,
     savedConfig.modelSelectionMode,
-    savedConfig.openrouterDirectEnabled,
-    savedConfig.openrouterModel,
     savedConfig.workspacePath,
   ]);
   const selectedJisiModel = useMemo(
-    () => JISI_MODEL_OPTIONS.find((option) => option.id === config.model),
-    [config.model]
+    () => gatewayModelOptions.find((option) => option.id === config.model),
+    [config.model, gatewayModelOptions]
   );
   const restartSensitiveChanged = useMemo(() => {
     return (
+      config.gatewayEmail !== savedConfig.gatewayEmail ||
+      config.gatewayUsername !== savedConfig.gatewayUsername ||
+      config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
-      config.openrouterApiKey.trim().length > 0 ||
-      config.openrouterDirectEnabled !== savedConfig.openrouterDirectEnabled ||
-      config.openrouterModel !== savedConfig.openrouterModel ||
       config.authorizationMode !== savedConfig.authorizationMode
     );
   }, [
     config.authorizationMode,
+    config.gatewayEmail,
+    config.gatewayInviteCode,
+    config.gatewayUsername,
     config.model,
     config.modelSelectionMode,
-    config.openrouterApiKey,
-    config.openrouterDirectEnabled,
-    config.openrouterModel,
     savedConfig.authorizationMode,
+    savedConfig.gatewayEmail,
+    savedConfig.gatewayInviteCode,
+    savedConfig.gatewayUsername,
     savedConfig.model,
     savedConfig.modelSelectionMode,
-    savedConfig.openrouterDirectEnabled,
-    savedConfig.openrouterModel,
   ]);
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
@@ -304,7 +364,11 @@ export default function ConfigPage() {
       if (!response.ok) {
         throw new Error(payload.error || "配置读取失败");
       }
-      const nextConfig = { ...DEFAULT_CONFIG, ...payload } as ConfigResponse;
+      const nextConfig = {
+        ...DEFAULT_CONFIG,
+        ...payload,
+        modelProvider: "gateway",
+      } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
       setRequiresRestart(false);
@@ -333,10 +397,11 @@ export default function ConfigPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: config.model,
+          modelProvider: "gateway",
           modelSelectionMode: config.modelSelectionMode,
-          openrouterDirectEnabled: config.openrouterDirectEnabled,
-          openrouterModel: config.openrouterModel,
-          openrouterApiKey: config.openrouterApiKey.trim() || undefined,
+          gatewayEmail: config.gatewayEmail.trim() || undefined,
+          gatewayUsername: config.gatewayUsername.trim() || undefined,
+          gatewayInviteCode: config.gatewayInviteCode.trim() || undefined,
           authorizationMode: config.authorizationMode,
           workspacePath: config.workspacePath,
         }),
@@ -508,6 +573,44 @@ export default function ConfigPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRestart, requiresRestart, hasChanges, actionBusy]);
 
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const debounce = window.setTimeout(() => {
+      setGatewayModelsLoading(true);
+      setGatewayModelsError(null);
+      void fetchGatewayModels(controller.signal)
+        .then((models) => {
+          if (!controller.signal.aborted) {
+            setGatewayModelOptions(models);
+          }
+        })
+        .catch((modelError) => {
+          if (!controller.signal.aborted) {
+            const message =
+              modelError instanceof Error
+                ? modelError.message
+                : "集思模型列表读取失败。";
+            setGatewayModelOptions([]);
+            setGatewayModelsError(message);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setGatewayModelsLoading(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(debounce);
+    };
+  }, [loading]);
+
   return (
     <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
       <header
@@ -534,7 +637,7 @@ export default function ConfigPage() {
             </h1>
             <div className="truncate text-xs text-muted-foreground">
               {onboardingMode
-                ? "完成模型、工作区和授权设置后进入工作台"
+                ? "绑定集思、选择工作区并设置授权后进入工作台"
                 : "模型、工作区、授权模式、技能和界面风格"}
             </div>
           </div>
@@ -665,7 +768,7 @@ export default function ConfigPage() {
           <section className="rounded-lg border border-[#BFD9D4] bg-[#F1F7F5] p-4 text-sm text-[#24595A] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
             <div className="font-medium">配置指引</div>
             <div className="mt-2 grid gap-2 md:grid-cols-3">
-              <div>1. 先填写 OpenRouter API Key，或保留已经保存的 key。</div>
+              <div>1. 先绑定集思邮箱，或保留已经保存的 key。</div>
               <div>2. 选择本机工作区；远程工作区在工作台左上角添加。</div>
               <div>3. 改完后点“空闲时应用”；需要马上生效再点“立即应用”。</div>
             </div>
@@ -682,7 +785,7 @@ export default function ConfigPage() {
               <div className="min-w-0">
                 <h2 className="text-base font-semibold">模型</h2>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  默认使用上海人工智能实验室研发的集思系统，为每个问题自动选择最佳模型进行回答。
+                  使用集思统一管理 key、额度和模型服务。
                 </div>
               </div>
             </div>
@@ -693,8 +796,91 @@ export default function ConfigPage() {
                 正在读取配置...
               </div>
             ) : (
-              <div className="space-y-5">
-                <div className="space-y-3">
+              <div className="rounded-md border border-border bg-background p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <Label htmlFor="gateway-email">集思账号绑定</Label>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      保存时会校验邮箱、用户名和邀请码，并完成集思账号绑定。
+                    </div>
+                  </div>
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-1 text-xs font-medium",
+                      config.gatewayApiKeySet
+                        ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {config.gatewayApiKeySet ? "已绑定" : "未绑定"}
+                  </span>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Mail className="h-3.5 w-3.5" />
+                      邮箱
+                    </div>
+                    <Input
+                      id="gateway-email"
+                      type="email"
+                      autoComplete="email"
+                      value={config.gatewayEmail}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          gatewayEmail: event.target.value,
+                        }))
+                      }
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <User className="h-3.5 w-3.5" />
+                      用户名
+                    </div>
+                    <Input
+                      id="gateway-username"
+                      type="text"
+                      autoComplete="name"
+                      value={config.gatewayUsername}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          gatewayUsername: event.target.value,
+                        }))
+                      }
+                      placeholder="你的用户名"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Ticket className="h-3.5 w-3.5" />
+                      邀请码
+                    </div>
+                    <Input
+                      id="gateway-invite-code"
+                      type="text"
+                      autoComplete="off"
+                      value={config.gatewayInviteCode}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          gatewayInviteCode: event.target.value,
+                        }))
+                      }
+                      placeholder="JISI-XXXXXXXXXX"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <Label>模型选择</Label>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {MODEL_SELECTION_OPTIONS.map((option) => {
                       const active = config.modelSelectionMode === option.id;
@@ -735,144 +921,139 @@ export default function ConfigPage() {
                 </div>
 
                 {config.modelSelectionMode === "auto" ? (
-                  <div className="rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
+                  <div className="mt-3 rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
                     已启用自动模型选择。集思会根据问题自动匹配合适模型。
                   </div>
-                ) : null}
+                ) : (
+                  <div className="mt-5 space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-end justify-between gap-2">
+                        <div>
+                          <Label>集思可用模型</Label>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            从集思后端读取可用模型；也可以在下方填写模型 ID。
+                          </div>
+                        </div>
+                        {selectedJisiModel ? (
+                          <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
+                            当前：{selectedJisiModel.title}
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                            当前：自定义模型
+                          </span>
+                        )}
+                      </div>
 
-                <div className="rounded-md border border-border bg-background p-4">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <Label htmlFor="openrouter-api-key">
-                        OpenRouter API Key
-                      </Label>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        用于访问 OpenRouter；保存后写入本机 `.env`，页面不会回显完整 key。
+                      {gatewayModelsLoading && (
+                        <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          正在从集思读取可用模型...
+                        </div>
+                      )}
+
+                      {gatewayModelsError && !gatewayModelsLoading && (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                          {gatewayModelsError} 你仍然可以在下方手动填写模型 ID。
+                        </div>
+                      )}
+
+                      {gatewayModelOptions.length > 0 ? (
+                        <div className="grid gap-1.5 md:grid-cols-2">
+                          {gatewayModelOptions.map((option) => {
+                          const active = config.model === option.id;
+                          const price = priceSummary(option);
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() =>
+                                setConfig((current) => ({
+                                  ...current,
+                                  model: option.id,
+                                }))
+                              }
+                              className={cn(
+                                "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                                active
+                                  ? "border-primary ring-2 ring-primary/20"
+                                  : "border-border"
+                              )}
+                            >
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <div className="truncate text-[13px] font-semibold leading-5">
+                                    {option.title}
+                                  </div>
+                                  <div className="shrink-0 text-[11px] text-muted-foreground">
+                                    {option.provider}
+                                  </div>
+                                </div>
+                                {option.isDefault && (
+                                  <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
+                                    默认
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
+                                {option.description}
+                              </div>
+                              <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
+                                {option.id}
+                              </div>
+                              {price && (
+                                <div className="mt-0.5 truncate text-[10px] leading-4 text-muted-foreground">
+                                  {price}
+                                </div>
+                              )}
+                            </button>
+                          );
+                          })}
+                        </div>
+                      ) : !gatewayModelsLoading && !gatewayModelsError ? (
+                        <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+                          暂无可展示模型。请稍后重试，或在下方手动填写模型 ID。
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="jisi-model">填写模型 ID</Label>
+                      <Input
+                        id="jisi-model"
+                        value={config.model}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            model: event.target.value,
+                          }))
+                        }
+                        placeholder={gatewayModelOptions[0]?.id || "deepseek-v4-flash"}
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        可以直接粘贴集思支持的模型 ID。
                       </div>
                     </div>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-1 text-xs font-medium",
-                        config.openrouterApiKeySet
-                          ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
-                          : "bg-muted text-muted-foreground"
-                      )}
-                    >
-                      {config.openrouterApiKeySet
-                        ? config.openrouterApiKeyPreview || "已保存"
-                        : "未设置"}
-                    </span>
                   </div>
-                  <Input
-                    id="openrouter-api-key"
-                    type="password"
-                    autoComplete="new-password"
-                    value={config.openrouterApiKey}
-                    disabled={loading}
-                    onChange={(event) =>
-                      setConfig((current) => ({
-                        ...current,
-                        openrouterApiKey: event.target.value,
-                      }))
-                    }
-                    placeholder={
-                      config.openrouterApiKeySet
-                        ? "粘贴新的 key；留空则保留已保存 key"
-                        : "sk-or-v1-..."
-                    }
-                  />
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    只在需要新增或替换 key 时填写；不填写不会覆盖已有 key。
+                )}
+
+                <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                  <div className="min-w-0 truncate">
+                    模型：
+                    {config.modelSelectionMode === "auto"
+                      ? config.autoModel || "jisi/auto"
+                      : config.model || "qwen3.5-397b-a17b"}
+                  </div>
+                  <div className="min-w-0 truncate">
+                    额度：
+                    {config.gatewayRemainingRmb
+                      ? `剩余 ¥${config.gatewayRemainingRmb}`
+                      : config.gatewayCreditRmb
+                      ? `总额 ¥${config.gatewayCreditRmb}`
+                      : "绑定后显示"}
                   </div>
                 </div>
 
-                {config.modelSelectionMode !== "auto" && (
-                    <>
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-end justify-between gap-2">
-                          <div>
-                            <Label>集思国产模型</Label>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              选择集思系统中可用的国产模型；也可以在下方填写模型 ID。
-                            </div>
-                          </div>
-                          {selectedJisiModel ? (
-                            <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
-                              当前：{selectedJisiModel.title}
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                              当前：自定义模型
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="grid gap-1.5 md:grid-cols-2">
-                          {JISI_MODEL_OPTIONS.map((option) => {
-                            const active = config.model === option.id;
-                            return (
-                              <button
-                                key={option.id}
-                                type="button"
-                                onClick={() =>
-                                  setConfig((current) => ({
-                                    ...current,
-                                    model: option.id,
-                                  }))
-                                }
-                                className={cn(
-                                  "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
-                                  active
-                                    ? "border-primary ring-2 ring-primary/20"
-                                    : "border-border"
-                                )}
-                              >
-                                <div className="flex min-w-0 items-center justify-between gap-2">
-                                  <div className="flex min-w-0 items-center gap-2">
-                                    <div className="truncate text-[13px] font-semibold leading-5">
-                                      {option.title}
-                                    </div>
-                                    <div className="shrink-0 text-[11px] text-muted-foreground">
-                                      {option.vendor}
-                                    </div>
-                                  </div>
-                                  {option.badge && (
-                                    <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
-                                      {option.badge}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
-                                  {option.description}
-                                </div>
-                                <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
-                                  {option.id}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="jisi-model">填写模型 ID</Label>
-                        <Input
-                          id="jisi-model"
-                          value={config.model}
-                          onChange={(event) =>
-                            setConfig((current) => ({
-                              ...current,
-                              model: event.target.value,
-                            }))
-                          }
-                          placeholder="deepseek/deepseek-v4-flash"
-                        />
-                        <div className="text-xs text-muted-foreground">
-                          可以直接粘贴集思支持的模型 ID。
-                        </div>
-                      </div>
-                    </>
-                  )}
               </div>
             )}
           </section>
@@ -1034,7 +1215,7 @@ export default function ConfigPage() {
             </div>
           </section>
 
-          <ArchivedThreadsCard />
+          {!onboardingMode && <ArchivedThreadsCard />}
 
           <div className="flex justify-end text-xs text-muted-foreground">
             <div className="truncate">配置文件：{config.configPath || "-"}</div>
