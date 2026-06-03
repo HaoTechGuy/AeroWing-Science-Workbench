@@ -29,6 +29,11 @@ const backendWheelhouseTargets = [
   },
 ];
 const backendSourceDistributions = new Set(["forbiddenfruit"]);
+const canCreatePortableSymlinks = process.platform !== "win32";
+const standaloneCopyLinkOptions = {
+  verbatimSymlinks: canCreatePortableSymlinks,
+  dereference: !canCreatePortableSymlinks,
+};
 
 const runtimeEntries = [
   ".env.example",
@@ -124,7 +129,7 @@ async function prepareUiStandalone() {
   await fs.cp(standaloneSource, uiStandaloneDir, {
     recursive: true,
     force: true,
-    verbatimSymlinks: true,
+    ...standaloneCopyLinkOptions,
   });
 
   const serverDir = await findServerDir(uiStandaloneDir);
@@ -137,7 +142,7 @@ async function prepareUiStandalone() {
   await copyIfExists(
     path.join(uiStandaloneDir, "node_modules"),
     path.join(uiStandaloneDir, "standalone_node_modules"),
-    { verbatimSymlinks: true }
+    standaloneCopyLinkOptions
   );
   await rewriteUiStandaloneNodeModuleSymlinks();
   await copyMissingStandalonePackageDependencies();
@@ -234,6 +239,11 @@ async function ensureDirectoryLink(linkPath, targetPath) {
   }
 
   await fs.mkdir(path.dirname(linkPath), { recursive: true });
+  if (process.platform === "win32") {
+    await fs.symlink(path.resolve(targetPath), linkPath, "junction");
+    return;
+  }
+
   const relativeTarget = path.relative(path.dirname(linkPath), targetPath);
   await fs.symlink(relativeTarget || ".", linkPath, "dir");
 }
