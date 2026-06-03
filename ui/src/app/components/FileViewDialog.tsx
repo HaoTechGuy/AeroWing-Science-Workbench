@@ -150,11 +150,11 @@ export const FileViewDialog = React.memo<{
                 value={fileName}
                 onChange={(e) => setFileName(e.target.value)}
                 placeholder="Enter filename..."
-                className="text-base font-medium"
+                className="text-sm font-medium"
                 aria-invalid={!fileNameIsValid}
               />
             ) : (
-              <span className="overflow-hidden text-ellipsis whitespace-nowrap text-base font-medium text-primary">
+              <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-primary">
                 {file?.path}
               </span>
             )}

@@ -35,7 +35,16 @@ from kb_sync_middleware import KbSyncMiddleware
 from mineru_middleware import PdfMinerUMiddleware
 from ssh_backend import SshShellBackend
 
-load_dotenv(ROOT_DIR / ".env")
+
+def _load_environment() -> None:
+    env_file = os.getenv("INTERNAGENT_ENV_FILE")
+    if env_file:
+        load_dotenv(Path(env_file).expanduser())
+        return
+    load_dotenv(ROOT_DIR / ".env")
+
+
+_load_environment()
 
 
 def _env_value(name: str) -> str | None:
@@ -63,10 +72,29 @@ def _env_positive_int(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+def _config_model() -> str | None:
+    try:
+        config = json.loads(DEFAULT_CONFIG_FILE.read_text())
+    except Exception:
+        return None
+
+    if config.get("openrouter_direct_enabled") is True:
+        model = config.get("openrouter_model")
+    elif config.get("model_selection_mode") == "manual":
+        model = config.get("manual_model")
+    else:
+        model = "openrouter/auto"
+    return model.strip() if isinstance(model, str) and model.strip() else None
+
+
 def _resolve_model() -> str:
     explicit_model = _env_value("DEEPAGENT_MODEL")
     if explicit_model:
         return explicit_model
+
+    config_model = _config_model()
+    if config_model:
+        return f"openrouter:{config_model}"
 
     provider = _env_value("LLM_PROVIDER")
     model = _env_value("LLM_MODEL")

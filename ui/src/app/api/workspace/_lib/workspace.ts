@@ -106,6 +106,7 @@ export interface ResourceRecord {
   workspace?: string;
   ssh_command?: string;
   remote_url?: string;
+  remote_runtime_port?: number;
   remote_assistant_id?: string;
   kb_path?: string;
   enabled?: boolean;

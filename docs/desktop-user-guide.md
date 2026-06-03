@@ -4,7 +4,7 @@
 
 ## 1. 安装和打开
 
-1. 双击 `InternAgents-0.1.0-arm64.dmg`。
+1. Apple Silicon Mac 双击 `InternAgents-0.1.0-arm64.dmg`；Intel Mac 双击 `InternAgents-0.1.0-x64.dmg`。
 2. 把 `InternAgents` 拖到 `Applications`（应用程序）文件夹。
 3. 在「应用程序」里打开 `InternAgents`。
 

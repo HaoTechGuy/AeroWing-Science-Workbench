@@ -24,16 +24,29 @@ type QuickstartStep = {
 type TourEventDetail = {
   stepId?: string;
   restart?: boolean;
+  force?: boolean;
+  auto?: boolean;
 };
 
 const QUICKSTART_COMPLETED_KEY = "internagents.quickstart.completed.v1";
 const QUICKSTART_STEP_KEY = "internagents.quickstart.step.v1";
+const QUICKSTART_ONBOARDING_ENDPOINT = "/api/onboarding/quickstart";
 const INTRO_COMPLETE_EVENT = "internagents.intro.complete";
 const WORKBENCH_HREF = "/?assistantId=agent";
 const WORKBENCH_PARAM_KEYS = ["resourceId", "assistantId", "workspaceId"];
 
 type IntroWindow = Window & {
   __internagentsIntroComplete?: boolean;
+  __INTERNAGENTS_RUNTIME_CONFIG__?: {
+    desktopMode?: boolean;
+  };
+};
+
+type AutoStartGate = "pending" | "local" | "desktop";
+
+type QuickstartAutoStartStatus = {
+  desktopMode?: boolean;
+  shouldAutoStart?: boolean;
 };
 
 const QUICKSTART_STEPS: QuickstartStep[] = [
@@ -50,7 +63,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     href: WORKBENCH_HREF,
     target: '[data-tour="local-agent"]',
     title: "当前项目",
-    body: "这里确认当前使用的项目或资源。切换项目会影响左侧文件、项目会话和智能体运行上下文。",
+    body: "这里确认当前使用的项目或资源。打开下拉菜单可以切换已有工作区，也可以打开或新增本地工作区、接入远程工作区。",
   },
   {
     id: "workspace",
@@ -83,6 +96,13 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     target: '[data-tour="nav-config"]',
     title: "配置",
     body: "这个页面负责模型、工作区、授权模式和界面风格等设置。模型和授权通常影响后端行为，工作区和界面相关设置会直接影响使用体验。",
+  },
+  {
+    id: "config-model",
+    route: "/config",
+    target: '[data-tour="config-header"]',
+    title: "配置页",
+    body: "这里集中管理模型、工作区、授权和界面设置。默认自动模型选择就可以直接使用，只有需要自定义模型或 API Key 时再修改。",
   },
   {
     id: "about",
@@ -150,6 +170,40 @@ function hasIntroCompleted() {
   return Boolean((window as IntroWindow).__internagentsIntroComplete);
 }
 
+function isDesktopRuntime() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return Boolean(
+    (window as IntroWindow).__INTERNAGENTS_RUNTIME_CONFIG__?.desktopMode
+  );
+}
+
+function getInitialAutoStartGate(): AutoStartGate {
+  return isDesktopRuntime() ? "pending" : "local";
+}
+
+async function readAutoStartStatus(): Promise<QuickstartAutoStartStatus> {
+  const response = await fetch(QUICKSTART_ONBOARDING_ENDPOINT, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("无法读取导览自动启动状态。");
+  }
+  return (await response.json()) as QuickstartAutoStartStatus;
+}
+
+async function markAutoShown() {
+  try {
+    await fetch(QUICKSTART_ONBOARDING_ENDPOINT, {
+      method: "PUT",
+      cache: "no-store",
+    });
+  } catch {
+    // Keep the tour usable even if the best-effort desktop marker write fails.
+  }
+}
+
 function clampCardPosition(left: number, top: number) {
   const cardWidth = Math.min(360, window.innerWidth - 32);
   const cardHeight = 260;
@@ -202,6 +256,9 @@ export function QuickstartTour() {
   const [pendingStart, setPendingStart] = useState<TourEventDetail | null>(
     null
   );
+  const [autoStartGate, setAutoStartGate] = useState<AutoStartGate>(
+    getInitialAutoStartGate
+  );
 
   const step = QUICKSTART_STEPS[stepIndex] ?? QUICKSTART_STEPS[0];
   const totalSteps = QUICKSTART_STEPS.length;
@@ -219,7 +276,7 @@ export function QuickstartTour() {
       return;
     }
 
-    if (!detail?.restart && readCompleted()) {
+    if (!detail?.restart && !detail?.force && readCompleted()) {
       return;
     }
     if (isConfigSetupRoute()) {
@@ -237,6 +294,9 @@ export function QuickstartTour() {
         : readStoredStepIndex();
 
     writeCompleted(false);
+    if (detail?.auto) {
+      void markAutoShown();
+    }
     setStepIndex(nextIndex);
     setActive(true);
   }, [introComplete]);
@@ -268,7 +328,12 @@ export function QuickstartTour() {
   }, [introComplete, pendingStart, startTour]);
 
   useEffect(() => {
-    if (!introComplete || pendingStart !== null) {
+    if (
+      !introComplete ||
+      pendingStart !== null ||
+      autoStartGate === "pending" ||
+      autoStartGate === "desktop"
+    ) {
       return;
     }
 
@@ -276,7 +341,7 @@ export function QuickstartTour() {
       setStepIndex(readStoredStepIndex());
       setActive(true);
     }
-  }, [active, introComplete, pathname, pendingStart]);
+  }, [active, autoStartGate, introComplete, pathname, pendingStart]);
 
   const endTour = useCallback(() => {
     writeCompleted(true);
@@ -289,10 +354,29 @@ export function QuickstartTour() {
       startTour((event as CustomEvent<TourEventDetail>).detail);
     }
 
-    function handleAutoStart() {
-      if (!active) {
-        startTour();
+    async function handleAutoStart() {
+      if (active) {
+        return;
       }
+
+      try {
+        const status = await readAutoStartStatus();
+        if (status.desktopMode) {
+          setAutoStartGate("desktop");
+          if (status.shouldAutoStart) {
+            startTour({ auto: true, force: true });
+          }
+          return;
+        }
+      } catch {
+        if (isDesktopRuntime()) {
+          setAutoStartGate("desktop");
+          return;
+        }
+      }
+
+      setAutoStartGate("local");
+      startTour();
     }
 
     window.addEventListener("internagents.quickstart.start", handleStart);
@@ -455,7 +539,7 @@ export function QuickstartTour() {
             </div>
             <h2
               id="quickstart-tour-title"
-              className="text-base font-semibold leading-6"
+              className="text-sm font-semibold leading-6"
             >
               {step.title}
             </h2>

@@ -203,7 +203,7 @@ shuyuehu/InternAgents
 Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
 a public release-only repository. The source repository can stay private; the
 release repository only needs GitHub Releases with assets named like
-`InternAgents-0.1.1-arm64.dmg`.
+`InternAgents-0.1.1-arm64.dmg` and `InternAgents-0.1.1-x64.dmg`.
 
 Public release repositories do not require a token. The updater first tries the
 GitHub Releases API and, if the unauthenticated API is rate-limited, falls back
@@ -226,9 +226,10 @@ git push origin v0.1.1
 ```
 
 The workflow uses that tag as the App version, runs on macOS, validates Python
-files, lints and builds the UI, builds the DMG, clears any existing uploaded
-release assets, and uploads one DMG asset to `shuyuehu/InternAgents`. If the
-workflow runs in a private source repository, set:
+files, lints and builds the UI, builds the architecture-specific DMGs, clears
+any existing uploaded release assets, and uploads both DMGs to
+`shuyuehu/InternAgents`. If the workflow runs in a private source repository,
+set:
 
 ```text
 Repository secret:   INTERNAGENTS_RELEASE_TOKEN=<PAT with contents:write on that repo>
@@ -304,17 +305,23 @@ Open:
 http://127.0.0.1:3000/?assistantId=agent
 ```
 
-## macOS Desktop Packaging
+## Desktop Packaging
 
 The desktop packaging entrypoint lives in `desktop/`. It builds the Next.js UI
 as a standalone server, copies an InternAgents runtime template, bundles a
-Python runtime, and asks `electron-builder` to produce an Apple Silicon DMG.
+Python runtime, and asks `electron-builder` to produce native desktop artifacts.
 
 ```bash
 cd desktop
 npm install
 npm run build
 ```
+
+On macOS, `npm run build` produces a DMG for the current machine architecture.
+To build a specific architecture, run `npm run build:arm64` for Apple Silicon
+or `npm run build:x64` for Intel. The bundled Python runtime must match the
+target architecture, so the release workflow builds each DMG on a matching
+GitHub-hosted macOS runner.
 
 By default `desktop/scripts/prepare-dist.mjs` copies `.conda` as the bundled
 Python runtime, falling back to `.venv`. To use a prepared portable runtime,
@@ -324,11 +331,51 @@ set:
 INTERNAGENTS_PYTHON_RUNTIME_SOURCE=/path/to/python-runtime npm run build
 ```
 
-The packaged app writes real user configuration under macOS Application Support
-and starts the UI with:
+On Windows, provide a Python runtime whose executable is available at
+`venv\Scripts\python.exe`, `python.exe`, `Scripts\python.exe`, or
+`bin\python.exe`, then build the NSIS installer:
+
+```powershell
+cd desktop
+npm install
+$env:INTERNAGENTS_PYTHON_RUNTIME_SOURCE = "C:\path\to\python-runtime"
+npm run build:win
+```
+
+If the NSIS installer dependencies are unavailable on the build machine, create
+a distributable ZIP instead. To build both Windows artifacts from one prepared
+dist directory, use:
+
+```powershell
+npm run build:win:zip
+npm run build:win:all
+```
+
+The same prepare step also builds the remote backend CLI package used by the
+web UI's "new remote workspace" flow:
 
 ```text
-INTERNAGENTS_APP_ROOT=<Application Support>/InternAgents/runtime
+dist-app/internagents-template/backend-wheelhouse
+dist-app/internagents-template/internagents-backend-cli.tar.gz
+```
+
+`backend-wheelhouse` contains the pinned Python dependencies for supported
+remote Linux targets, and `internagents-backend-cli.tar.gz` contains the
+runtime source plus that wheelhouse. Packaged desktop builds set
+`INTERNAGENTS_DESKTOP=1`, so remote setup only uploads the prebuilt archive; it
+does not build or download backend dependencies on the user's machine at setup
+time. If the archive is missing from a desktop build, remote setup fails fast
+instead of falling back to source-directory sync.
+
+The remote host still needs a working `python3` with `venv` support. The bundled
+wheelhouse currently targets Linux x86_64, Python 3.11/3.12, and glibc 2.28 or
+newer.
+
+The packaged app writes real user configuration under the platform application
+data directory and starts the UI with:
+
+```text
+INTERNAGENTS_APP_ROOT=<app data>/InternAgents/runtime
 INTERNAGENTS_DESKTOP=1
 NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
@@ -350,9 +397,10 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-The GitHub Actions workflow builds the macOS DMG and publishes it to the public
-release repository `shuyuehu/InternAgents`. Because the workflow runs in the
-source repository, configure the cross-repository token there:
+The GitHub Actions workflow builds Apple Silicon (`arm64`) and Intel (`x64`)
+macOS DMGs plus Windows x64 EXE/ZIP artifacts, then publishes them to the
+public release repository `shuyuehu/InternAgents`. Because the workflow runs in
+the source repository, configure the cross-repository token there:
 
 ```text
 qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions
@@ -514,14 +562,21 @@ python -m langgraph_cli dev \
   --config langgraph.json
 ```
 
-Remote resources follow the same runtime pattern: start `langgraph.runtime.json`
-on the remote machine with `INTERNAGENT_PROCESS_ROLE=runtime` and the matching
-`INTERNAGENT_RUNTIME_ID`, then expose it to the coordinator through an existing
-SSH tunnel. Store the concrete SSH command, workspace, and tunnel URL only in
-local config. Do not change server network, firewall, SSH daemon,
-security-group, or routing settings for this setup; if a runtime is not
-reachable with existing access, fix the local resource config, credentials,
-process, or tunnel instead.
+Remote resources can be created from the web UI by selecting either an SSH
+config host or a raw SSH command such as `ssh -p 2222 user@example.com`. The
+setup API uploads the bundled `internagents-backend-cli.tar.gz`, installs it on
+the remote host with `pip install --no-index --find-links backend-wheelhouse`,
+starts `internagents-backend runtime start`, and opens the local SSH tunnel to
+the remote runtime. Store the concrete SSH command, workspace, and tunnel URL
+only in local config.
+
+For manual debugging, the same runtime pattern still applies: start
+`langgraph.runtime.json` on the remote machine with
+`INTERNAGENT_PROCESS_ROLE=runtime` and the matching `INTERNAGENT_RUNTIME_ID`,
+then expose it to the coordinator through an existing SSH tunnel. Do not change
+server network, firewall, SSH daemon, security-group, or routing settings for
+this setup; if a runtime is not reachable with existing access, fix the local
+resource config, credentials, process, package install, or tunnel instead.
 
 If a resource sets `kb_path`, InternAgents will best-effort run `kb sync pull`
 before each agent run and `kb sync push` after the run using that resource's

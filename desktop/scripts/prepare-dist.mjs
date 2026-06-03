@@ -14,6 +14,21 @@ const uiStandaloneDir = path.join(distDir, "ui-standalone");
 const templateDir = path.join(distDir, "internagents-template");
 const pythonRuntimeDir = path.join(distDir, "python-runtime");
 const standaloneDependencyRoots = ["pdf-parse"];
+const backendWheelhouseDirName = "backend-wheelhouse";
+const backendCliArchiveName = "internagents-backend-cli.tar.gz";
+const backendWheelhouseTargets = [
+  {
+    pythonVersion: "3.12",
+    abi: "cp312",
+    platforms: ["manylinux_2_28_x86_64", "manylinux2014_x86_64"],
+  },
+  {
+    pythonVersion: "3.11",
+    abi: "cp311",
+    platforms: ["manylinux_2_28_x86_64", "manylinux2014_x86_64"],
+  },
+];
+const backendSourceDistributions = new Set(["forbiddenfruit"]);
 
 const runtimeEntries = [
   ".env.example",
@@ -27,6 +42,7 @@ const runtimeEntries = [
   "goal_middleware.py",
   "goal_state.py",
   "goal_tools.py",
+  "internagents_backend_cli.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.json",
@@ -36,14 +52,34 @@ const runtimeEntries = [
   "skills",
 ];
 
+function commandForPlatform(command, args) {
+  if (command === "npm" && process.env.npm_execpath) {
+    return {
+      executable: process.execPath,
+      args: [process.env.npm_execpath, ...args],
+    };
+  }
+
+  return {
+    executable: command,
+    args,
+  };
+}
+
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
+  const resolved = commandForPlatform(command, args);
+  const result = spawnSync(resolved.executable, resolved.args, {
     cwd: rootDir,
     stdio: "inherit",
     shell: false,
     ...options,
   });
   if (result.status !== 0) {
+    if (result.error) {
+      throw new Error(
+        `${resolved.executable} ${resolved.args.join(" ")} failed: ${result.error.message}`
+      );
+    }
     throw new Error(`${command} ${args.join(" ")} failed`);
   }
 }
@@ -317,6 +353,157 @@ async function prepareRuntimeTemplate() {
   );
 }
 
+function pythonBuildBinary() {
+  const explicitPython = process.env.INTERNAGENTS_PYTHON_BIN;
+  if (explicitPython) {
+    return explicitPython;
+  }
+
+  const explicitRuntime = process.env.INTERNAGENTS_PYTHON_RUNTIME_SOURCE;
+  const candidates =
+    process.platform === "win32"
+      ? [
+          explicitRuntime ? path.join(explicitRuntime, "venv", "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, ".venv", "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, "Scripts", "python.exe") : "",
+          explicitRuntime ? path.join(explicitRuntime, "python.exe") : "",
+          path.join(rootDir, ".venv", "Scripts", "python.exe"),
+          path.join(rootDir, ".conda", "python.exe"),
+          "python",
+        ].filter(Boolean)
+      : [
+          explicitRuntime ? path.join(explicitRuntime, "venv", "bin", "python") : "",
+          explicitRuntime ? path.join(explicitRuntime, ".venv", "bin", "python") : "",
+          explicitRuntime ? path.join(explicitRuntime, "bin", "python") : "",
+          path.join(rootDir, ".venv", "bin", "python"),
+          path.join(rootDir, ".conda", "bin", "python"),
+          "python3",
+        ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (!candidate.includes(path.sep) || existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return process.platform === "win32" ? "python" : "python3";
+}
+
+function projectDependencyRequirements(pythonBin) {
+  const script = [
+    "import pathlib, subprocess, sys, tomllib",
+    "data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())",
+    "build = data.get('build-system', {}).get('requires', [])",
+    "frozen = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze', '--exclude-editable'], text=True)",
+    "deps = ['pip==25.3', *build, *frozen.splitlines()]",
+    "for dep in deps:",
+    "    dep = dep.strip()",
+    "    if dep and ' @ file://' not in dep:",
+    "        print(dep)",
+  ].join("\n");
+  const result = spawnSync(pythonBin, ["-c", script], {
+    cwd: rootDir,
+    encoding: "utf8",
+    shell: false,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `Unable to read backend dependencies from pyproject.toml: ${
+        result.stderr || result.stdout
+      }`
+    );
+  }
+  return Array.from(
+    new Set(
+      result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function requirementName(requirement) {
+  return (
+    requirement
+      .trim()
+      .match(/^([A-Za-z0-9_.-]+)/)?.[1]
+      ?.toLowerCase()
+      .replace(/_/g, "-") || ""
+  );
+}
+
+async function prepareBackendWheelhouse() {
+  const pythonBin = pythonBuildBinary();
+  const wheelhouseDir = path.join(templateDir, backendWheelhouseDirName);
+  const requirementsPath = path.join(distDir, "backend-wheelhouse-requirements.txt");
+  const sourceRequirementsPath = path.join(
+    distDir,
+    "backend-wheelhouse-source-requirements.txt"
+  );
+  const requirements = projectDependencyRequirements(pythonBin);
+  const sourceRequirements = requirements.filter((requirement) =>
+    backendSourceDistributions.has(requirementName(requirement))
+  );
+  const binaryRequirements = requirements.filter(
+    (requirement) => !backendSourceDistributions.has(requirementName(requirement))
+  );
+
+  await fs.rm(wheelhouseDir, { recursive: true, force: true });
+  await fs.mkdir(wheelhouseDir, { recursive: true });
+  await fs.writeFile(requirementsPath, `${binaryRequirements.join("\n")}\n`);
+  await fs.writeFile(sourceRequirementsPath, `${sourceRequirements.join("\n")}\n`);
+
+  for (const target of backendWheelhouseTargets) {
+    const platformArgs = target.platforms.flatMap((platform) => [
+      "--platform",
+      platform,
+    ]);
+    run(pythonBin, [
+      "-m",
+      "pip",
+      "download",
+      "--dest",
+      wheelhouseDir,
+      "--no-deps",
+      "--only-binary=:all:",
+      ...platformArgs,
+      "--implementation",
+      "cp",
+      "--python-version",
+      target.pythonVersion,
+      "--abi",
+      target.abi,
+      "-r",
+      requirementsPath,
+    ]);
+  }
+  if (sourceRequirements.length > 0) {
+    run(pythonBin, [
+      "-m",
+      "pip",
+      "download",
+      "--dest",
+      wheelhouseDir,
+      "--no-deps",
+      "-r",
+      sourceRequirementsPath,
+    ]);
+  }
+}
+
+async function prepareBackendCliArchive() {
+  const archivePath = path.join(templateDir, backendCliArchiveName);
+  const temporaryArchivePath = path.join(distDir, backendCliArchiveName);
+
+  await fs.rm(archivePath, { force: true });
+  await fs.rm(temporaryArchivePath, { force: true });
+  run("tar", ["-czf", temporaryArchivePath, "-C", templateDir, "."]);
+  await fs.cp(temporaryArchivePath, archivePath, {
+    force: true,
+    verbatimSymlinks: false,
+  });
+}
+
 async function preparePythonRuntime() {
   const explicitSource = process.env.INTERNAGENTS_PYTHON_RUNTIME_SOURCE;
   const pythonSource =
@@ -336,9 +523,12 @@ async function preparePythonRuntime() {
     force: true,
     verbatimSymlinks: false,
   });
-  await rewriteRuntimeSymlinks(path.resolve(pythonSource));
-  await normalizePythonLinks();
-  await assertNoExternalRuntimeSymlinks();
+  await validatePythonRuntime();
+  if (process.platform !== "win32") {
+    await rewriteRuntimeSymlinks(path.resolve(pythonSource));
+    await normalizePythonLinks();
+    await assertNoExternalRuntimeSymlinks();
+  }
 }
 
 async function relink(linkPath, targetName) {
@@ -361,6 +551,39 @@ async function normalizePythonLinks() {
     await relink(path.join(binDir, "python"), "python3.11");
     await relink(path.join(binDir, "python3"), "python3.11");
   }
+}
+
+async function validatePythonRuntime() {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          path.join(pythonRuntimeDir, "venv", "Scripts", "pythonw.exe"),
+          path.join(pythonRuntimeDir, "venv", "Scripts", "python.exe"),
+          path.join(pythonRuntimeDir, ".venv", "Scripts", "pythonw.exe"),
+          path.join(pythonRuntimeDir, ".venv", "Scripts", "python.exe"),
+          path.join(pythonRuntimeDir, "pythonw.exe"),
+          path.join(pythonRuntimeDir, "python.exe"),
+          path.join(pythonRuntimeDir, "Scripts", "pythonw.exe"),
+          path.join(pythonRuntimeDir, "Scripts", "python.exe"),
+          path.join(pythonRuntimeDir, "bin", "pythonw.exe"),
+          path.join(pythonRuntimeDir, "bin", "python.exe"),
+        ]
+      : [
+          path.join(pythonRuntimeDir, "venv", "bin", "python"),
+          path.join(pythonRuntimeDir, ".venv", "bin", "python"),
+          path.join(pythonRuntimeDir, "bin", "python3.12"),
+          path.join(pythonRuntimeDir, "bin", "python3.11"),
+          path.join(pythonRuntimeDir, "bin", "python3"),
+          path.join(pythonRuntimeDir, "bin", "python"),
+        ];
+
+  if (candidates.some((candidate) => existsSync(candidate))) {
+    return;
+  }
+
+  throw new Error(
+    `Python runtime at ${pythonRuntimeDir} does not contain a usable Python executable.`
+  );
 }
 
 async function walk(directory, visit) {
@@ -430,6 +653,8 @@ async function main() {
 
   await prepareUiStandalone();
   await prepareRuntimeTemplate();
+  await prepareBackendWheelhouse();
+  await prepareBackendCliArchive();
   await preparePythonRuntime();
 
   console.log(`Prepared desktop resources at ${distDir}`);
