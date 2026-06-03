@@ -835,7 +835,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (submitDisabled) return;
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleSubmit();
       }
