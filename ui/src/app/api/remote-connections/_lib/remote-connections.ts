@@ -79,6 +79,7 @@ export interface UiResourceConfig {
   id: string;
   label: string;
   assistantId: string;
+  backend?: ResourceRecord["backend"];
   runtimeUrl?: string;
   remoteRuntimePort?: number;
   workspacePath?: string;
@@ -107,6 +108,19 @@ export interface RemoteConnectionSetupResult {
   resource: UiResourceConfig;
   resources: UiResourceConfig[];
   remoteUrl: string;
+  log: string[];
+}
+
+export interface RemoteBackendCliPushRequest {
+  resourceId?: unknown;
+  force?: unknown;
+}
+
+export interface RemoteBackendCliPushResult {
+  resource: UiResourceConfig;
+  resources: UiResourceConfig[];
+  remoteUrl: string;
+  backendCliFingerprint: string;
   log: string[];
 }
 
@@ -311,6 +325,7 @@ async function runSshCommand(
   return execFileAsync(binary, [...args, `bash -lc ${shellQuote(script)}`], {
     timeout: timeoutMs,
     maxBuffer: COMMAND_MAX_BUFFER,
+    windowsHide: true,
   });
 }
 
@@ -427,18 +442,23 @@ export function assistantIdForResource(resourceId: string): string {
   return `agent_${resourceId}`;
 }
 
+function uiResourceFromRecord(resource: ResourceRecord): UiResourceConfig {
+  return {
+    id: resource.id,
+    label: resource.label || resource.id,
+    assistantId: assistantIdForResource(resource.id),
+    backend: resource.backend,
+    runtimeUrl: resource.remote_url,
+    remoteRuntimePort: resource.remote_runtime_port,
+    workspacePath: resource.workspace,
+  };
+}
+
 export function listUiResources(): UiResourceConfig[] {
   const resources = readWorkspaceResourcesConfig().resources || [];
   return resources
     .filter((resource) => resource.enabled !== false)
-    .map((resource) => ({
-      id: resource.id,
-      label: resource.label || resource.id,
-      assistantId: assistantIdForResource(resource.id),
-      runtimeUrl: resource.remote_url,
-      remoteRuntimePort: resource.remote_runtime_port,
-      workspacePath: resource.workspace,
-    }));
+    .map(uiResourceFromRecord);
 }
 
 function nextRemoteResourceId(
@@ -552,6 +572,18 @@ function configuredRemoteRuntimePort(resource: ResourceRecord): number {
     : LEGACY_REMOTE_RUNTIME_PORT;
 }
 
+function localPortFromRemoteUrl(remoteUrl?: string): number | undefined {
+  if (!remoteUrl) {
+    return undefined;
+  }
+  try {
+    const port = Number(new URL(remoteUrl).port);
+    return Number.isInteger(port) && port > 0 ? port : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function chooseRemoteRuntimePort(
   sshCommand: string,
   resourceId: string,
@@ -629,9 +661,7 @@ exit 2
 `
     .replace(/__REMOTE_PORT_START__/g, String(REMOTE_RUNTIME_PORT_START))
     .replace(/__REMOTE_PORT_END__/g, String(REMOTE_RUNTIME_PORT_END))
-    .replace(/__RESERVED_PORTS__/g, () =>
-      shellQuote(reservedPorts.join(" "))
-    );
+    .replace(/__RESERVED_PORTS__/g, () => shellQuote(reservedPorts.join(" ")));
 
   let result: { stdout: string; stderr: string };
   try {
@@ -688,10 +718,15 @@ async function waitForUrl(url: string, timeoutMs = 45_000): Promise<boolean> {
 
 async function commandExists(command: string): Promise<boolean> {
   try {
-    await execFileAsync("bash", [
-      "-lc",
-      `command -v ${shellQuote(command)} >/dev/null 2>&1`,
-    ]);
+    if (process.platform === "win32") {
+      await execFileAsync("where.exe", [command], { windowsHide: true });
+    } else {
+      await execFileAsync(
+        "bash",
+        ["-lc", `command -v ${shellQuote(command)} >/dev/null 2>&1`],
+        { windowsHide: true }
+      );
+    }
     return true;
   } catch {
     return false;
@@ -728,7 +763,10 @@ async function hashDirectoryContents(root: string): Promise<string> {
     );
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
-      const relativePath = path.relative(root, fullPath).split(path.sep).join("/");
+      const relativePath = path
+        .relative(root, fullPath)
+        .split(path.sep)
+        .join("/");
       if (entry.isDirectory()) {
         hash.update(`dir:${relativePath}\0`);
         await visit(fullPath);
@@ -761,9 +799,20 @@ async function copyPackageEntryIfExists(
 }
 
 async function resolveBundledBackendWheelhouse(root: string): Promise<string> {
-  const bundledWheelhouse = path.join(root, BACKEND_CLI_WHEELHOUSE_DIR);
-  if (await fileExists(bundledWheelhouse)) {
-    return bundledWheelhouse;
+  const candidates = [
+    path.join(root, BACKEND_CLI_WHEELHOUSE_DIR),
+    path.join(
+      root,
+      "dist-app",
+      "internagents-template",
+      BACKEND_CLI_WHEELHOUSE_DIR
+    ),
+  ];
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
   }
 
   if (process.env.INTERNAGENTS_DESKTOP !== "1") {
@@ -787,8 +836,23 @@ async function buildBackendCliPackage(
   onLog?: LogSink
 ): Promise<BackendCliPackage> {
   const root = getWorkspaceRoot();
-  const prebuiltArchive = path.join(root, BACKEND_CLI_ARCHIVE_NAME);
-  if (await fileExists(prebuiltArchive)) {
+  const prebuiltArchiveCandidates = [
+    path.join(root, BACKEND_CLI_ARCHIVE_NAME),
+    path.join(
+      root,
+      "dist-app",
+      "internagents-template",
+      BACKEND_CLI_ARCHIVE_NAME
+    ),
+  ];
+  let prebuiltArchive = "";
+  for (const candidate of prebuiltArchiveCandidates) {
+    if (await fileExists(candidate)) {
+      prebuiltArchive = candidate;
+      break;
+    }
+  }
+  if (prebuiltArchive) {
     pushLog(log, "使用 desktop 内置 backend CLI 包。", onLog);
     return {
       artifactPath: prebuiltArchive,
@@ -840,6 +904,7 @@ async function buildBackendCliPackage(
     await execFileAsync("tar", ["-czf", artifactPath, "-C", stagingDir, "."], {
       timeout: 120_000,
       maxBuffer: COMMAND_MAX_BUFFER,
+      windowsHide: true,
     });
     return {
       artifactPath,
@@ -868,6 +933,7 @@ async function streamFileOverSsh(
       [...baseSshArgs, `bash -lc ${shellQuote(remoteScript)}`],
       {
         stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
       }
     );
     const errors: string[] = [];
@@ -890,7 +956,10 @@ async function readRemoteBackendCliMarker(
   backendDir: string,
   fingerprint: string
 ): Promise<string | null> {
-  const markerPath = path.posix.join(backendDir, ".internagents-backend-cli.env");
+  const markerPath = path.posix.join(
+    backendDir,
+    ".internagents-backend-cli.env"
+  );
   const script = String.raw`
 set -euo pipefail
 marker=__MARKER_PATH__
@@ -918,7 +987,10 @@ function backendCliInstallScript(
   installOptions: RemoteInstallOptions
 ): string {
   const packageDir = path.posix.join(backendDir, "package");
-  const markerPath = path.posix.join(backendDir, ".internagents-backend-cli.env");
+  const markerPath = path.posix.join(
+    backendDir,
+    ".internagents-backend-cli.env"
+  );
   return String.raw`
 set -euo pipefail
 cd __PACKAGE_DIR__
@@ -1078,14 +1150,17 @@ async function ensureBackendCliInstalled(
   backendPackage: BackendCliPackage,
   installOptions: RemoteInstallOptions,
   log: string[],
-  onLog?: LogSink
+  onLog?: LogSink,
+  forceReinstall = false
 ): Promise<{ packageDir: string; backendCliPath: string }> {
   const packageDir = path.posix.join(backendDir, "package");
-  const installed = await readRemoteBackendCliMarker(
-    sshCommand,
-    backendDir,
-    backendPackage.fingerprint
-  );
+  const installed = forceReinstall
+    ? null
+    : await readRemoteBackendCliMarker(
+        sshCommand,
+        backendDir,
+        backendPackage.fingerprint
+      );
   if (installed) {
     pushLog(
       log,
@@ -1102,7 +1177,11 @@ async function ensureBackendCliInstalled(
     `mkdir -p ${shellQuote(packageDir)}`,
     `tar -xzf - -C ${shellQuote(packageDir)}`,
   ].join(" && ");
-  await streamFileOverSsh(sshCommand, backendPackage.artifactPath, remoteScript);
+  await streamFileOverSsh(
+    sshCommand,
+    backendPackage.artifactPath,
+    remoteScript
+  );
 
   const result = await runSshCommand(
     sshCommand,
@@ -1142,7 +1221,9 @@ async function uploadEnvToRemoteState(
   await streamFileOverSsh(
     sshCommand,
     envPath,
-    `set -e && mkdir -p ${shellQuote(stateDir)} && cat > ${shellQuote(remoteEnvPath)}`
+    `set -e && mkdir -p ${shellQuote(stateDir)} && cat > ${shellQuote(
+      remoteEnvPath
+    )}`
   );
 }
 
@@ -1198,9 +1279,7 @@ else
 fi
 `
     .replace(/__INSTALL_MODE__/g, () => shellQuote(options.installMode))
-    .replace(/__CUSTOM_PYTHON__/g, () =>
-      shellQuote(options.pythonPath || "")
-    )
+    .replace(/__CUSTOM_PYTHON__/g, () => shellQuote(options.pythonPath || ""))
     .replace(/__CONDA_COMMAND__/g, () =>
       shellQuote(options.condaCommand || "")
     );
@@ -1263,11 +1342,7 @@ __BACKEND_CLI__ runtime start \
     )
     .replace(/__REMOTE_RUNTIME_PORT__/g, String(remoteRuntimePort));
 
-  pushLog(
-    log,
-    `启动远端 runtime: 127.0.0.1:${remoteRuntimePort}`,
-    onLog
-  );
+  pushLog(log, `启动远端 runtime: 127.0.0.1:${remoteRuntimePort}`, onLog);
   const result = await runSshCommand(sshCommand, script, 90_000);
   pushLog(log, result.stdout.trim() || "远端 runtime 已启动。", onLog);
 }
@@ -1310,8 +1385,8 @@ async function ensureRuntimeTunnel(
   const logFile = path.join(logDir, `remote-tunnel-${resourceId}.log`);
   const out = createWriteStream(logFile, { flags: "a" });
   const child = spawn(sshBinary, baseSshArgs, {
-    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   child.stdout?.pipe(out);
   child.stderr?.pipe(out);
@@ -1394,6 +1469,123 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
+export async function pushRemoteBackendCli(
+  request: RemoteBackendCliPushRequest,
+  onLog?: LogSink
+): Promise<RemoteBackendCliPushResult> {
+  const resourceId =
+    typeof request.resourceId === "string" ? request.resourceId.trim() : "";
+  if (!resourceId) {
+    throw new Error("Resource id is required.");
+  }
+
+  const { configPath, config } = await getWritableResourcesConfig();
+  const resources = config.resources || [];
+  const resource = resources.find((candidate) => candidate.id === resourceId);
+  if (!resource) {
+    throw new Error(`Resource not found: ${resourceId}`);
+  }
+  if (resource.backend && resource.backend !== "ssh_shell") {
+    throw new Error("Backend CLI push only supports SSH resources.");
+  }
+  if (!resource.ssh_command?.trim()) {
+    throw new Error("Selected resource does not have an SSH command.");
+  }
+
+  const sshCommand = assertSshCommand(resource.ssh_command);
+  const forceReinstall = request.force !== false;
+  const installOptions: RemoteInstallOptions = { installMode: "auto" };
+  const log: string[] = [];
+
+  pushLog(
+    log,
+    `Preparing backend CLI push for ${resource.label || resource.id}.`,
+    onLog
+  );
+  const workspace = await resolveRemotePath(
+    sshCommand,
+    assertRemoteWorkspace(resource.workspace || ""),
+    "remote workspace path",
+    log,
+    onLog
+  );
+  const backendPackage = await buildBackendCliPackage(log, onLog);
+  const backendDir = await resolveRemotePath(
+    sshCommand,
+    defaultRemoteBackendCliDir(backendPackage.fingerprint),
+    "remote backend CLI shared install directory",
+    log,
+    onLog
+  );
+  const runtimeDir = await resolveRemotePath(
+    sshCommand,
+    defaultRemoteRuntimeDir(resource.id),
+    "remote runtime state directory",
+    log,
+    onLog
+  );
+  await runRemoteInstallPreflight(sshCommand, installOptions, log, onLog);
+
+  const backendInstall = await ensureBackendCliInstalled(
+    sshCommand,
+    backendDir,
+    backendPackage,
+    installOptions,
+    log,
+    onLog,
+    forceReinstall
+  );
+
+  const remoteRuntimePort = configuredRemoteRuntimePort(resource);
+  const localPort =
+    localPortFromRemoteUrl(resource.remote_url) || (await chooseLocalPort());
+  const nextResource: ResourceRecord = {
+    ...resource,
+    backend: "ssh_shell",
+    ssh_command: sshCommand,
+    workspace,
+    remote_url: `http://127.0.0.1:${localPort}`,
+    remote_runtime_port: remoteRuntimePort,
+    remote_assistant_id: resource.remote_assistant_id || "agent",
+    enabled: resource.enabled !== false,
+  };
+
+  await startResourceRuntime(
+    sshCommand,
+    backendInstall.packageDir,
+    backendInstall.backendCliPath,
+    runtimeDir,
+    nextResource,
+    remoteRuntimePort,
+    log,
+    onLog
+  );
+  const remoteUrl = await ensureRuntimeTunnel(
+    sshCommand,
+    nextResource.id,
+    localPort,
+    remoteRuntimePort,
+    log,
+    onLog
+  );
+
+  nextResource.remote_url = remoteUrl;
+  config.resources = resources.map((candidate) =>
+    candidate.id === nextResource.id ? nextResource : candidate
+  );
+  config.default_resource ||= "local";
+  await writeResourcesConfigAtPath(configPath, config);
+  pushLog(log, `Updated resource config: ${configPath}`, onLog);
+
+  return {
+    resource: uiResourceFromRecord(nextResource),
+    resources: listUiResources(),
+    remoteUrl,
+    backendCliFingerprint: backendPackage.fingerprint,
+    log,
+  };
+}
+
 export async function setupRemoteConnection(
   request: RemoteConnectionSetupRequest,
   onLog?: LogSink
@@ -1457,12 +1649,7 @@ export async function setupRemoteConnection(
     onLog
   );
   if (request.copyEnv) {
-    await uploadEnvToRemoteState(
-      sshCommand,
-      runtimeDir,
-      log,
-      onLog
-    );
+    await uploadEnvToRemoteState(sshCommand, runtimeDir, log, onLog);
   }
 
   const resource: ResourceRecord = {
@@ -1504,14 +1691,7 @@ export async function setupRemoteConnection(
   await writeResourcesConfigAtPath(configPath, config);
   pushLog(log, `已写入资源配置: ${getResourcesConfigPath()}`, onLog);
 
-  const uiResource = {
-    id: resourceId,
-    label,
-    assistantId: assistantIdForResource(resourceId),
-    runtimeUrl: remoteUrl,
-    remoteRuntimePort,
-    workspacePath: workspace,
-  };
+  const uiResource = uiResourceFromRecord(resource);
   return {
     resource: uiResource,
     resources: listUiResources(),
