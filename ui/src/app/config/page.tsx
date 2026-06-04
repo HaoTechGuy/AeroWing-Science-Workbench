@@ -131,25 +131,6 @@ const DEFAULT_CONFIG: ConfigResponse = {
   missing: [],
 };
 
-const MODEL_SELECTION_OPTIONS: Array<{
-  id: ModelSelectionMode;
-  title: string;
-  badge?: string;
-  description: string;
-}> = [
-  {
-    id: "auto",
-    title: "自动模型选择",
-    badge: "推荐",
-    description: "由集思根据问题自动选择合适模型。",
-  },
-  {
-    id: "manual",
-    title: "手动指定模型",
-    description: "固定使用下方选择或填写的模型。",
-  },
-];
-
 const MODEL_PROVIDER_OPTIONS: Array<{
   id: ModelProvider;
   title: string;
@@ -183,20 +164,20 @@ const AUTHORIZATION_OPTIONS: Array<{
     id: "auto",
     title: "自动授权",
     badge: "推荐",
-    description: "所有工具调用直接执行，不弹出审批。",
+    description: "常用权限直接放行，不弹出审批。",
     detail: "适合只在自己电脑上使用、并且信任当前项目和模型的开发场景。",
   },
   {
     id: "write",
     title: "写入需审批",
-    description: "写文件和改文件前需要确认。",
-    detail: "读取、搜索和命令执行更顺畅，本地文件变更仍会先停下来等你确认。",
+    description: "读取权限直接放行，写入权限需确认。",
+    detail: "适合日常使用，本地文件变更会先停下来等你确认。",
   },
   {
     id: "all",
-    title: "全部工具需审批",
-    description: "常见工具调用都会先请求确认。",
-    detail: "最保守，但对话过程中会出现更多审批步骤。",
+    title: "全部需审批",
+    description: "所有权限都需要确认后再继续。",
+    detail: "最保守，适合敏感项目或希望逐步确认的场景。",
   },
 ];
 
@@ -280,16 +261,6 @@ async function fetchGatewayModels(signal: AbortSignal): Promise<GatewayModelOpti
     throw new Error("集思未返回可用模型。");
   }
   return models;
-}
-
-function priceSummary(option: GatewayModelOption) {
-  if (
-    typeof option.inputPriceRmbPer1m !== "number" ||
-    typeof option.outputPriceRmbPer1m !== "number"
-  ) {
-    return "";
-  }
-  return `¥${option.inputPriceRmbPer1m}/百万输入 · ¥${option.outputPriceRmbPer1m}/百万输出`;
 }
 
 export default function ConfigPage() {
@@ -434,7 +405,7 @@ export default function ConfigPage() {
               ? config.openrouterModel || "deepseek-v4-flash"
               : config.model || "deepseek-v4-flash",
           modelProvider: config.modelProvider,
-          modelSelectionMode: config.modelSelectionMode,
+          modelSelectionMode: "manual",
           gatewayEmail:
             config.modelProvider === "gateway"
               ? config.gatewayEmail.trim() || undefined
@@ -816,17 +787,6 @@ export default function ConfigPage() {
             </div>
           )}
 
-          {!onboardingMode && (
-            <section className="rounded-lg border border-[#BFD9D4] bg-[#F1F7F5] p-4 text-sm text-[#24595A] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
-              <div className="font-medium">配置指引</div>
-              <div className="mt-2 grid gap-2 md:grid-cols-3">
-                <div>1. 填写邮箱、用户名和邀请码，完成集思绑定。</div>
-                <div>2. 选择本机工作区；远程工作区在工作台左上角添加。</div>
-                <div>3. 改完后点“空闲时应用”；需要马上生效再点“立即应用”。</div>
-              </div>
-            </section>
-          )}
-
           <section
             className={cn(
               "rounded-lg border border-border bg-card shadow-sm",
@@ -842,7 +802,7 @@ export default function ConfigPage() {
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold">模型</h2>
                   <div className="mt-1 text-sm text-muted-foreground">
-                    使用 InternAgents 或 OpenRouter 管理模型服务。
+                    使用集思或 OpenRouter 管理模型服务。
                   </div>
                 </div>
               </div>
@@ -856,9 +816,7 @@ export default function ConfigPage() {
             ) : (
               <div
                 className={cn(
-                  onboardingMode
-                    ? "space-y-4"
-                    : "rounded-md border border-border bg-background p-4"
+                  onboardingMode ? "space-y-4" : "space-y-5"
                 )}
               >
                 <div className="space-y-3">
@@ -866,38 +824,41 @@ export default function ConfigPage() {
                   <div className="grid gap-2 sm:grid-cols-2">
                     {MODEL_PROVIDER_OPTIONS.map((option) => {
                       const active = config.modelProvider === option.id;
+                      const ProviderIcon =
+                        option.id === "gateway" ? ServerCog : KeyRound;
                       return (
                         <button
                           key={option.id}
                           type="button"
                           onClick={() => updateModelProvider(option.id)}
                           className={cn(
-                            "rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                            "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent",
                             active
                               ? "border-primary ring-2 ring-primary/20"
                               : "border-border"
                           )}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold">
-                                {option.title}
-                              </div>
-                              {option.subtitle && (
-                                <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                                  {option.subtitle}
-                                </div>
-                              )}
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                              <ProviderIcon className="h-4 w-4" />
                             </div>
                             {option.badge && (
-                              <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
+                              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
                                 {option.badge}
                               </span>
                             )}
                           </div>
-                          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                          <div className="text-sm font-semibold">
+                            {option.title}
+                          </div>
+                          <div className="mt-1.5 text-sm text-foreground">
                             {option.description}
                           </div>
+                          {option.subtitle && (
+                            <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                              {option.subtitle}
+                            </div>
+                          )}
                         </button>
                       );
                     })}
@@ -905,7 +866,7 @@ export default function ConfigPage() {
                 </div>
 
                 {!onboardingMode && (
-                  <div className="mt-4 rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
+                  <div className="text-xs leading-5 text-muted-foreground">
                     默认模型：deepseek-v4-flash
                   </div>
                 )}
@@ -916,7 +877,7 @@ export default function ConfigPage() {
                       <div className="mt-5 mb-3 flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <Label htmlFor="gateway-email">
-                            InternAgents 账号绑定
+                            集思账号绑定
                           </Label>
                           <div className="mt-1 text-xs text-muted-foreground">
                             保存时会校验邮箱、用户名和邀请码，并完成账号绑定。
@@ -1004,13 +965,42 @@ export default function ConfigPage() {
                     </div>
 
                     {!onboardingMode && (
-                      <>
-                        <div className="mt-5 space-y-3">
-                          <Label>模型选择</Label>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {MODEL_SELECTION_OPTIONS.map((option) => {
-                              const active =
-                                config.modelSelectionMode === option.id;
+                      <div className="mt-5 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <Label>集思模型</Label>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              从集思读取可用模型，选择后保存生效。
+                            </div>
+                          </div>
+                          {selectedJisiModel ? (
+                            <span className="rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
+                              当前：{selectedJisiModel.title}
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                              当前：请选择模型
+                            </span>
+                          )}
+                        </div>
+
+                        {gatewayModelsLoading && (
+                          <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            正在读取可用模型...
+                          </div>
+                        )}
+
+                        {gatewayModelsError && !gatewayModelsLoading && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                            {gatewayModelsError} 请稍后重试。
+                          </div>
+                        )}
+
+                        {gatewayModelOptions.length > 0 ? (
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {gatewayModelOptions.map((option) => {
+                              const active = config.model === option.id;
                               return (
                                 <button
                                   key={option.id}
@@ -1018,156 +1008,46 @@ export default function ConfigPage() {
                                   onClick={() =>
                                     setConfig((current) => ({
                                       ...current,
-                                      modelSelectionMode: option.id,
+                                      model: option.id,
+                                      modelSelectionMode: "manual",
                                     }))
                                   }
                                   className={cn(
-                                    "rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                                    "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent",
                                     active
                                       ? "border-primary ring-2 ring-primary/20"
                                       : "border-border"
                                   )}
                                 >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="text-sm font-semibold">
-                                      {option.title}
+                                  <div className="mb-3 flex items-center justify-between gap-2">
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                                      <Cpu className="h-4 w-4" />
                                     </div>
-                                    {option.badge && (
-                                      <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
-                                        {option.badge}
+                                    {option.isDefault && (
+                                      <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                                        默认
                                       </span>
                                     )}
                                   </div>
-                                  <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                                  <div className="text-sm font-semibold">
+                                    {option.title}
+                                  </div>
+                                  <div className="mt-1.5 text-sm text-foreground">
+                                    {option.provider}
+                                  </div>
+                                  <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
                                     {option.description}
                                   </div>
                                 </button>
                               );
                             })}
                           </div>
-                        </div>
-
-                        {config.modelSelectionMode === "auto" ? (
-                          <div className="mt-3 rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
-                            已启用自动模型选择。InternAgents 会根据问题自动匹配合适模型。
+                        ) : !gatewayModelsLoading && !gatewayModelsError ? (
+                          <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+                            暂无可展示模型。请稍后重试。
                           </div>
-                        ) : (
-                          <div className="mt-5 space-y-4">
-                            <div className="space-y-3">
-                              <div className="flex flex-wrap items-end justify-between gap-2">
-                                <div>
-                                  <Label>InternAgents 可用模型</Label>
-                                  <div className="mt-1 text-xs text-muted-foreground">
-                                    从后端读取可用模型；也可以在下方填写模型 ID。
-                                  </div>
-                                </div>
-                                {selectedJisiModel ? (
-                                  <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
-                                    当前：{selectedJisiModel.title}
-                                  </span>
-                                ) : (
-                                  <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                                    当前：自定义模型
-                                  </span>
-                                )}
-                              </div>
-
-                              {gatewayModelsLoading && (
-                                <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  正在读取可用模型...
-                                </div>
-                              )}
-
-                              {gatewayModelsError && !gatewayModelsLoading && (
-                                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-                                  {gatewayModelsError} 你仍然可以在下方手动填写模型 ID。
-                                </div>
-                              )}
-
-                              {gatewayModelOptions.length > 0 ? (
-                                <div className="grid gap-1.5 md:grid-cols-2">
-                                  {gatewayModelOptions.map((option) => {
-                                    const active = config.model === option.id;
-                                    const price = priceSummary(option);
-                                    return (
-                                      <button
-                                        key={option.id}
-                                        type="button"
-                                        onClick={() =>
-                                          setConfig((current) => ({
-                                            ...current,
-                                            model: option.id,
-                                          }))
-                                        }
-                                        className={cn(
-                                          "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
-                                          active
-                                            ? "border-primary ring-2 ring-primary/20"
-                                            : "border-border"
-                                        )}
-                                      >
-                                        <div className="flex min-w-0 items-center justify-between gap-2">
-                                          <div className="flex min-w-0 items-center gap-2">
-                                            <div className="truncate text-[13px] font-semibold leading-5">
-                                              {option.title}
-                                            </div>
-                                            <div className="shrink-0 text-[11px] text-muted-foreground">
-                                              {option.provider}
-                                            </div>
-                                          </div>
-                                          {option.isDefault && (
-                                            <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
-                                              默认
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
-                                          {option.description}
-                                        </div>
-                                        <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
-                                          {option.id}
-                                        </div>
-                                        {price && (
-                                          <div className="mt-0.5 truncate text-[10px] leading-4 text-muted-foreground">
-                                            {price}
-                                          </div>
-                                        )}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : !gatewayModelsLoading &&
-                                !gatewayModelsError ? (
-                                <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
-                                  暂无可展示模型。请稍后重试，或在下方手动填写模型 ID。
-                                </div>
-                              ) : null}
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label htmlFor="jisi-model">填写模型 ID</Label>
-                              <Input
-                                id="jisi-model"
-                                value={config.model}
-                                onChange={(event) =>
-                                  setConfig((current) => ({
-                                    ...current,
-                                    model: event.target.value,
-                                  }))
-                                }
-                                placeholder={
-                                  gatewayModelOptions[0]?.id ||
-                                  "deepseek-v4-flash"
-                                }
-                              />
-                              <div className="text-xs text-muted-foreground">
-                                可以直接粘贴支持的模型 ID。
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </>
+                        ) : null}
+                      </div>
                     )}
 
                     {!onboardingMode && (
@@ -1175,14 +1055,7 @@ export default function ConfigPage() {
                         <div className="min-w-0 truncate">
                           模型：{config.model || "deepseek-v4-flash"}
                         </div>
-                        <div className="min-w-0 truncate">
-                          额度：
-                          {config.gatewayRemainingRmb
-                            ? `剩余 ¥${config.gatewayRemainingRmb}`
-                            : config.gatewayCreditRmb
-                            ? `总额 ¥${config.gatewayCreditRmb}`
-                            : "绑定后显示"}
-                        </div>
+                        <div className="min-w-0 truncate">服务：免费</div>
                       </div>
                     )}
                   </>
@@ -1315,7 +1188,7 @@ export default function ConfigPage() {
                   <div>
                     <h2 className="text-base font-semibold">授权模式</h2>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      授权模式决定 InternAgent 调用工具时是否需要你手动确认。
+                      设置读取、写入等权限是否需要手动确认。
                     </div>
                   </div>
                 </div>

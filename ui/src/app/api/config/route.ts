@@ -211,10 +211,6 @@ function isAuthorizationMode(value: unknown): value is AuthorizationMode {
   return value === "auto" || value === "write" || value === "all";
 }
 
-function isModelSelectionMode(value: unknown): value is ModelSelectionMode {
-  return value === "auto" || value === "manual";
-}
-
 function isModelProvider(value: unknown): value is ModelProvider {
   return value === "gateway" || value === "openrouter";
 }
@@ -239,10 +235,8 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function inferModelSelectionMode(config: AgentConfig): ModelSelectionMode {
-  return isModelSelectionMode(config.model_selection_mode)
-    ? config.model_selection_mode
-    : "auto";
+function inferModelSelectionMode(_config: AgentConfig): ModelSelectionMode {
+  return "manual";
 }
 
 function inferModelProvider(
@@ -262,9 +256,9 @@ function inferModelProvider(
 }
 
 function selectedGatewayModel(config: AgentConfig) {
-  return inferModelSelectionMode(config) === "auto"
-    ? AUTO_MODEL
-    : normalizeModel(config.manual_model || DEFAULT_MANUAL_MODEL);
+  return normalizeModel(
+    config.manual_model || config.gateway_model || DEFAULT_MANUAL_MODEL
+  );
 }
 
 function inferAuthorizationMode(config: AgentConfig): AuthorizationMode {
@@ -329,11 +323,7 @@ async function normalizedResponse(config: AgentConfig) {
       (envModel === AUTO_MODEL ? DEFAULT_OPENROUTER_MODEL : envModel)
   );
   const effectiveModel =
-    modelProvider === "gateway"
-      ? modelSelectionMode === "auto"
-        ? AUTO_MODEL
-        : manualModel
-      : openrouterModel;
+    modelProvider === "gateway" ? manualModel : openrouterModel;
   const gatewayKey =
     env.INTERNAGENTS_GATEWAY_KEY ||
     (modelProvider === "gateway" ? env.OPENAI_API_KEY : "");
@@ -344,7 +334,7 @@ async function normalizedResponse(config: AgentConfig) {
   const gatewayUsername = env.INTERNAGENTS_USER_NAME || "";
   const gatewayInviteCode =
     env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE || "";
-  const gatewayModel = modelSelectionMode === "auto" ? AUTO_MODEL : manualModel;
+  const gatewayModel = manualModel;
   let workspacePath = ".";
   let workspaceResolvedPath = "";
   let workspaceError: string | undefined;
@@ -424,19 +414,11 @@ export async function PUT(request: NextRequest) {
     const modelProvider = isModelProvider(body.modelProvider)
       ? body.modelProvider
       : inferModelProvider(currentConfig, currentEnv);
-    const modelSelectionMode = isModelSelectionMode(body.modelSelectionMode)
-      ? body.modelSelectionMode
-      : "manual";
+    const modelSelectionMode: ModelSelectionMode = "manual";
     const model =
       modelProvider === "openrouter"
         ? normalizeOpenRouterModel(body.model || DEFAULT_OPENROUTER_MODEL)
-        : modelSelectionMode === "manual"
-        ? normalizeModel(body.model || DEFAULT_MANUAL_MODEL)
-        : normalizeModel(
-            typeof body.model === "string" && body.model.trim()
-              ? body.model
-              : DEFAULT_MANUAL_MODEL
-          );
+        : normalizeModel(body.model || DEFAULT_MANUAL_MODEL);
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
