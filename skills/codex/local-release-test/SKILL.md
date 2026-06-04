@@ -1,6 +1,6 @@
 ---
 name: local-release-test
-description: Use the repository-local GitHub Actions release workflow to publish prerelease test builds from development branches without touching the official shuyuehu/InternAgents release repository.
+description: Use the repository-local GitHub Actions release workflow to publish prerelease test builds from development branches without touching the official InternScience/InternAgents release repository.
 ---
 
 # Local Release Test
@@ -12,7 +12,7 @@ The goal is to let different developers publish test releases from different bra
 ## Release Model
 
 - Official releases are still triggered by pushing tags like `v0.1.5`.
-- Official releases publish to `shuyuehu/InternAgents` and require `secrets.INTERNAGENTS_RELEASE_TOKEN`.
+- Official releases publish to `InternScience/InternAgents` and require `secrets.INTERNAGENTS_RELEASE_TOKEN`.
 - Local test releases are triggered manually with `workflow_dispatch`.
 - Local test releases publish to the current repository, normally `qzzqzzb/InternAgents`.
 - Local test releases use the built-in `GITHUB_TOKEN`.
@@ -97,12 +97,14 @@ Set this in `.env` when testing update checks locally:
 
 ```text
 INTERNAGENTS_UPDATE_API_URL=https://api.github.com/repos/qzzqzzb/InternAgents/releases/tags/<generated-test-tag>
+INTERNAGENTS_REMOTE_BACKEND_UPDATE_API_URL=https://api.github.com/repos/qzzqzzb/InternAgents/releases/tags/<generated-test-tag>
 ```
 
 For example:
 
 ```text
 INTERNAGENTS_UPDATE_API_URL=https://api.github.com/repos/qzzqzzb/InternAgents/releases/tags/v0.1.5-test.zhf-local-release-for-test.20260603.192500
+INTERNAGENTS_REMOTE_BACKEND_UPDATE_API_URL=https://api.github.com/repos/qzzqzzb/InternAgents/releases/tags/v0.1.5-test.zhf-local-release-for-test.20260603.192500
 ```
 
 Restart the app/backend after changing `.env` so the update endpoint reads the new value.

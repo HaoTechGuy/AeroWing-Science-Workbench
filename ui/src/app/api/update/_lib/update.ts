@@ -10,7 +10,7 @@ import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_RELEASE_REPO = "shuyuehu/InternAgents";
+const DEFAULT_RELEASE_REPO = "InternScience/InternAgents";
 const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 60 * 1000;
 const MAX_BUFFER = 8 * 1024 * 1024;

@@ -20,6 +20,14 @@
       "remote_url": "http://127.0.0.1:22025",
       "remote_runtime_port": 22024,
       "remote_assistant_id": "agent",
+      "remote_backend_release_tag": "",
+      "remote_backend_fingerprint": "",
+      "remote_backend_source_repo": "",
+      "remote_backend_asset_name": "",
+      "remote_backend_updated_at": "",
+      "remote_install_mode": "auto",
+      "remote_python_path": "",
+      "remote_conda_command": "",
       "kb_path": "",
       "enabled": true
     }

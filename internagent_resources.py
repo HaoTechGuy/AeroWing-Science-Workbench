@@ -27,6 +27,14 @@ class ResourceConfig:
     remote_url: str | None = None
     remote_runtime_port: int | None = None
     remote_assistant_id: str | None = None
+    remote_backend_release_tag: str | None = None
+    remote_backend_fingerprint: str | None = None
+    remote_backend_source_repo: str | None = None
+    remote_backend_asset_name: str | None = None
+    remote_backend_updated_at: str | None = None
+    remote_install_mode: str | None = None
+    remote_python_path: str | None = None
+    remote_conda_command: str | None = None
     timeout: int = 120
     max_output_bytes: int = 100_000
 
@@ -123,6 +131,46 @@ def load_resource_config() -> tuple[str, dict[str, ResourceConfig]]:
             remote_assistant_id=(
                 str(item.get("remote_assistant_id")).strip()
                 if item.get("remote_assistant_id")
+                else None
+            ),
+            remote_backend_release_tag=(
+                str(item.get("remote_backend_release_tag")).strip()
+                if item.get("remote_backend_release_tag")
+                else None
+            ),
+            remote_backend_fingerprint=(
+                str(item.get("remote_backend_fingerprint")).strip()
+                if item.get("remote_backend_fingerprint")
+                else None
+            ),
+            remote_backend_source_repo=(
+                str(item.get("remote_backend_source_repo")).strip()
+                if item.get("remote_backend_source_repo")
+                else None
+            ),
+            remote_backend_asset_name=(
+                str(item.get("remote_backend_asset_name")).strip()
+                if item.get("remote_backend_asset_name")
+                else None
+            ),
+            remote_backend_updated_at=(
+                str(item.get("remote_backend_updated_at")).strip()
+                if item.get("remote_backend_updated_at")
+                else None
+            ),
+            remote_install_mode=(
+                str(item.get("remote_install_mode")).strip()
+                if item.get("remote_install_mode")
+                else None
+            ),
+            remote_python_path=(
+                str(item.get("remote_python_path")).strip()
+                if item.get("remote_python_path")
+                else None
+            ),
+            remote_conda_command=(
+                str(item.get("remote_conda_command")).strip()
+                if item.get("remote_conda_command")
                 else None
             ),
             timeout=int(item.get("timeout") or 120),

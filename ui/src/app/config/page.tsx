@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Cpu,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/theme";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
 import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
+import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
@@ -263,7 +265,18 @@ async function fetchGatewayModels(signal: AbortSignal): Promise<GatewayModelOpti
   return models;
 }
 
-export default function ConfigPage() {
+function priceSummary(option: GatewayModelOption) {
+  if (
+    typeof option.inputPriceRmbPer1m !== "number" ||
+    typeof option.outputPriceRmbPer1m !== "number"
+  ) {
+    return "";
+  }
+  return `¥${option.inputPriceRmbPer1m}/百万输入 · ¥${option.outputPriceRmbPer1m}/百万输出`;
+}
+
+function ConfigPageContent() {
+  const searchParams = useSearchParams();
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] =
     useState<ConfigResponse>(DEFAULT_CONFIG);
@@ -358,6 +371,10 @@ export default function ConfigPage() {
   const onboardingMode = onboardingRequested || config.needsOnboarding;
   const backendStatusMessage = backendStatus?.message.trim();
   const showBackendStatus = Boolean(backendStatusMessage) && !restartResult;
+  const workbenchHref = useMemo(
+    () => workbenchHrefFromSearchParams(searchParams),
+    [searchParams]
+  );
 
   async function loadConfig() {
     setLoading(true);
@@ -658,7 +675,7 @@ export default function ConfigPage() {
               size="sm"
               className="h-8 px-2"
             >
-              <Link href="/?assistantId=agent_local">
+              <Link href={workbenchHref}>
                 <ArrowLeft className="h-4 w-4" />
                 工作台
               </Link>
@@ -999,10 +1016,11 @@ export default function ConfigPage() {
 
                         {gatewayModelOptions.length > 0 ? (
                           <div className="grid gap-2 md:grid-cols-2">
-                            {gatewayModelOptions.map((option) => {
-                              const active = config.model === option.id;
-                              return (
-                                <button
+                        {gatewayModelOptions.map((option) => {
+                          const active = config.model === option.id;
+                          const summary = priceSummary(option);
+                          return (
+                            <button
                                   key={option.id}
                                   type="button"
                                   onClick={() =>
@@ -1038,6 +1056,11 @@ export default function ConfigPage() {
                                   <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
                                     {option.description}
                                   </div>
+                                  {summary && (
+                                    <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                      {summary}
+                                    </div>
+                                  )}
                                 </button>
                               );
                             })}
@@ -1305,5 +1328,19 @@ export default function ConfigPage() {
         </form>
       </main>
     </div>
+  );
+}
+
+export default function ConfigPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[calc(100vh-var(--app-footer-height))] items-center justify-center bg-background text-foreground">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      }
+    >
+      <ConfigPageContent />
+    </Suspense>
   );
 }

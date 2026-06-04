@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
   Suspense,
 } from "react";
 import Link from "next/link";
@@ -16,6 +17,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import type { ImperativePanelHandle } from "react-resizable-panels";
 import {
@@ -50,6 +52,7 @@ import { RemoteConnectionDialog } from "@/app/components/RemoteConnectionDialog"
 import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
+import { pageHrefWithWorkbenchReturn } from "@/app/utils/navigationContext";
 
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
 const ADD_REMOTE_WORKSPACE_VALUE = "__add_remote_workspace__";
@@ -80,6 +83,20 @@ interface HomePageInnerProps {
   ) => Promise<ResourceConfig[]>;
 }
 
+interface RemoteEnsureResult {
+  resource: ResourceConfig;
+  resources: ResourceConfig[];
+  remoteUrl: string;
+  state: "up-to-date" | "updated";
+  targetReleaseTag: string;
+  log: string[];
+}
+
+type RemoteEnsureStreamEvent =
+  | { type: "log"; message?: string }
+  | { type: "done"; result?: RemoteEnsureResult }
+  | { type: "error"; error?: string };
+
 function HomePageInner({
   config,
   activeResource,
@@ -93,6 +110,7 @@ function HomePageInner({
   onResourcesRefresh,
 }: HomePageInnerProps) {
   const remoteAgent = useRemoteAgent();
+  const searchParams = useSearchParams();
   const [, setThreadId] = useQueryState("threadId");
   const [selectedFilePath, setSelectedFilePath] = useQueryState("file");
 
@@ -101,6 +119,9 @@ function HomePageInner({
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
   const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
+  const [ensuringResourceId, setEnsuringResourceId] = useState<string | null>(
+    null
+  );
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [workspacePanelCompact, setWorkspacePanelCompact] = useState(false);
   const workspacePanelRef = useRef<ImperativePanelHandle>(null);
@@ -128,14 +149,122 @@ function HomePageInner({
     [setSelectedFilePath]
   );
 
+  const ensureRemoteResource = useCallback(
+    async (resourceId: string) => {
+      const toastId = toast.loading("正在同步远程 backend runtime...");
+      try {
+        const response = await fetch("/api/remote-connections/ensure", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resourceId }),
+        });
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/x-ndjson")) {
+          const payload = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          toast.dismiss(toastId);
+          throw new Error(payload?.error || "远程 backend runtime 同步失败");
+        }
+        if (!response.body) {
+          toast.dismiss(toastId);
+          throw new Error("远程 backend runtime 同步失败：没有返回同步日志。");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let result: RemoteEnsureResult | null = null;
+        let streamError: string | null = null;
+
+        const parseLine = (line: string): RemoteEnsureStreamEvent | null => {
+          const trimmed = line.trim();
+          return trimmed
+            ? (JSON.parse(trimmed) as RemoteEnsureStreamEvent)
+            : null;
+        };
+
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const event = parseLine(line);
+            if (!event) {
+              continue;
+            }
+            if (event.type === "done" && event.result) {
+              result = event.result;
+            } else if (event.type === "error") {
+              streamError = event.error || "远程 backend runtime 同步失败";
+            }
+          }
+          if (done) break;
+        }
+
+        if (buffer.trim()) {
+          const event = parseLine(buffer);
+          if (event?.type === "done" && event.result) {
+            result = event.result;
+          } else if (event?.type === "error") {
+            streamError = event.error || "远程 backend runtime 同步失败";
+          }
+        }
+
+        toast.dismiss(toastId);
+        if (streamError) {
+          throw new Error(streamError);
+        }
+        if (!result) {
+          throw new Error("远程 backend runtime 同步失败：没有返回结果。");
+        }
+
+        await onResourcesRefresh(result.resources);
+        toast.success(
+          result.state === "updated"
+            ? `远程 backend 已同步到 ${result.targetReleaseTag}`
+            : `远程 backend 已是 ${result.targetReleaseTag}`
+        );
+        return result.resource;
+      } catch (error) {
+        toast.dismiss(toastId);
+        throw error;
+      }
+    },
+    [onResourcesRefresh]
+  );
+
   const handleResourceChange = useCallback(
     async (resourceId: string) => {
-      await setThreadId(null);
-      await setSelectedFilePath(null);
-      await onResourceChange(resourceId);
-      mutateThreads?.();
+      try {
+        setEnsuringResourceId(resourceId);
+        const nextResource = config.resources.find(
+          (resource) => resource.id === resourceId
+        );
+        if (nextResource && nextResource.id !== "local") {
+          await ensureRemoteResource(resourceId);
+        }
+        await setThreadId(null);
+        await setSelectedFilePath(null);
+        await onResourceChange(resourceId);
+        mutateThreads?.();
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "远程工作区切换失败";
+        toast.error(message);
+      } finally {
+        setEnsuringResourceId(null);
+      }
     },
-    [mutateThreads, onResourceChange, setSelectedFilePath, setThreadId]
+    [
+      config.resources,
+      ensureRemoteResource,
+      mutateThreads,
+      onResourceChange,
+      setSelectedFilePath,
+      setThreadId,
+    ]
   );
 
   const handleWorkspaceChange = useCallback(
@@ -245,6 +374,14 @@ function HomePageInner({
     (resource) => resource.id !== "local"
   );
   const environmentLabel = activeWorkspace?.label || activeResource.label;
+  const configHref = useMemo(
+    () => pageHrefWithWorkbenchReturn("/config", searchParams),
+    [searchParams]
+  );
+  const aboutHref = useMemo(
+    () => pageHrefWithWorkbenchReturn("/about", searchParams),
+    [searchParams]
+  );
 
   return (
     <div className="internagents-home flex h-[calc(100vh-var(--app-footer-height))] flex-col bg-background text-foreground">
@@ -263,6 +400,9 @@ function HomePageInner({
             <SelectTrigger className="h-9 w-[260px] border-border bg-background/80 text-sm">
               <span className="flex min-w-0 items-center gap-2">
                 {isPickingWorkspace ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                ) : null}
+                {ensuringResourceId ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
                 ) : null}
                 <span className="min-w-0 truncate">{environmentLabel}</span>
@@ -358,7 +498,7 @@ function HomePageInner({
             className="h-8 border-border bg-card"
           >
             <Link
-              href="/config"
+              href={configHref}
               data-tour="nav-config"
             >
               <Settings className="h-4 w-4" />
@@ -372,7 +512,7 @@ function HomePageInner({
             className="h-8 border-border bg-card"
           >
             <Link
-              href="/about"
+              href={aboutHref}
               data-tour="nav-about"
             >
               <Info className="h-4 w-4" />
