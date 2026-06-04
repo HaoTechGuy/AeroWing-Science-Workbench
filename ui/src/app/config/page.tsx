@@ -508,7 +508,11 @@ function ConfigPageContent() {
       if (!response.ok) {
         throw new Error(payload.error || "配置保存失败");
       }
-      const nextConfig = payload as ConfigResponse;
+      const nextConfig = {
+        ...DEFAULT_CONFIG,
+        ...payload,
+        openrouterApiKey: "",
+      } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
       setRequiresRestart(needsRestart);

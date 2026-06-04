@@ -140,6 +140,35 @@ function runtimePaths(root: string) {
   };
 }
 
+function parseEnvValue(rawValue: string) {
+  const trimmed = rawValue.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function readProjectEnv(root: string): Record<string, string> {
+  const envFile = path.join(root, ".env");
+  if (!existsSync(envFile)) {
+    return {};
+  }
+
+  const values: Record<string, string> = {};
+  const content = readFileSync(envFile, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (!match || line.trim().startsWith("#")) {
+      continue;
+    }
+    values[match[1]] = parseEnvValue(match[2]);
+  }
+  return values;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -571,6 +600,7 @@ async function startLangGraphServer({
   ];
   const serverEnv = {
     ...process.env,
+    ...readProjectEnv(root),
     ...(env || {}),
     ...(IS_WINDOWS
       ? {

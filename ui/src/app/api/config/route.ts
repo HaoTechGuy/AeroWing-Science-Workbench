@@ -384,6 +384,7 @@ async function normalizedResponse(config: AgentConfig) {
     gatewayCreditRmb: env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "",
     gatewayRemainingRmb: env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "",
     openrouterModel,
+    openrouterApiKey: "",
     openrouterApiKeySet: Boolean(openrouterKey),
     openrouterApiKeyPreview: "",
     authorizationMode: inferAuthorizationMode(config),

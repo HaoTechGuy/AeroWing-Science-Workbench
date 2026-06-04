@@ -83,28 +83,74 @@ def _env_positive_int(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-def _config_model_provider() -> str | None:
+def _agent_config_path() -> Path:
+    config_file = Path(_env_value("DEEPAGENT_CONFIG") or DEFAULT_CONFIG_FILE)
+    if not config_file.is_absolute():
+        config_file = ROOT_DIR / config_file
+    return config_file
+
+
+def _read_config_for_model() -> dict[str, Any]:
     try:
-        config = json.loads(DEFAULT_CONFIG_FILE.read_text())
+        config_file = _agent_config_path()
+        if not config_file.exists():
+            return {}
+        return json.loads(config_file.read_text(encoding="utf-8"))
     except Exception:
-        return None
+        return {}
+
+
+def _config_model_provider(config: dict[str, Any] | None = None) -> str | None:
+    if config is None:
+        config = _read_config_for_model()
 
     provider = config.get("model_provider")
     return provider.strip() if isinstance(provider, str) and provider.strip() else None
 
 
-def _config_model() -> str | None:
-    try:
-        config = json.loads(DEFAULT_CONFIG_FILE.read_text())
-    except Exception:
+def _effective_model_provider(config: dict[str, Any] | None = None) -> str | None:
+    if config is None:
+        config = _read_config_for_model()
+
+    config_provider = _config_model_provider(config)
+    if config_provider in {"gateway", "openrouter"}:
+        return config_provider
+
+    if config.get("openrouter_direct_enabled") is True:
+        return "openrouter"
+
+    env_provider = _env_value("INTERNAGENTS_MODEL_PROVIDER")
+    if env_provider in {"gateway", "openrouter"}:
+        return env_provider
+
+    return None
+
+
+def _strip_model_provider_prefix(model: str) -> str:
+    for prefix in ("openrouter:", "openai:"):
+        if model.startswith(prefix):
+            return model[len(prefix) :]
+    return model
+
+
+def _openrouter_model_spec(model: str) -> str:
+    stripped = _strip_model_provider_prefix(model)
+    return f"openrouter:{stripped}"
+
+
+def _config_model(config: dict[str, Any] | None = None) -> str | None:
+    if config is None:
+        config = _read_config_for_model()
+    if not config:
         return None
 
-    if config.get("model_provider") == "gateway":
+    provider = _effective_model_provider(config)
+    if provider == "gateway":
         if config.get("model_selection_mode") == "manual":
-            model = config.get("manual_model")
+            model = config.get("manual_model") or config.get("gateway_model")
         else:
             model = "jisi/auto"
-    elif config.get("openrouter_direct_enabled") is True:
+    elif provider == "openrouter":
         model = config.get("openrouter_model")
     elif config.get("model_selection_mode") == "manual":
         model = config.get("manual_model")
@@ -114,10 +160,7 @@ def _config_model() -> str | None:
 
 
 def _uses_gateway_provider() -> bool:
-    return (
-        _env_value("INTERNAGENTS_MODEL_PROVIDER") == "gateway"
-        or _config_model_provider() == "gateway"
-    )
+    return _effective_model_provider() == "gateway"
 
 
 def _lock_gateway_environment() -> None:
@@ -136,29 +179,30 @@ def _lock_gateway_environment() -> None:
 
 
 def _resolve_model() -> str:
-    if _uses_gateway_provider():
-        config_model = _config_model()
-        env_model = _env_value("LLM_MODEL")
+    config = _read_config_for_model()
+    provider = _effective_model_provider(config)
+    config_model = _config_model(config)
+
+    if provider == "gateway":
+        env_model = _env_value("INTERNAGENTS_GATEWAY_MODEL") or _env_value("LLM_MODEL")
         model = config_model or env_model or "jisi/auto"
-        for prefix in ("openrouter:", "openai:"):
-            if model.startswith(prefix):
-                model = model[len(prefix):]
-                break
-        return f"openrouter:{model}"
+        return _openrouter_model_spec(model)
+
+    if provider == "openrouter":
+        if config_model:
+            return _openrouter_model_spec(config_model)
 
     explicit_model = _env_value("DEEPAGENT_MODEL")
     if explicit_model:
         return explicit_model
 
-    config_provider = _config_model_provider()
-    config_model = _config_model()
     if config_model:
-        return f"openrouter:{config_model}"
+        return _openrouter_model_spec(config_model)
 
     provider = _env_value("LLM_PROVIDER")
     model = _env_value("LLM_MODEL")
     if provider == "openrouter" and model:
-        return f"openrouter:{model}"
+        return _openrouter_model_spec(model)
 
     return "openrouter:deepseek-v4-flash"
 
@@ -241,12 +285,10 @@ class InternAgentState(TypedDict):
 
 
 def _load_agent_config() -> dict[str, Any]:
-    config_file = Path(_env_value("DEEPAGENT_CONFIG") or DEFAULT_CONFIG_FILE)
-    if not config_file.is_absolute():
-        config_file = ROOT_DIR / config_file
+    config_file = _agent_config_path()
     if not config_file.exists():
         return {}
-    with config_file.open() as f:
+    with config_file.open(encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -837,7 +879,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
-        model=MODEL,
+        model=_create_agent_model(),
         tools=goal_tools(),
         backend=backend,
         skills=_resolve_skills(agent_config),
@@ -900,7 +942,7 @@ def create_runtime_agent():  # noqa: ANN201
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
-        model=MODEL,
+        model=_create_agent_model(),
         tools=goal_tools(),
         backend=backend,
         skills=skills,
