@@ -25,12 +25,12 @@ import {
   CheckCircle2,
   Clock,
   Circle,
+  Copy,
   FileIcon,
   ImagePlus,
   Loader2,
   Paperclip,
   Pencil,
-  RotateCcw,
   Target,
   X,
 } from "lucide-react";
@@ -45,7 +45,7 @@ import type {
   ChatAttachment,
   GoalState,
 } from "@/app/types/types";
-import { Assistant, type Checkpoint, Message } from "@langchain/langgraph-sdk";
+import { Assistant, Message } from "@langchain/langgraph-sdk";
 import { extractStringFromMessageContent } from "@/app/utils/utils";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
@@ -59,12 +59,6 @@ import {
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
-}
-
-interface RetryTarget {
-  message: Message;
-  checkpoint: Checkpoint | null;
-  previousMessages: Message[];
 }
 
 const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
@@ -216,15 +210,6 @@ function createAttachmentId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
 
-function hasUsableRetryCheckpoint(
-  checkpoint?: Checkpoint | null
-): checkpoint is Checkpoint {
-  return (
-    typeof checkpoint?.checkpoint_id === "string" &&
-    checkpoint.checkpoint_id.length > 0
-  );
-}
-
 function getAttachmentFileKey(fileName: string): string {
   const lowerName = fileName.trim().toLowerCase();
   if (lowerName === ".env.example") return "env.example";
@@ -325,6 +310,48 @@ async function parsePdfUploadResponse(response: Response): Promise<unknown> {
   return {
     error: text && text !== "Internal Server Error" ? text : "PDF 上传失败",
   };
+}
+
+function writeTextToClipboardFallback(text: string): void {
+  const textArea = document.createElement("textarea");
+  const selection = document.getSelection();
+  const selectedRange =
+    selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  textArea.style.top = "0";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Copy command failed.");
+    }
+  } finally {
+    document.body.removeChild(textArea);
+    if (selection && selectedRange) {
+      selection.removeAllRanges();
+      selection.addRange(selectedRange);
+    }
+  }
+}
+
+async function writeTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Some browsers expose Clipboard API but still reject it for focus or
+      // permission reasons. Fall through to the legacy copy path.
+    }
+  }
+
+  writeTextToClipboardFallback(text);
 }
 
 async function prepareAttachment(
@@ -612,9 +639,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     runStatus,
     threadTitle,
     updateThreadTitle,
-    getMessagesMetadata,
     sendMessage,
-    retryMessage,
     stopStream,
     resumeInterrupt,
     threadId,
@@ -1095,60 +1120,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     visibleMessages,
   ]);
 
-  const latestRetryTarget = useMemo<RetryTarget | null>(() => {
-    for (let index = displayMessages.length - 1; index >= 0; index -= 1) {
-      const message = displayMessages[index].message;
-      if (message.type === "human") {
-        const messageIndex = messages.findIndex((candidate) =>
-          message.id ? candidate.id === message.id : candidate === message
-        );
-        const metadata = getMessagesMetadata(
-          message,
-          messageIndex >= 0 ? messageIndex : undefined
-        );
-        return {
-          message,
-          checkpoint: metadata?.firstSeenState?.parent_checkpoint ?? null,
-          previousMessages:
-            messageIndex >= 0 ? messages.slice(0, messageIndex) : [],
-        };
-      }
-    }
-
-    return null;
-  }, [displayMessages, getMessagesMetadata, messages]);
-  const handleRetryMessage = useCallback(
-    (target: RetryTarget | null) => {
-      if (!target) {
-        toast.error("没有可重试的用户消息。");
-        return;
-      }
-      if (isLoading) {
-        toast.info("当前会话正在运行，完成后可重试。");
-        return;
-      }
-      if (interrupt) {
-        toast.info("请先处理当前权限确认。");
-        return;
-      }
-      if (!assistant) {
-        toast.error("模型服务未就绪，请稍后重试。");
-        return;
-      }
-      if (!hasUsableRetryCheckpoint(target.checkpoint)) {
-        toast.error("当前会话缺少可回退的历史点，请重新发送问题。");
-        return;
-      }
-
-      retryMessage(target.message, {
-        checkpoint: target.checkpoint,
-        previousMessages: target.previousMessages,
-      });
-    },
-    [assistant, interrupt, isLoading, retryMessage]
-  );
-
-  const completedMessageId = useMemo(() => {
+  const completedAiMessage = useMemo<Message | null>(() => {
     if (
       showRuntimeDetails ||
       error ||
@@ -1160,12 +1132,32 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
       const message = visibleMessages[index].message;
       if (message.type === "ai") {
-        return message.id ?? null;
+        return message;
       }
     }
 
     return null;
   }, [error, runStatus, showRuntimeDetails, visibleMessages]);
+
+  const completedMessageCopyText = useMemo(() => {
+    return completedAiMessage
+      ? extractStringFromMessageContent(completedAiMessage).trim()
+      : "";
+  }, [completedAiMessage]);
+
+  const handleCopyCompletedMessage = useCallback(async () => {
+    if (!completedMessageCopyText) {
+      toast.error("没有可复制的 AI 输出。");
+      return;
+    }
+
+    try {
+      await writeTextToClipboard(completedMessageCopyText);
+      toast.success("已复制到剪贴板");
+    } catch {
+      toast.error("复制失败，请手动选择内容复制。");
+    }
+  }, [completedMessageCopyText]);
 
   const intermediateMessages = useMemo(() => {
     if (showRuntimeDetails) {
@@ -1446,53 +1438,39 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   )}
                 </div>
               )}
-              {completedMessageId && (
+              {completedAiMessage && (
                 <div className="ml-10 mt-2 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                   <span>已完成</span>
-                  {latestRetryTarget && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 gap-1.5 px-1.5 text-xs text-muted-foreground hover:text-primary"
-                          onClick={() => handleRetryMessage(latestRetryTarget)}
-                          aria-label="重试上一条用户消息"
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          重试
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="bottom"
-                        align="start"
-                        sideOffset={6}
-                        className="whitespace-nowrap"
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 gap-1.5 px-1.5 text-xs text-muted-foreground hover:text-primary"
+                        onClick={() => void handleCopyCompletedMessage()}
+                        disabled={!completedMessageCopyText}
+                        aria-label="复制最后一条 AI 输出"
                       >
-                        重新发送上一条用户消息
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                        <Copy className="h-3.5 w-3.5" />
+                        复制
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      align="start"
+                      sideOffset={6}
+                      className="whitespace-nowrap"
+                    >
+                      复制最后一条 AI 输出
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               )}
               {errorMessage && (
                 <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
                   <div>{errorMessage}</div>
-                  {latestRetryTarget && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="mt-2 h-7 gap-1.5 px-2 text-xs text-red-700 hover:bg-red-100 hover:text-red-800 dark:text-red-200 dark:hover:bg-red-900/40 dark:hover:text-red-100"
-                      onClick={() => handleRetryMessage(latestRetryTarget)}
-                      aria-label="重试上一条用户消息"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      重试上一条消息
-                    </Button>
-                  )}
                 </div>
               )}
               {orphanActionRequests.length > 0 && (
