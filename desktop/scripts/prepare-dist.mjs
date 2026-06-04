@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -583,6 +583,229 @@ async function prepareBackendCliArchive() {
   });
 }
 
+function uniquePaths(paths) {
+  const seen = new Set();
+  return paths.filter((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+    const key =
+      process.platform === "win32" ? candidate.toLowerCase() : candidate;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function isDirectory(candidate) {
+  try {
+    return statSync(candidate).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function existingDirectories(paths) {
+  return uniquePaths(paths).filter(isDirectory);
+}
+
+function bundledWindowsBasePythonCandidates(runtimeDir) {
+  if (process.platform !== "win32") {
+    return [];
+  }
+
+  const candidates = [
+    path.join(
+      runtimeDir,
+      "python",
+      "cpython-3.12-windows-x86_64-none",
+      "python.exe"
+    ),
+    path.join(
+      runtimeDir,
+      "python",
+      "cpython-3.11-windows-x86_64-none",
+      "python.exe"
+    ),
+    path.join(runtimeDir, "python", "python.exe"),
+  ];
+  const pythonRoot = path.join(runtimeDir, "python");
+
+  try {
+    for (const entry of readdirSync(pythonRoot, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        candidates.push(path.join(pythonRoot, entry.name, "python.exe"));
+      }
+    }
+  } catch {
+    // A copied conda-style runtime may not have a managed-python directory.
+  }
+
+  return uniquePaths(candidates);
+}
+
+function pythonRuntimeCandidates(runtimeDir) {
+  return process.platform === "win32"
+    ? [
+        ...bundledWindowsBasePythonCandidates(runtimeDir),
+        path.join(runtimeDir, "python.exe"),
+        path.join(runtimeDir, "pythonw.exe"),
+        path.join(runtimeDir, "Scripts", "python.exe"),
+        path.join(runtimeDir, "Scripts", "pythonw.exe"),
+        path.join(runtimeDir, "bin", "python.exe"),
+        path.join(runtimeDir, "bin", "pythonw.exe"),
+        path.join(runtimeDir, "venv", "Scripts", "python.exe"),
+        path.join(runtimeDir, "venv", "Scripts", "pythonw.exe"),
+        path.join(runtimeDir, ".venv", "Scripts", "python.exe"),
+        path.join(runtimeDir, ".venv", "Scripts", "pythonw.exe"),
+      ]
+    : [
+        path.join(runtimeDir, "venv", "bin", "python"),
+        path.join(runtimeDir, ".venv", "bin", "python"),
+        path.join(runtimeDir, "bin", "python3.12"),
+        path.join(runtimeDir, "bin", "python3.11"),
+        path.join(runtimeDir, "bin", "python3"),
+        path.join(runtimeDir, "bin", "python"),
+      ];
+}
+
+function runtimeSitePackages(runtimeDir) {
+  return process.platform === "win32"
+    ? existingDirectories([
+        path.join(runtimeDir, "venv", "Lib", "site-packages"),
+        path.join(runtimeDir, ".venv", "Lib", "site-packages"),
+        path.join(runtimeDir, "Lib", "site-packages"),
+      ])
+    : existingDirectories([
+        path.join(runtimeDir, "venv", "lib", "python3.12", "site-packages"),
+        path.join(runtimeDir, "venv", "lib", "python3.11", "site-packages"),
+        path.join(runtimeDir, ".venv", "lib", "python3.12", "site-packages"),
+        path.join(runtimeDir, ".venv", "lib", "python3.11", "site-packages"),
+      ]);
+}
+
+function envPathKey(env) {
+  return Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
+}
+
+function pythonRuntimeEnv(runtimeDir, baseEnv = process.env) {
+  const env = {
+    PYTHONDONTWRITEBYTECODE: "1",
+    PYTHONNOUSERSITE: "1",
+    PYTHONUTF8: "1",
+  };
+  const sitePackages = runtimeSitePackages(runtimeDir);
+
+  if (sitePackages.length > 0) {
+    env.PYTHONPATH = uniquePaths([
+      ...sitePackages,
+      baseEnv.PYTHONPATH || "",
+    ]).join(path.delimiter);
+  }
+
+  if (process.platform === "win32") {
+    const basePythonDirs = existingDirectories(
+      bundledWindowsBasePythonCandidates(runtimeDir).map((candidate) =>
+        path.dirname(candidate)
+      )
+    );
+    const dllDirs = existingDirectories(
+      basePythonDirs.map((directory) => path.join(directory, "DLLs"))
+    );
+    const pathKey = envPathKey(baseEnv);
+    const pathValue = uniquePaths([
+      ...basePythonDirs,
+      ...dllDirs,
+      baseEnv[pathKey] || "",
+    ]).join(path.delimiter);
+    if (pathValue) {
+      env[pathKey] = pathValue;
+    }
+  }
+
+  return env;
+}
+
+function isInsidePath(childPath, parentPath) {
+  const relative = path.relative(
+    path.resolve(parentPath),
+    path.resolve(childPath)
+  );
+  return (
+    relative === "" ||
+    Boolean(relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+function readPyvenvHome(pyvenvPath) {
+  if (!existsSync(pyvenvPath)) {
+    return "";
+  }
+
+  for (const line of readFileSync(pyvenvPath, "utf8").split(/\r?\n/)) {
+    const match = line.match(/^\s*home\s*=\s*(.+?)\s*$/);
+    if (match) {
+      return match[1];
+    }
+  }
+  return "";
+}
+
+function isPortablePythonCandidate(candidate, runtimeDir) {
+  if (process.platform !== "win32") {
+    return true;
+  }
+
+  const resolvedCandidate = path.resolve(candidate);
+  for (const venvDir of [
+    path.join(runtimeDir, "venv"),
+    path.join(runtimeDir, ".venv"),
+  ]) {
+    const scriptsDir = path.join(venvDir, "Scripts");
+    if (!isInsidePath(resolvedCandidate, scriptsDir)) {
+      continue;
+    }
+
+    const home = readPyvenvHome(path.join(venvDir, "pyvenv.cfg"));
+    if (home && path.isAbsolute(home) && !isInsidePath(home, runtimeDir)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function pythonSmokeTest(candidate, runtimeDir) {
+  const result = spawnSync(
+    candidate,
+    [
+      "-c",
+      "import sys; import langgraph_cli; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+    ],
+    {
+      cwd: rootDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ...pythonRuntimeEnv(runtimeDir, process.env),
+      },
+      shell: false,
+      windowsHide: true,
+    }
+  );
+
+  return {
+    ok: result.status === 0,
+    message:
+      result.error?.message ||
+      result.stderr?.trim() ||
+      result.stdout?.trim() ||
+      `exit status ${result.status}`,
+  };
+}
+
 async function preparePythonRuntime() {
   const explicitSource = process.env.INTERNAGENTS_PYTHON_RUNTIME_SOURCE;
   const pythonSource =
@@ -602,12 +825,12 @@ async function preparePythonRuntime() {
     force: true,
     verbatimSymlinks: false,
   });
-  await validatePythonRuntime();
   if (process.platform !== "win32") {
     await rewriteRuntimeSymlinks(path.resolve(pythonSource));
     await normalizePythonLinks();
     await assertNoExternalRuntimeSymlinks();
   }
+  await validatePythonRuntime();
 }
 
 async function relink(linkPath, targetName) {
@@ -635,35 +858,34 @@ async function normalizePythonLinks() {
 }
 
 async function validatePythonRuntime() {
-  const candidates =
-    process.platform === "win32"
-      ? [
-          path.join(pythonRuntimeDir, "venv", "Scripts", "pythonw.exe"),
-          path.join(pythonRuntimeDir, "venv", "Scripts", "python.exe"),
-          path.join(pythonRuntimeDir, ".venv", "Scripts", "pythonw.exe"),
-          path.join(pythonRuntimeDir, ".venv", "Scripts", "python.exe"),
-          path.join(pythonRuntimeDir, "pythonw.exe"),
-          path.join(pythonRuntimeDir, "python.exe"),
-          path.join(pythonRuntimeDir, "Scripts", "pythonw.exe"),
-          path.join(pythonRuntimeDir, "Scripts", "python.exe"),
-          path.join(pythonRuntimeDir, "bin", "pythonw.exe"),
-          path.join(pythonRuntimeDir, "bin", "python.exe"),
-        ]
-      : [
-          path.join(pythonRuntimeDir, "venv", "bin", "python"),
-          path.join(pythonRuntimeDir, ".venv", "bin", "python"),
-          path.join(pythonRuntimeDir, "bin", "python3.12"),
-          path.join(pythonRuntimeDir, "bin", "python3.11"),
-          path.join(pythonRuntimeDir, "bin", "python3"),
-          path.join(pythonRuntimeDir, "bin", "python"),
-        ];
+  const attempts = [];
+  for (const candidate of uniquePaths(pythonRuntimeCandidates(pythonRuntimeDir))) {
+    if (!existsSync(candidate)) {
+      continue;
+    }
 
-  if (candidates.some((candidate) => existsSync(candidate))) {
-    return;
+    const relativeCandidate = path.relative(pythonRuntimeDir, candidate);
+    if (!isPortablePythonCandidate(candidate, pythonRuntimeDir)) {
+      attempts.push(
+        `${relativeCandidate}: skipped because pyvenv.cfg points outside the bundled runtime`
+      );
+      continue;
+    }
+
+    const result = pythonSmokeTest(candidate, pythonRuntimeDir);
+    if (result.ok) {
+      console.log(`Validated Python runtime with ${relativeCandidate}.`);
+      return;
+    }
+
+    attempts.push(`${relativeCandidate}: ${result.message}`);
   }
 
   throw new Error(
-    `Python runtime at ${pythonRuntimeDir} does not contain a usable Python executable.`
+    [
+      `Python runtime at ${pythonRuntimeDir} does not contain a usable bundled Python executable.`,
+      ...attempts.map((attempt) => `- ${attempt}`),
+    ].join("\n")
   );
 }
 

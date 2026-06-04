@@ -276,21 +276,162 @@ function ensureWorkspaceRecord(workspaces, workspacePath) {
   ];
 }
 
+function uniquePaths(paths) {
+  const seen = new Set();
+  return paths.filter((candidate) => {
+    if (!candidate) {
+      return false;
+    }
+    const key =
+      process.platform === "win32" ? candidate.toLowerCase() : candidate;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function existingDirectories(paths) {
+  return uniquePaths(paths).filter((candidate) => {
+    try {
+      return fs.statSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
+function bundledWindowsBasePythonCandidates(runtimeDir) {
+  if (process.platform !== "win32") {
+    return [];
+  }
+
+  const candidates = [
+    path.join(
+      runtimeDir,
+      "python",
+      "cpython-3.12-windows-x86_64-none",
+      "python.exe"
+    ),
+    path.join(
+      runtimeDir,
+      "python",
+      "cpython-3.11-windows-x86_64-none",
+      "python.exe"
+    ),
+    path.join(runtimeDir, "python", "python.exe"),
+  ];
+  const pythonRoot = path.join(runtimeDir, "python");
+
+  try {
+    for (const entry of fs.readdirSync(pythonRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      candidates.push(path.join(pythonRoot, entry.name, "python.exe"));
+    }
+  } catch {
+    // Packaged apps without a bundled Python fall through to the system fallback.
+  }
+
+  return uniquePaths(candidates);
+}
+
+function runtimeSitePackages(runtimeDir) {
+  return process.platform === "win32"
+    ? existingDirectories([
+        path.join(runtimeDir, "venv", "Lib", "site-packages"),
+        path.join(runtimeDir, ".venv", "Lib", "site-packages"),
+        path.join(runtimeDir, "Lib", "site-packages"),
+      ])
+    : existingDirectories([
+        path.join(runtimeDir, "venv", "lib", "python3.12", "site-packages"),
+        path.join(runtimeDir, "venv", "lib", "python3.11", "site-packages"),
+        path.join(runtimeDir, ".venv", "lib", "python3.12", "site-packages"),
+        path.join(runtimeDir, ".venv", "lib", "python3.11", "site-packages"),
+      ]);
+}
+
+function envPathKey(env) {
+  return Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
+}
+
+function pythonRuntimeEnv(baseEnv = process.env) {
+  const runtimeDir = path.join(resourcesRoot(), "python-runtime");
+  const env = {};
+  const sitePackages = runtimeSitePackages(runtimeDir);
+
+  if (sitePackages.length > 0) {
+    env.PYTHONPATH = uniquePaths([
+      ...sitePackages,
+      baseEnv.PYTHONPATH || "",
+    ]).join(path.delimiter);
+  }
+
+  if (process.platform === "win32") {
+    const basePythonDirs = existingDirectories(
+      bundledWindowsBasePythonCandidates(runtimeDir).map((candidate) =>
+        path.dirname(candidate)
+      )
+    );
+    const dllDirs = existingDirectories(
+      basePythonDirs.map((directory) => path.join(directory, "DLLs"))
+    );
+    const pathKey = envPathKey(baseEnv);
+    const pathValue = uniquePaths([
+      ...basePythonDirs,
+      ...dllDirs,
+      baseEnv[pathKey] || "",
+    ]).join(path.delimiter);
+    if (pathValue) {
+      env[pathKey] = pathValue;
+    }
+  }
+
+  return env;
+}
+
+function canRunPython(candidate, env) {
+  if (!fs.existsSync(candidate)) {
+    return false;
+  }
+
+  const result = spawnSync(
+    candidate,
+    [
+      "-c",
+      "import sys; import langgraph_cli; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+    ],
+    {
+      env,
+      windowsHide: true,
+      stdio: "ignore",
+    }
+  );
+  return result.status === 0;
+}
+
 function pythonBinary() {
   const runtimeDir = path.join(resourcesRoot(), "python-runtime");
+  const env = {
+    ...process.env,
+    ...pythonRuntimeEnv(process.env),
+  };
   const candidates =
     process.platform === "win32"
       ? [
-          path.join(runtimeDir, "venv", "Scripts", "pythonw.exe"),
-          path.join(runtimeDir, "venv", "Scripts", "python.exe"),
-          path.join(runtimeDir, ".venv", "Scripts", "pythonw.exe"),
-          path.join(runtimeDir, ".venv", "Scripts", "python.exe"),
-          path.join(runtimeDir, "pythonw.exe"),
+          ...bundledWindowsBasePythonCandidates(runtimeDir),
           path.join(runtimeDir, "python.exe"),
-          path.join(runtimeDir, "Scripts", "pythonw.exe"),
+          path.join(runtimeDir, "pythonw.exe"),
           path.join(runtimeDir, "Scripts", "python.exe"),
-          path.join(runtimeDir, "bin", "pythonw.exe"),
+          path.join(runtimeDir, "Scripts", "pythonw.exe"),
           path.join(runtimeDir, "bin", "python.exe"),
+          path.join(runtimeDir, "bin", "pythonw.exe"),
+          path.join(runtimeDir, "venv", "Scripts", "python.exe"),
+          path.join(runtimeDir, "venv", "Scripts", "pythonw.exe"),
+          path.join(runtimeDir, ".venv", "Scripts", "python.exe"),
+          path.join(runtimeDir, ".venv", "Scripts", "pythonw.exe"),
         ]
       : [
           path.join(runtimeDir, "venv", "bin", "python"),
@@ -301,8 +442,8 @@ function pythonBinary() {
           path.join(runtimeDir, "bin", "python"),
         ];
 
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
+  for (const candidate of uniquePaths(candidates)) {
+    if (canRunPython(candidate, env)) {
       return candidate;
     }
   }
@@ -383,6 +524,7 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
   const serverDir = path.dirname(serverJs);
   const env = {
     ...process.env,
+    ...pythonRuntimeEnv(process.env),
     ELECTRON_RUN_AS_NODE: "1",
     HOSTNAME: HOST,
     PORT: String(uiPort),
