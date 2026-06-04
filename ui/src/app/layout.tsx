@@ -2,6 +2,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
 import { QuickstartTour } from "@/components/onboarding/QuickstartTour";
 import { WaterRippleIntro } from "@/components/WaterRippleIntro";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const themeBootstrapScript = `
