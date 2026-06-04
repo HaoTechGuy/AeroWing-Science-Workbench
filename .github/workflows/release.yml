@@ -334,6 +334,16 @@ jobs:
       INTERNAGENTS_EXTRA_NOTES: ${{ needs.metadata.outputs.extra_notes }}
 
     steps:
+      - name: Require repository-local release token
+        if: needs.metadata.outputs.is_test_release == 'true'
+        env:
+          INTERNAGENTS_LOCAL_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$INTERNAGENTS_LOCAL_RELEASE_TOKEN" ]; then
+            echo "::error::Set INTERNAGENTS_LOCAL_RELEASE_TOKEN in qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
       - name: Require cross-repository release token
         if: needs.metadata.outputs.is_test_release != 'true'
         env:
@@ -353,7 +363,7 @@ jobs:
 
       - name: Publish binary release
         env:
-          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && github.token || secrets.INTERNAGENTS_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || secrets.INTERNAGENTS_RELEASE_TOKEN }}
         run: |
           shopt -s nullglob
           dmg_assets=(release-assets/InternAgents-*.dmg)
