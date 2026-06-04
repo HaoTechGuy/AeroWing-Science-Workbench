@@ -8,6 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(__dirname, "..");
 const releaseDir = path.join(desktopDir, "release");
 const productName = "InternAgents";
+const dmgBuildAttempts = Number.parseInt(process.env.INTERNAGENTS_DMG_BUILD_ATTEMPTS || "3", 10);
+const dmgRetryDelayMs = Number.parseInt(process.env.INTERNAGENTS_DMG_RETRY_DELAY_MS || "15000", 10);
 
 function normalizeArch(rawArch) {
   const arch = (rawArch || "").trim().toLowerCase();
@@ -34,8 +36,39 @@ function run(command, args) {
     stdio: "inherit",
     shell: false,
   });
+  if (result.error) {
+    throw result.error;
+  }
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed`);
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runWithRetries(command, args, attempts, delayMs) {
+  const maxAttempts = Number.isFinite(attempts) && attempts > 0 ? attempts : 1;
+  const baseDelayMs = Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      run(command, args);
+      return;
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+
+      const waitMs = baseDelayMs * attempt;
+      console.warn(
+        `${command} ${args.join(" ")} failed on attempt ${attempt}/${maxAttempts}. ` +
+          `Retrying in ${Math.round(waitMs / 1000)}s.`
+      );
+      console.warn(error);
+      await sleep(waitMs);
+    }
   }
 }
 
@@ -98,8 +131,13 @@ function signApp(appPath) {
   run("codesign", ["--force", "--deep", "--sign", "-", appPath]);
 }
 
-function buildDmg(arch, appPath) {
-  run("electron-builder", ["--mac", "dmg", `--${arch}`, "--prepackaged", appPath]);
+async function buildDmg(arch, appPath) {
+  await runWithRetries(
+    "electron-builder",
+    ["--mac", "dmg", `--${arch}`, "--prepackaged", appPath],
+    dmgBuildAttempts,
+    dmgRetryDelayMs
+  );
 }
 
 async function main() {
@@ -114,7 +152,7 @@ async function main() {
   signApp(appPath);
 
   if (mode === "--dmg") {
-    buildDmg(arch, appPath);
+    await buildDmg(arch, appPath);
   }
 }
 
