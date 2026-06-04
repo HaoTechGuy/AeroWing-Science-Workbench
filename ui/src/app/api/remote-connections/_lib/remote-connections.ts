@@ -45,6 +45,7 @@ const SSH_CONNECT_TIMEOUT_SECONDS = 8;
 const COMMAND_MAX_BUFFER = 1024 * 1024 * 8;
 const BACKEND_CLI_WHEELHOUSE_DIR = "backend-wheelhouse";
 const BACKEND_CLI_ARCHIVE_NAME = "internagents-backend-cli.tar.gz";
+const RUNTIME_CONFIG_NAME = "deepagent.config.json";
 const DEFAULT_RELEASE_REPO = "InternScience/InternAgents";
 const BACKEND_CLI_PACKAGE_ENTRIES = [
   ".env.example",
@@ -977,7 +978,7 @@ async function githubResponseError(response: Response) {
     return [
       "GitHub Release 读取失败：HTTP 403（GitHub API 访问频率限制）。",
       resetMessage,
-      "将尝试使用公开 Release 下载地址回退；如果目标仓库不是公开仓库，请在 .env 中设置 INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN。",
+      "将尝试回退到本地版本对应的公开 Release；如果目标仓库不是公开仓库，请在 .env 中设置 INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN。",
     ].join("");
   }
   return `GitHub Release 读取失败：HTTP ${response.status}${
@@ -985,11 +986,35 @@ async function githubResponseError(response: Response) {
   }`;
 }
 
+async function assertPublicReleasePageForTag(
+  repo: string,
+  tagName: string,
+  signal: AbortSignal
+): Promise<string> {
+  const htmlUrl = releaseHtmlUrlForTag(repo, tagName);
+  const response = await fetch(htmlUrl, {
+    method: "HEAD",
+    redirect: "manual",
+    cache: "no-store",
+    headers: {
+      "User-Agent": "InternAgents-Remote-Backend-Updater",
+    },
+    signal,
+  });
+
+  if (response.status >= 200 && response.status < 400) {
+    return htmlUrl;
+  }
+
+  throw new Error(`公开 Release ${repo}@${tagName} 不可用：HTTP ${response.status}`);
+}
+
 async function fetchPublicBackendReleaseForTag(
   repo: string,
   tagName: string,
   signal: AbortSignal
 ): Promise<BackendReleaseInfo> {
+  const htmlUrl = await assertPublicReleasePageForTag(repo, tagName, signal);
   const downloadUrl = publicReleaseAssetDownloadUrl(
     repo,
     tagName,
@@ -1012,14 +1037,14 @@ async function fetchPublicBackendReleaseForTag(
     )
   ) {
     throw new Error(
-      `公开 Release 下载地址不可用：HTTP ${response.status} ${downloadUrl}`
+      `公开 Release ${repo}@${tagName} 中的 ${BACKEND_CLI_ARCHIVE_NAME} 不可用：HTTP ${response.status}`
     );
   }
 
   const size = Number(response.headers.get("content-length") || "");
   return {
     tagName,
-    htmlUrl: releaseHtmlUrlForTag(repo, tagName),
+    htmlUrl,
     sourceRepo: repo,
     asset: {
       name: BACKEND_CLI_ARCHIVE_NAME,
@@ -1054,7 +1079,11 @@ async function fetchBackendReleaseForLocalVersion(
     if (!response.ok) {
       const apiError = await githubResponseError(response);
       if (response.status === 403 || response.status === 404) {
-        pushLog(log, `${apiError} 尝试公开 Release 下载地址。`, onLog);
+        pushLog(
+          log,
+          `${apiError} 尝试回退到 ${sourceRepo}@${tagName} 对应的公开 Release。`,
+          onLog
+        );
         try {
           return await fetchPublicBackendReleaseForTag(
             sourceRepo,
@@ -1091,7 +1120,7 @@ async function fetchBackendReleaseForLocalVersion(
       try {
         pushLog(
           log,
-          `Release API 未列出 ${BACKEND_CLI_ARCHIVE_NAME}，尝试公开下载地址。`,
+          `Release API 未列出 ${BACKEND_CLI_ARCHIVE_NAME}，尝试回退到 ${sourceRepo}@${releaseTag} 对应的公开 Release。`,
           onLog
         );
         return await fetchPublicBackendReleaseForTag(
@@ -1364,6 +1393,42 @@ async function streamFileOverSsh(
   ]);
   await new Promise<void>((resolve, reject) => {
     const input = createReadStream(localPath);
+    const ssh = spawn(
+      sshBinary,
+      [...baseSshArgs, `bash -lc ${shellQuote(remoteScript)}`],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      }
+    );
+    const errors: string[] = [];
+    input.on("error", reject);
+    ssh.on("error", reject);
+    ssh.stderr.on("data", (chunk) => errors.push(String(chunk)));
+    input.pipe(ssh.stdin);
+    ssh.on("close", (code) => {
+      if ((code ?? 1) === 0) {
+        resolve();
+      } else {
+        reject(new Error(errors.join("\n") || `SSH upload failed: ${code}`));
+      }
+    });
+  });
+}
+
+async function streamTextOverSsh(
+  sshCommand: string,
+  content: string,
+  remoteScript: string
+): Promise<void> {
+  const [sshBinary, ...baseSshArgs] = sshArgsFromCommand(sshCommand, [
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    `ConnectTimeout=${SSH_CONNECT_TIMEOUT_SECONDS}`,
+  ]);
+  await new Promise<void>((resolve, reject) => {
+    const input = Readable.from([content]);
     const ssh = spawn(
       sshBinary,
       [...baseSshArgs, `bash -lc ${shellQuote(remoteScript)}`],
@@ -1661,23 +1726,111 @@ async function ensureBackendCliInstalled(
   return { packageDir, backendCliPath };
 }
 
-async function uploadEnvToRemoteState(
+function envContentWithRemoteConfig(
+  localEnvContent: string,
+  remoteConfigPath: string
+): string {
+  const withoutConfig = localEnvContent
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*DEEPAGENT_CONFIG\s*=/.test(line))
+    .join("\n")
+    .trimEnd();
+  return `${withoutConfig ? `${withoutConfig}\n` : ""}DEEPAGENT_CONFIG=${remoteConfigPath}\n`;
+}
+
+async function readRemoteText(
+  sshCommand: string,
+  remotePath: string
+): Promise<string> {
+  const result = await runSshCommand(
+    sshCommand,
+    `cat ${shellQuote(remotePath)} 2>/dev/null || true`,
+    15_000
+  );
+  return result.stdout;
+}
+
+async function uploadLocalRuntimeConfigToRemoteState(
   sshCommand: string,
   stateDir: string,
   log: string[],
-  onLog?: LogSink
-): Promise<void> {
-  const envPath = path.join(getWorkspaceRoot(), ".env");
-  if (!(await fileExists(envPath))) {
+  onLog?: LogSink,
+  options: { requireEnv?: boolean } = {}
+): Promise<{ changed: boolean; fingerprint: string }> {
+  const root = getWorkspaceRoot();
+  const envPath = path.join(root, ".env");
+  const configPath = path.join(root, RUNTIME_CONFIG_NAME);
+  const remoteEnvPath = path.posix.join(stateDir, ".env");
+  const remoteConfigPath = path.posix.join(stateDir, RUNTIME_CONFIG_NAME);
+  const markerPath = path.posix.join(
+    stateDir,
+    ".internagents",
+    "runtime-config.sha256"
+  );
+
+  const envExists = await fileExists(envPath);
+  if (!envExists && options.requireEnv) {
     throw new Error("已选择同步 .env，但本机仓库根目录没有 .env 文件。");
   }
-  const remoteEnvPath = path.posix.join(stateDir, ".env");
-  pushLog(log, "同步本机 .env 到远端 runtime 状态目录。", onLog);
-  await streamFileOverSsh(
+  if (!(await fileExists(configPath))) {
+    throw new Error(`本机 ${RUNTIME_CONFIG_NAME} 不存在，无法同步远端配置。`);
+  }
+
+  const localEnvContent = envExists
+    ? await readFile(envPath, "utf8")
+    : await readRemoteText(sshCommand, remoteEnvPath);
+  if (!envExists) {
+    pushLog(
+      log,
+      "本机 .env 不存在，保留远端现有 .env 并更新 DEEPAGENT_CONFIG。",
+      onLog
+    );
+  }
+  const remoteEnvContent = envContentWithRemoteConfig(
+    localEnvContent,
+    remoteConfigPath
+  );
+  const configContent = await readFile(configPath, "utf8");
+  const fingerprint = createHash("sha256")
+    .update(remoteEnvContent)
+    .update("\0")
+    .update(configContent)
+    .digest("hex")
+    .slice(0, 16);
+  const previousFingerprint = (
+    await readRemoteText(sshCommand, markerPath)
+  ).trim();
+
+  pushLog(log, "同步本机运行配置到远端 runtime 状态目录。", onLog);
+  await streamTextOverSsh(
     sshCommand,
-    envPath,
+    remoteEnvContent,
     `set -e && mkdir -p ${shellQuote(stateDir)} && cat > ${shellQuote(remoteEnvPath)}`
   );
+  await streamTextOverSsh(
+    sshCommand,
+    configContent,
+    `set -e && mkdir -p ${shellQuote(stateDir)} && cat > ${shellQuote(remoteConfigPath)}`
+  );
+  await runSshCommand(
+    sshCommand,
+    [
+      "set -e",
+      `mkdir -p ${shellQuote(path.posix.dirname(markerPath))}`,
+      `printf '%s\\n' ${shellQuote(fingerprint)} > ${shellQuote(markerPath)}`,
+    ].join("\n"),
+    15_000
+  );
+
+  const changed = previousFingerprint !== fingerprint;
+  pushLog(
+    log,
+    changed
+      ? `远端运行配置已更新: ${fingerprint}`
+      : `远端运行配置已是最新: ${fingerprint}`,
+    onLog
+  );
+  return { changed, fingerprint };
 }
 
 function remoteInstallPreflightScript(options: RemoteInstallOptions): string {
@@ -2025,7 +2178,13 @@ export async function ensureRemoteResourceRuntime(
       onLog
     ));
   const localPort = await chooseLocalPort(configuredLocalTunnelPort(resource));
-  const shouldRestart = !resourceAlreadySynced;
+  const runtimeConfigSync = await uploadLocalRuntimeConfigToRemoteState(
+    sshCommand,
+    runtimeDir,
+    log,
+    onLog
+  );
+  const shouldRestart = !resourceAlreadySynced || runtimeConfigSync.changed;
   await startResourceRuntime(
     sshCommand,
     packageDir,
@@ -2188,6 +2347,12 @@ export async function pushRemoteBackendCli(
     enabled: resource.enabled !== false,
   };
 
+  await uploadLocalRuntimeConfigToRemoteState(
+    sshCommand,
+    runtimeDir,
+    log,
+    onLog
+  );
   await startResourceRuntime(
     sshCommand,
     backendInstall.packageDir,
@@ -2287,14 +2452,13 @@ export async function setupRemoteConnection(
     log,
     onLog
   );
-  if (request.copyEnv) {
-    await uploadEnvToRemoteState(
-      sshCommand,
-      runtimeDir,
-      log,
-      onLog
-    );
-  }
+  await uploadLocalRuntimeConfigToRemoteState(
+    sshCommand,
+    runtimeDir,
+    log,
+    onLog,
+    { requireEnv: request.copyEnv }
+  );
 
   const resource: ResourceRecord = {
     id: resourceId,

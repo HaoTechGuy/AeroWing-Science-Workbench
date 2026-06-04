@@ -1,0 +1,313 @@
+name: Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repository:
+        description: "Source repository to package"
+        required: true
+        default: "qzzqzzb/InternAgents"
+      source_ref:
+        description: "Source branch, tag, or commit SHA to package"
+        required: true
+        default: "main"
+      desktop_version:
+        description: "Desktop version to package, for example 0.1.8"
+        required: true
+        default: "0.1.8"
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    name: Prepare package metadata
+    if: github.repository == 'InternScience/InternAgents'
+    runs-on: ubuntu-latest
+    outputs:
+      desktop_version: ${{ steps.package.outputs.desktop_version }}
+      source_repository: ${{ steps.package.outputs.source_repository }}
+      source_ref: ${{ steps.package.outputs.source_ref }}
+      source_label: ${{ steps.package.outputs.source_label }}
+
+    steps:
+      - name: Compute package metadata
+        id: package
+        env:
+          DESKTOP_VERSION: ${{ inputs.desktop_version }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+
+          desktop_version="${DESKTOP_VERSION:-0.1.8}"
+          if ! [[ "$desktop_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::desktop_version must look like X.Y.Z, got: $desktop_version"
+            exit 1
+          fi
+
+          source_repository="${SOURCE_REPOSITORY:-qzzqzzb/InternAgents}"
+          if ! [[ "$source_repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::source_repository must look like owner/repo, got: $source_repository"
+            exit 1
+          fi
+
+          source_ref="${SOURCE_REF:-main}"
+          if [ -z "$source_ref" ]; then
+            echo "::error::source_ref cannot be empty"
+            exit 1
+          fi
+
+          source_label="${source_repository}@${source_ref}"
+
+          {
+            echo "desktop_version=$desktop_version"
+            echo "source_repository=$source_repository"
+            echo "source_ref=$source_ref"
+            echo "source_label=$source_label"
+          } >> "$GITHUB_OUTPUT"
+
+          printf 'Desktop version: %s\n' "$desktop_version"
+          printf 'Source repository: %s\n' "$source_repository"
+          printf 'Source ref: %s\n' "$source_label"
+
+      - name: Require private source checkout token
+        if: steps.package.outputs.source_repository != github.repository
+        env:
+          INTERNAGENTS_SOURCE_TOKEN: ${{ secrets.INTERNAGENTS_SOURCE_TOKEN }}
+          SOURCE_LABEL: ${{ steps.package.outputs.source_label }}
+        run: |
+          if [ -z "$INTERNAGENTS_SOURCE_TOKEN" ]; then
+            echo "::error::Set INTERNAGENTS_SOURCE_TOKEN in ${GITHUB_REPOSITORY} to checkout ${SOURCE_LABEL:-the source repository}."
+            exit 1
+          fi
+
+  build:
+    name: Build macOS DMG (${{ matrix.arch }})
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x64
+            runner: macos-15-intel
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            desktop/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install UI dependencies
+        run: npm --prefix ui ci
+
+      - name: Install desktop dependencies
+        run: npm --prefix desktop ci
+
+      - name: Set desktop package version
+        env:
+          INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const version = process.env.INTERNAGENTS_DESKTOP_VERSION || "";
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Desktop version must look like X.Y.Z, got: ${version}`);
+          }
+          const packagePath = "desktop/package.json";
+          const lockPath = "desktop/package-lock.json";
+          const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+          pkg.version = version;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+          if (fs.existsSync(lockPath)) {
+            const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+            lock.version = version;
+            if (lock.packages && lock.packages[""]) {
+              lock.packages[""].version = version;
+            }
+            fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_DESKTOP_VERSION=${version}\n`);
+          NODE
+
+      - name: Prepare bundled Python runtime
+        run: |
+          python -m pip install --upgrade pip uv
+          rm -rf .desktop-python-runtime
+          export UV_PYTHON_INSTALL_DIR="$PWD/.desktop-python-runtime/python"
+          uv python install 3.11 --managed-python --no-bin
+          uv venv "$PWD/.desktop-python-runtime/venv" \
+            --python 3.11 \
+            --managed-python \
+            --seed \
+            --relocatable
+          uv pip install \
+            --python "$PWD/.desktop-python-runtime/venv/bin/python" \
+            --link-mode copy \
+            --compile-bytecode \
+            .
+          "$PWD/.desktop-python-runtime/venv/bin/python" -c "import langgraph_cli; print(langgraph_cli.__file__)"
+          echo "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$PWD/.desktop-python-runtime" >> "$GITHUB_ENV"
+
+      - name: Validate Python files
+        run: |
+          .desktop-python-runtime/venv/bin/python -m compileall \
+            agent.py \
+            internagent_resources.py \
+            ssh_backend.py \
+            kb_sync_middleware.py \
+            goal_middleware.py \
+            goal_state.py \
+            goal_tools.py \
+            mineru_middleware.py
+
+      - name: Validate UI
+        run: |
+          npm --prefix ui run lint
+          npm --prefix ui run build
+
+      - name: Build macOS DMG
+        env:
+          INTERNAGENTS_DESKTOP_ARCH: ${{ matrix.arch }}
+        run: npm --prefix desktop run build
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: internagents-package-dmg-${{ needs.metadata.outputs.desktop_version }}-${{ matrix.arch }}
+          path: desktop/release/InternAgents-*-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+
+      - name: Upload backend CLI artifact
+        if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: internagents-package-backend-cli-${{ needs.metadata.outputs.desktop_version }}
+          path: dist-app/internagents-template/internagents-backend-cli.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows installer (x64)
+    needs: metadata
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            desktop/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install UI dependencies
+        run: npm --prefix ui ci
+
+      - name: Install desktop dependencies
+        run: npm --prefix desktop ci
+
+      - name: Set desktop package version
+        shell: pwsh
+        env:
+          INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
+        run: |
+          $script = @'
+          const fs = require("fs");
+          const version = process.env.INTERNAGENTS_DESKTOP_VERSION || "";
+          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+            throw new Error(`Desktop version must look like X.Y.Z, got: ${version}`);
+          }
+          const packagePath = "desktop/package.json";
+          const lockPath = "desktop/package-lock.json";
+          const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+          pkg.version = version;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+          if (fs.existsSync(lockPath)) {
+            const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+            lock.version = version;
+            if (lock.packages && lock.packages[""]) {
+              lock.packages[""].version = version;
+            }
+            fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_DESKTOP_VERSION=${version}\n`);
+          '@
+          $script | node
+
+      - name: Prepare bundled Python runtime
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip uv
+          $runtime = Join-Path $PWD.Path ".desktop-python-runtime"
+          Remove-Item -Recurse -Force $runtime -ErrorAction SilentlyContinue
+          $env:UV_PYTHON_INSTALL_DIR = Join-Path $runtime "python"
+          uv python install 3.11 --managed-python --no-bin
+          uv venv (Join-Path $runtime "venv") --python 3.11 --managed-python --seed --relocatable
+          $python = Join-Path $runtime "venv\Scripts\python.exe"
+          uv pip install --python $python --link-mode copy --compile-bytecode .
+          & $python -c "import langgraph_cli; print(langgraph_cli.__file__)"
+          "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$runtime" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Validate Python files
+        shell: pwsh
+        run: |
+          & .desktop-python-runtime\venv\Scripts\python.exe -m compileall `
+            agent.py `
+            internagent_resources.py `
+            ssh_backend.py `
+            kb_sync_middleware.py `
+            goal_middleware.py `
+            goal_state.py `
+            goal_tools.py `
+            mineru_middleware.py
+
+      - name: Validate UI
+        run: |
+          npm --prefix ui run lint
+          npm --prefix ui run build
+
+      - name: Build Windows artifacts
+        run: npm --prefix desktop run build:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: internagents-package-windows-${{ needs.metadata.outputs.desktop_version }}-x64
+          path: desktop/release/InternAgents-*-x64.exe
+          if-no-files-found: error

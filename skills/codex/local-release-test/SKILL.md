@@ -11,12 +11,14 @@ The goal is to let different developers publish test releases from different bra
 
 ## Release Model
 
-- Official releases are still triggered by pushing tags like `v0.1.5`.
-- Official releases publish to `InternScience/InternAgents` and require `secrets.INTERNAGENTS_RELEASE_TOKEN`.
+- Official releases are triggered by pushing tags like `v0.1.5` to `InternScience/InternAgents`.
+- Official releases run and publish in `InternScience/InternAgents` using that repository's built-in `GITHUB_TOKEN`.
 - Local test releases are triggered manually with `workflow_dispatch`.
 - Local test releases publish to the current repository, normally `qzzqzzb/InternAgents`.
 - Local test releases require `secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN`.
 - Local test releases are marked as GitHub prereleases, so they do not replace the repository's latest stable release.
+- Package-only builds are triggered manually with `workflow_dispatch` in `InternScience/InternAgents`.
+- Package-only builds run in `InternScience/InternAgents` and upload workflow artifacts only; they do not create or update GitHub Releases.
 
 The workflow generates test tags automatically:
 
@@ -81,7 +83,6 @@ The workflow should publish a prerelease in `qzzqzzb/InternAgents` with:
 - macOS Apple Silicon DMG
 - macOS Intel DMG
 - Windows x64 NSIS installer
-- Windows x64 ZIP
 - remote backend CLI tarball: `internagents-backend-cli.tar.gz`
 
 The release notes include:
@@ -91,6 +92,42 @@ The release notes include:
 - source branch and commit
 - exact `INTERNAGENTS_UPDATE_API_URL` for testing app updates against that prerelease
 - exact `INTERNAGENTS_REMOTE_BACKEND_UPDATE_API_URL` for testing remote backend CLI release sync against that prerelease
+
+## Official Package-Only Builds
+
+Use the package-only workflow when the developer wants
+`InternScience/InternAgents` to run the build but does not want to publish a
+GitHub Release.
+
+Trigger the workflow manually and point it at the source ref to package:
+
+```powershell
+gh workflow run package.yml `
+  --repo InternScience/InternAgents `
+  -f source_repository=qzzqzzb/InternAgents `
+  -f source_ref=main `
+  -f desktop_version=0.1.5
+```
+
+Then monitor the run:
+
+```powershell
+gh run list --repo InternScience/InternAgents --workflow package.yml --limit 5
+gh run watch --repo InternScience/InternAgents <run-id>
+```
+
+Expected workflow artifacts:
+
+- macOS Apple Silicon DMG
+- macOS Intel DMG
+- Windows x64 NSIS installer
+- remote backend CLI tarball: `internagents-backend-cli.tar.gz`
+
+The workflow does not create or edit a GitHub Release. Pushing a package tag
+is not part of this flow; for a private source repository, configure
+`INTERNAGENTS_SOURCE_TOKEN` in `InternScience/InternAgents` with read access to
+that source repository. This workflow does not update the
+`InternScience/InternAgents` `main` branch.
 
 ## Testing App Updates Against A Test Release
 
@@ -117,8 +154,6 @@ The same generated release API URL can be used for desktop update checks and rem
 ## Safety Rules
 
 - Do not push or overwrite official `v*.*.*` tags for test-only builds.
-- Do not change `INTERNAGENTS_OFFICIAL_RELEASE_REPO` when testing local releases.
-- Do not use `INTERNAGENTS_RELEASE_TOKEN` for local test releases.
 - Do not fall back to `GITHUB_TOKEN` for local release publishing; the workflow expects `INTERNAGENTS_LOCAL_RELEASE_TOKEN`.
 - Keep local test releases as prereleases unless the developer explicitly asks for a stable release flow change.
 - Prefer creating a fresh test release per run; branch-and-timestamp tags are designed to make that cheap and collision-free.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -13,7 +14,13 @@ from langchain.chat_models import init_chat_model
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from dotenv import load_dotenv
-from langchain_core.messages import AnyMessage, BaseMessage, messages_from_dict, messages_to_dict
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    BaseMessage,
+    messages_from_dict,
+    messages_to_dict,
+)
 from langchain_core.runnables import RunnableConfig
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -33,6 +40,7 @@ from langgraph.pregel.remote import RemoteGraph
 
 from dynamic_local_backend import DynamicLocalShellBackendFactory
 from goal_middleware import GoalContextMiddleware, goal_system_prompt
+from goal_state import normalize_goal_state, update_goal_status
 from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
@@ -590,6 +598,110 @@ def _sanitize_remote_runtime_config(config: RunnableConfig) -> RunnableConfig:
     return sanitized
 
 
+def _string_from_error_body(body: Any) -> str | None:
+    if isinstance(body, dict):
+        for key in ("message", "detail", "error"):
+            value = body.get(key)
+            if isinstance(value, str) and value.strip():
+                return _friendly_remote_runtime_error(value.strip())
+            if isinstance(value, dict):
+                nested = _string_from_error_body(value)
+                if nested:
+                    return nested
+    if isinstance(body, str) and body.strip():
+        return _friendly_remote_runtime_error(body.strip())
+    return None
+
+
+def _friendly_remote_runtime_error(message: str) -> str:
+    if message == "Upstream request failed.":
+        return "模型网关上游请求失败，请稍后重试或切换模型。"
+    return message
+
+
+def _remote_runtime_exception_message(resource: ResourceConfig, error: Exception) -> str:
+    body = getattr(error, "body", None)
+    if isinstance(body, dict) and (body_message := _string_from_error_body(body)):
+        return body_message
+
+    for arg in getattr(error, "args", ()):
+        if isinstance(arg, dict) and (arg_message := _string_from_error_body(arg)):
+            return arg_message
+
+    string_candidates = [
+        body if isinstance(body, str) else "",
+        *[arg for arg in getattr(error, "args", ()) if isinstance(arg, str)],
+        str(error),
+    ]
+    message = next(
+        (candidate.strip() for candidate in string_candidates if candidate.strip()),
+        "",
+    )
+    for candidate in string_candidates:
+        body_message_match = re.search(
+            r"input_value=\{['\"]message['\"]:\s*['\"]([^'\"]+)['\"]",
+            candidate,
+        )
+        if body_message_match:
+            return _friendly_remote_runtime_error(body_message_match.group(1).strip())
+
+    if any("Upstream request failed" in candidate for candidate in string_candidates):
+        return _friendly_remote_runtime_error("Upstream request failed.")
+
+    if (
+        any("Response validation failed" in candidate for candidate in string_candidates)
+        and any("body.error.code" in candidate for candidate in string_candidates)
+    ):
+        return (
+            "远端 runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应"
+            "（error.code 为 null）。请查看远端 runtime 日志获取真实失败原因。"
+        )
+
+    if message:
+        return message
+
+    return f"远端 runtime {resource.id!r} 返回了空错误。请查看 runtime 日志。"
+
+
+def _goal_blocked_after_remote_runtime_error(
+    state: dict[str, Any],
+    message: str,
+) -> dict[str, Any] | None:
+    if _goal_continuation_turns(state) <= 0:
+        return None
+
+    goal = normalize_goal_state(state.get("goal"))
+    if goal is None or goal.get("status") != "active":
+        return None
+
+    blocked_goal = update_goal_status(goal, "blocked")
+    notice = (
+        "后续自动执行时远端 runtime 失败，已暂停当前 goal。"
+        f"原因：{message}"
+    )
+    return {
+        "goal": blocked_goal,
+        GOAL_CONTINUATION_TURNS_KEY: 0,
+        "messages": [AIMessage(content=notice)],
+    }
+
+
+async def _invoke_remote_runtime(
+    remote: RemoteGraph,
+    resource: ResourceConfig,
+    state: InternAgentState,
+    config: RunnableConfig,
+) -> Any:
+    try:
+        return await remote.ainvoke(
+            _normalize_state_for_remote_runtime(state),
+            config=_sanitize_remote_runtime_config(config),
+        )
+    except Exception as exc:
+        message = _remote_runtime_exception_message(resource, exc)
+        raise RuntimeError(message) from exc
+
+
 def _goal_status(state: dict[str, Any]) -> str | None:
     goal = state.get("goal")
     status = goal.get("status") if isinstance(goal, dict) else None
@@ -676,10 +788,19 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             state: InternAgentState,
             config: RunnableConfig,
         ) -> dict[str, Any]:
-            result = await remote.ainvoke(
-                _normalize_state_for_remote_runtime(state),
-                config=_sanitize_remote_runtime_config(config),
-            )
+            try:
+                result = await _invoke_remote_runtime(remote, resource, state, config)
+            except RuntimeError as exc:
+                message = str(exc).strip() or "远端 runtime 返回了空错误。"
+                goal_update = _goal_blocked_after_remote_runtime_error(
+                    dict(state),
+                    message,
+                )
+                if goal_update is not None:
+                    return goal_update
+                raise
+            if not isinstance(result, dict):
+                raise RuntimeError("远端 runtime 没有返回有效的 LangGraph 状态。")
             return _with_goal_continuation_accounting(dict(state), result)
 
         graph = StateGraph(InternAgentState)

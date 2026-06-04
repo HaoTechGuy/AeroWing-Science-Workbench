@@ -134,6 +134,7 @@ def _start_runtime(args: argparse.Namespace) -> int:
             _wait_for_health(remote_url, args.health_timeout)
             return 0
 
+    state_config = state_dir / "deepagent.config.json"
     env = {
         **_state_env(state_dir),
         **os.environ,
@@ -142,6 +143,8 @@ def _start_runtime(args: argparse.Namespace) -> int:
         "INTERNAGENT_ENV_FILE": str(state_dir / ".env"),
         "INTERNAGENT_RESOURCES_FILE": str(config_path),
     }
+    if state_config.exists():
+        env["DEEPAGENT_CONFIG"] = str(state_config)
     command = [
         sys.executable,
         "-m",
