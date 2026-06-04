@@ -33,7 +33,13 @@ const QUICKSTART_STEP_KEY = "internagents.quickstart.step.v1";
 const QUICKSTART_ONBOARDING_ENDPOINT = "/api/onboarding/quickstart";
 const QUICKSTART_START_PARAM = "quickstart";
 const WORKBENCH_HREF = "/?assistantId=agent_local";
-const WORKBENCH_PARAM_KEYS = ["resourceId", "assistantId", "workspaceId"];
+const WORKBENCH_PARAM_KEYS = [
+  "resourceId",
+  "assistantId",
+  "workspaceId",
+  "threadId",
+  "file",
+];
 
 type RuntimeWindow = Window & {
   __INTERNAGENTS_RUNTIME_CONFIG__?: {
@@ -94,14 +100,21 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     href: WORKBENCH_HREF,
     target: '[data-tour="nav-config"]',
     title: "配置",
-    body: "这个页面负责模型、工作区、授权模式和界面风格等设置。模型和授权通常影响后端行为，工作区和界面相关设置会直接影响使用体验。",
+    body: "点击这里进入配置页，可以调整模型、工作区、授权模式、技能和界面风格。",
   },
   {
     id: "config-model",
     route: "/config",
     target: '[data-tour="config-model"]',
-    title: "配置页",
-    body: "这里集中管理模型、工作区、授权和界面设置。默认自动模型选择就可以直接使用，只有需要自定义模型时再修改。",
+    title: "模型选择",
+    body: "这里可以选择集思或 OpenRouter。使用集思时，可以在集思模型列表里更换模型，保存并应用后生效。",
+  },
+  {
+    id: "config-workspace",
+    route: "/config",
+    target: '[data-tour="config-workspace"]',
+    title: "工作区设置",
+    body: "这里可以修改本机工作区路径。文件浏览和智能体执行任务时，都会以这个工作区为根目录。",
   },
   {
     id: "about",
@@ -109,7 +122,21 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     href: WORKBENCH_HREF,
     target: '[data-tour="nav-about"]',
     title: "关于与更新",
-    body: "这个页面负责介绍 InternAgents、重新开始导览，以及检查和执行本机更新。需要确认版本或重新看导览时来这里。",
+    body: "点击这里进入关于与更新页，可以查看帮助文档、重新开始导览，也可以检查本机更新。",
+  },
+  {
+    id: "about-help",
+    route: "/about",
+    target: '[data-tour="about-help-docs"]',
+    title: "帮助文档",
+    body: "这里可以打开用户手册，查看功能说明、常见工作流和更多使用细节。",
+  },
+  {
+    id: "about-update",
+    route: "/about",
+    target: '[data-tour="about-update-check"]',
+    title: "检查更新",
+    body: "这里可以检查是否有新版本。检查到可用版本后，再按需执行一键更新。",
   },
   {
     id: "finish",
@@ -242,6 +269,25 @@ function clearQuickstartStartRoute() {
   }
 }
 
+function safeWorkbenchHref(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value, "http://internagents.local");
+    if (
+      parsed.origin !== "http://internagents.local" ||
+      parsed.pathname !== "/"
+    ) {
+      return null;
+    }
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
 function getWorkbenchHref() {
   if (typeof window === "undefined") {
     return WORKBENCH_HREF;
@@ -249,6 +295,11 @@ function getWorkbenchHref() {
 
   try {
     const currentParams = new URLSearchParams(window.location.search);
+    const explicitReturnTo = safeWorkbenchHref(currentParams.get("returnTo"));
+    if (explicitReturnTo) {
+      return explicitReturnTo;
+    }
+
     const nextParams = new URLSearchParams();
     for (const key of WORKBENCH_PARAM_KEYS) {
       const value = currentParams.get(key);
@@ -262,6 +313,20 @@ function getWorkbenchHref() {
     return `/?${nextParams.toString()}`;
   } catch {
     return WORKBENCH_HREF;
+  }
+}
+
+function getPageHref(pathname: string) {
+  if (typeof window === "undefined") {
+    return pathname;
+  }
+
+  try {
+    const nextParams = new URLSearchParams();
+    nextParams.set("returnTo", getWorkbenchHref());
+    return `${pathname}?${nextParams.toString()}`;
+  } catch {
+    return pathname;
   }
 }
 
@@ -282,7 +347,9 @@ export function QuickstartTour() {
   const isFirstStep = stepIndex === 0;
   const onStepRoute = pathname === step.route;
   const stepHref = useMemo(
-    () => (step.route === "/" ? getWorkbenchHref() : step.href || step.route),
+    () =>
+      step.href ||
+      (step.route === "/" ? getWorkbenchHref() : getPageHref(step.route)),
     [step.href, step.route]
   );
 

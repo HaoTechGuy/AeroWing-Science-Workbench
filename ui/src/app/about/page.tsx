@@ -387,6 +387,7 @@ function AboutPageContent() {
                   href="https://internscience.github.io/InternAgents/user-manual/"
                   target="_blank"
                   rel="noreferrer"
+                  data-tour="about-help-docs"
                 >
                   <BookOpen className="h-4 w-4" />
                   帮助文档
@@ -460,6 +461,7 @@ function AboutPageContent() {
                   onClick={() => void checkForSoftwareUpdate()}
                   disabled={actionBusy}
                   className="h-9"
+                  data-tour="about-update-check"
                 >
                   {checkingUpdate ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
