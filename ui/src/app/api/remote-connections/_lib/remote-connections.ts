@@ -977,7 +977,7 @@ async function githubResponseError(response: Response) {
     return [
       "GitHub Release 读取失败：HTTP 403（GitHub API 访问频率限制）。",
       resetMessage,
-      "将尝试使用公开 Release 下载地址回退；如果目标仓库不是公开仓库，请在 .env 中设置 INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN。",
+      "将尝试回退到本地版本对应的公开 Release；如果目标仓库不是公开仓库，请在 .env 中设置 INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN。",
     ].join("");
   }
   return `GitHub Release 读取失败：HTTP ${response.status}${
@@ -985,11 +985,35 @@ async function githubResponseError(response: Response) {
   }`;
 }
 
+async function assertPublicReleasePageForTag(
+  repo: string,
+  tagName: string,
+  signal: AbortSignal
+): Promise<string> {
+  const htmlUrl = releaseHtmlUrlForTag(repo, tagName);
+  const response = await fetch(htmlUrl, {
+    method: "HEAD",
+    redirect: "manual",
+    cache: "no-store",
+    headers: {
+      "User-Agent": "InternAgents-Remote-Backend-Updater",
+    },
+    signal,
+  });
+
+  if (response.status >= 200 && response.status < 400) {
+    return htmlUrl;
+  }
+
+  throw new Error(`公开 Release ${repo}@${tagName} 不可用：HTTP ${response.status}`);
+}
+
 async function fetchPublicBackendReleaseForTag(
   repo: string,
   tagName: string,
   signal: AbortSignal
 ): Promise<BackendReleaseInfo> {
+  const htmlUrl = await assertPublicReleasePageForTag(repo, tagName, signal);
   const downloadUrl = publicReleaseAssetDownloadUrl(
     repo,
     tagName,
@@ -1012,14 +1036,14 @@ async function fetchPublicBackendReleaseForTag(
     )
   ) {
     throw new Error(
-      `公开 Release 下载地址不可用：HTTP ${response.status} ${downloadUrl}`
+      `公开 Release ${repo}@${tagName} 中的 ${BACKEND_CLI_ARCHIVE_NAME} 不可用：HTTP ${response.status}`
     );
   }
 
   const size = Number(response.headers.get("content-length") || "");
   return {
     tagName,
-    htmlUrl: releaseHtmlUrlForTag(repo, tagName),
+    htmlUrl,
     sourceRepo: repo,
     asset: {
       name: BACKEND_CLI_ARCHIVE_NAME,
@@ -1054,7 +1078,11 @@ async function fetchBackendReleaseForLocalVersion(
     if (!response.ok) {
       const apiError = await githubResponseError(response);
       if (response.status === 403 || response.status === 404) {
-        pushLog(log, `${apiError} 尝试公开 Release 下载地址。`, onLog);
+        pushLog(
+          log,
+          `${apiError} 尝试回退到 ${sourceRepo}@${tagName} 对应的公开 Release。`,
+          onLog
+        );
         try {
           return await fetchPublicBackendReleaseForTag(
             sourceRepo,
@@ -1091,7 +1119,7 @@ async function fetchBackendReleaseForLocalVersion(
       try {
         pushLog(
           log,
-          `Release API 未列出 ${BACKEND_CLI_ARCHIVE_NAME}，尝试公开下载地址。`,
+          `Release API 未列出 ${BACKEND_CLI_ARCHIVE_NAME}，尝试回退到 ${sourceRepo}@${releaseTag} 对应的公开 Release。`,
           onLog
         );
         return await fetchPublicBackendReleaseForTag(

@@ -234,9 +234,9 @@ environment strategy. Set
 `INTERNAGENTS_REMOTE_BACKEND_UPDATE_REPO` only when the backend package should
 come from a different release repository than the app updater. Like the app
 updater, the remote backend sync first tries the GitHub Releases API and falls
-back to the public fixed-tag download URL
-`releases/download/<local-tag>/internagents-backend-cli.tar.gz` when the API is
-rate-limited or unavailable. Set
+back to the public Release page for the local version tag, then downloads that
+Release's `internagents-backend-cli.tar.gz` asset when the API is rate-limited
+or unavailable. Set
 `INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN` only when you need a higher
 GitHub API rate limit or intentionally use a private backend release repository.
 
