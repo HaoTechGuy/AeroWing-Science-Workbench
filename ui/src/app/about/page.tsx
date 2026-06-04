@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   BookOpen,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 
 type UpdateState =
   | "idle"
@@ -109,7 +111,8 @@ function formatPercent(value: number | undefined) {
   return `${clamped.toFixed(digits)}%`;
 }
 
-export default function AboutPage() {
+function AboutPageContent() {
+  const searchParams = useSearchParams();
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusResult | null>(
     null
   );
@@ -134,6 +137,10 @@ export default function AboutPage() {
     updateStatus?.state === "downloading" ||
     updateStatus?.state === "applying" ||
     updateStatus?.state === "rolling-back";
+  const workbenchHref = useMemo(
+    () => workbenchHrefFromSearchParams(searchParams),
+    [searchParams]
+  );
 
   const downloadProgressLabel = useMemo(() => {
     if (!downloadProgress) {
@@ -222,8 +229,8 @@ export default function AboutPage() {
     const confirmed = window.confirm(
       [
         latestTag
-          ? `即将从 shuyuehu/InternAgents 更新到 ${latestTag}。`
-          : "即将从 shuyuehu/InternAgents 更新到最新 release。",
+          ? `即将从 InternScience/InternAgents 更新到 ${latestTag}。`
+          : "即将从 InternScience/InternAgents 更新到最新 release。",
         "",
         "更新会下载最新 DMG，退出当前 App，替换本机 .app 后重新打开。",
         "",
@@ -331,7 +338,7 @@ export default function AboutPage() {
             size="sm"
             className="h-8 px-2"
           >
-            <Link href="/?assistantId=agent_local">
+            <Link href={workbenchHref}>
               <ArrowLeft className="h-4 w-4" />
               工作台
             </Link>
@@ -377,7 +384,7 @@ export default function AboutPage() {
                 className="h-9 shrink-0 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
               >
                 <a
-                  href="https://github.com/shuyuehu/InternAgents"
+                  href="https://github.com/InternScience/InternAgents"
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -589,5 +596,19 @@ export default function AboutPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function AboutPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[calc(100vh-var(--app-footer-height))] items-center justify-center bg-background text-foreground">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      }
+    >
+      <AboutPageContent />
+    </Suspense>
   );
 }

@@ -129,6 +129,14 @@ export interface ResourceRecord {
   remote_url?: string;
   remote_runtime_port?: number;
   remote_assistant_id?: string;
+  remote_backend_release_tag?: string;
+  remote_backend_fingerprint?: string;
+  remote_backend_source_repo?: string;
+  remote_backend_asset_name?: string;
+  remote_backend_updated_at?: string;
+  remote_install_mode?: "auto" | "venv" | "pythonPath" | "conda";
+  remote_python_path?: string;
+  remote_conda_command?: string;
   kb_path?: string;
   enabled?: boolean;
   timeout?: number;

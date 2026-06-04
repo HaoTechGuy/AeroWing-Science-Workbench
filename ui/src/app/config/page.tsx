@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Cpu,
   FolderOpen,
+  KeyRound,
   Loader2,
   Mail,
   Moon,
@@ -29,11 +31,12 @@ import {
 } from "@/lib/theme";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
 import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
+import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type ModelProvider = "gateway";
-type OnboardingMissing = "gatewayEmail" | "workspacePath";
+type ModelProvider = "gateway" | "openrouter";
+type OnboardingMissing = "gatewayEmail" | "openrouterApiKey";
 
 interface ConfigResponse {
   configPath: string;
@@ -54,6 +57,10 @@ interface ConfigResponse {
   gatewayApiKeyPreview: string;
   gatewayCreditRmb: string;
   gatewayRemainingRmb: string;
+  openrouterModel: string;
+  openrouterApiKey: string;
+  openrouterApiKeySet: boolean;
+  openrouterApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
   desktopMode: boolean;
   needsOnboarding: boolean;
@@ -104,40 +111,47 @@ const DEFAULT_CONFIG: ConfigResponse = {
   workspacePath: ".",
   workspaceResolvedPath: "",
   modelProvider: "gateway",
-  model: "qwen3.5-397b-a17b",
-  modelSelectionMode: "auto",
+  model: "deepseek-v4-flash",
+  modelSelectionMode: "manual",
   autoModel: "jisi/auto",
-  effectiveModel: "jisi/auto",
+  effectiveModel: "deepseek-v4-flash",
   gatewayEmail: "",
   gatewayUsername: "",
   gatewayInviteCode: "",
-  gatewayModel: "qwen3.5-397b-a17b",
+  gatewayModel: "deepseek-v4-flash",
   gatewayApiKeySet: false,
   gatewayApiKeyPreview: "",
   gatewayCreditRmb: "",
   gatewayRemainingRmb: "",
+  openrouterModel: "deepseek-v4-flash",
+  openrouterApiKey: "",
+  openrouterApiKeySet: false,
+  openrouterApiKeyPreview: "",
   authorizationMode: "auto",
   desktopMode: false,
   needsOnboarding: false,
   missing: [],
 };
 
-const MODEL_SELECTION_OPTIONS: Array<{
-  id: ModelSelectionMode;
+const MODEL_PROVIDER_OPTIONS: Array<{
+  id: ModelProvider;
   title: string;
+  subtitle?: string;
   badge?: string;
   description: string;
 }> = [
   {
-    id: "auto",
-    title: "自动模型选择",
+    id: "gateway",
+    title: "集思",
+    subtitle: "上海人工智能实验室研发",
     badge: "推荐",
-    description: "由集思根据问题自动选择合适模型。",
+    description: "免费，提供国产模型支持。",
   },
   {
-    id: "manual",
-    title: "手动指定模型",
-    description: "固定使用下方选择或填写的模型。",
+    id: "openrouter",
+    title: "OpenRouter",
+    subtitle: "商业收费",
+    description: "提供更丰富模型支持，需要设置代理。",
   },
 ];
 
@@ -152,20 +166,20 @@ const AUTHORIZATION_OPTIONS: Array<{
     id: "auto",
     title: "自动授权",
     badge: "推荐",
-    description: "所有工具调用直接执行，不弹出审批。",
+    description: "常用权限直接放行，不弹出审批。",
     detail: "适合只在自己电脑上使用、并且信任当前项目和模型的开发场景。",
   },
   {
     id: "write",
     title: "写入需审批",
-    description: "写文件和改文件前需要确认。",
-    detail: "读取、搜索和命令执行更顺畅，本地文件变更仍会先停下来等你确认。",
+    description: "读取权限直接放行，写入权限需确认。",
+    detail: "适合日常使用，本地文件变更会先停下来等你确认。",
   },
   {
     id: "all",
-    title: "全部工具需审批",
-    description: "常见工具调用都会先请求确认。",
-    detail: "最保守，但对话过程中会出现更多审批步骤。",
+    title: "全部需审批",
+    description: "所有权限都需要确认后再继续。",
+    detail: "最保守，适合敏感项目或希望逐步确认的场景。",
   },
 ];
 
@@ -185,11 +199,6 @@ const THEME_OPTIONS: Array<{
     description: "深色界面，适合夜间和低亮度环境。",
   },
 ];
-
-const ONBOARDING_MISSING_LABELS: Record<OnboardingMissing, string> = {
-  gatewayEmail: "集思账号绑定",
-  workspacePath: "本机工作区",
-};
 
 function normalizeGatewayModelOption(value: unknown): GatewayModelOption | null {
   if (!value || typeof value !== "object") {
@@ -266,7 +275,8 @@ function priceSummary(option: GatewayModelOption) {
   return `¥${option.inputPriceRmbPer1m}/百万输入 · ¥${option.outputPriceRmbPer1m}/百万输出`;
 }
 
-export default function ConfigPage() {
+function ConfigPageContent() {
+  const searchParams = useSearchParams();
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] =
     useState<ConfigResponse>(DEFAULT_CONFIG);
@@ -295,9 +305,11 @@ export default function ConfigPage() {
   const isBusy = actionBusy || checkingStatus;
   const hasChanges = useMemo(() => {
     return (
+      config.modelProvider !== savedConfig.modelProvider ||
       config.gatewayEmail !== savedConfig.gatewayEmail ||
       config.gatewayUsername !== savedConfig.gatewayUsername ||
       config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
+      config.openrouterApiKey.trim() !== "" ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode ||
@@ -309,13 +321,16 @@ export default function ConfigPage() {
     config.gatewayInviteCode,
     config.gatewayUsername,
     config.model,
+    config.modelProvider,
     config.modelSelectionMode,
+    config.openrouterApiKey,
     config.workspacePath,
     savedConfig.authorizationMode,
     savedConfig.gatewayEmail,
     savedConfig.gatewayInviteCode,
     savedConfig.gatewayUsername,
     savedConfig.model,
+    savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
     savedConfig.workspacePath,
   ]);
@@ -325,9 +340,11 @@ export default function ConfigPage() {
   );
   const restartSensitiveChanged = useMemo(() => {
     return (
+      config.modelProvider !== savedConfig.modelProvider ||
       config.gatewayEmail !== savedConfig.gatewayEmail ||
       config.gatewayUsername !== savedConfig.gatewayUsername ||
       config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
+      config.openrouterApiKey.trim() !== "" ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode
@@ -338,22 +355,26 @@ export default function ConfigPage() {
     config.gatewayInviteCode,
     config.gatewayUsername,
     config.model,
+    config.modelProvider,
     config.modelSelectionMode,
+    config.openrouterApiKey,
     savedConfig.authorizationMode,
     savedConfig.gatewayEmail,
     savedConfig.gatewayInviteCode,
     savedConfig.gatewayUsername,
     savedConfig.model,
+    savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
   ]);
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
   const onboardingMode = onboardingRequested || config.needsOnboarding;
-  const onboardingMissingLabels = config.missing
-    .map((key) => ONBOARDING_MISSING_LABELS[key])
-    .filter(Boolean);
   const backendStatusMessage = backendStatus?.message.trim();
   const showBackendStatus = Boolean(backendStatusMessage) && !restartResult;
+  const workbenchHref = useMemo(
+    () => workbenchHrefFromSearchParams(searchParams),
+    [searchParams]
+  );
 
   async function loadConfig() {
     setLoading(true);
@@ -367,7 +388,7 @@ export default function ConfigPage() {
       const nextConfig = {
         ...DEFAULT_CONFIG,
         ...payload,
-        modelProvider: "gateway",
+        openrouterApiKey: "",
       } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
@@ -396,14 +417,30 @@ export default function ConfigPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: config.model,
-          modelProvider: "gateway",
-          modelSelectionMode: config.modelSelectionMode,
-          gatewayEmail: config.gatewayEmail.trim() || undefined,
-          gatewayUsername: config.gatewayUsername.trim() || undefined,
-          gatewayInviteCode: config.gatewayInviteCode.trim() || undefined,
+          model:
+            config.modelProvider === "openrouter"
+              ? config.openrouterModel || "deepseek-v4-flash"
+              : config.model || "deepseek-v4-flash",
+          modelProvider: config.modelProvider,
+          modelSelectionMode: "manual",
+          gatewayEmail:
+            config.modelProvider === "gateway"
+              ? config.gatewayEmail.trim() || undefined
+              : undefined,
+          gatewayUsername:
+            config.modelProvider === "gateway"
+              ? config.gatewayUsername.trim() || undefined
+              : undefined,
+          gatewayInviteCode:
+            config.modelProvider === "gateway"
+              ? config.gatewayInviteCode.trim() || undefined
+              : undefined,
+          openrouterApiKey:
+            config.modelProvider === "openrouter"
+              ? config.openrouterApiKey.trim() || undefined
+              : undefined,
           authorizationMode: config.authorizationMode,
-          workspacePath: config.workspacePath,
+          workspacePath: onboardingMode ? undefined : config.workspacePath,
         }),
       });
       const payload = await response.json();
@@ -530,6 +567,16 @@ export default function ConfigPage() {
     window.location.href = "/?assistantId=agent_local";
   }
 
+  function updateModelProvider(modelProvider: ModelProvider) {
+    setConfig((current) => ({
+      ...current,
+      modelProvider,
+      modelSelectionMode: "manual",
+      model: "deepseek-v4-flash",
+      openrouterModel: "deepseek-v4-flash",
+    }));
+  }
+
   function updateTheme(nextTheme: ThemeMode) {
     setThemeMode(nextTheme);
     applyTheme(nextTheme);
@@ -574,7 +621,10 @@ export default function ConfigPage() {
   }, [autoRestart, requiresRestart, hasChanges, actionBusy]);
 
   useEffect(() => {
-    if (loading) {
+    if (loading || onboardingMode || config.modelProvider !== "gateway") {
+      setGatewayModelOptions([]);
+      setGatewayModelsLoading(false);
+      setGatewayModelsError(null);
       return;
     }
 
@@ -609,56 +659,36 @@ export default function ConfigPage() {
       controller.abort();
       window.clearTimeout(debounce);
     };
-  }, [loading]);
+  }, [config.modelProvider, loading, onboardingMode]);
 
   return (
     <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
-      <header
-        className="flex h-16 items-center justify-between border-b border-border px-6"
-        data-tour="config-header"
-      >
-        <div className="flex min-w-0 items-center gap-4">
-          {!onboardingMode && (
+      {!onboardingMode && (
+        <header
+          className="flex h-16 items-center justify-between border-b border-border px-6"
+          data-tour="config-header"
+        >
+          <div className="flex min-w-0 items-center gap-4">
             <Button
               asChild
               variant="ghost"
               size="sm"
               className="h-8 px-2"
             >
-              <Link href="/?assistantId=agent_local">
+              <Link href={workbenchHref}>
                 <ArrowLeft className="h-4 w-4" />
                 工作台
               </Link>
             </Button>
-          )}
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold">
-              {onboardingMode ? "首次设置 InternAgents" : "配置"}
-            </h1>
-            <div className="truncate text-xs text-muted-foreground">
-              {onboardingMode
-                ? "绑定集思、选择工作区并设置授权后进入工作台"
-                : "模型、工作区、授权模式、技能和界面风格"}
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold">配置</h1>
+              <div className="truncate text-xs text-muted-foreground">
+                模型、工作区、授权模式、技能和界面风格
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {onboardingMode ? (
-            <Button
-              size="sm"
-              onClick={() => void finishOnboarding()}
-              disabled={!canApplyNow}
-              className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
-            >
-              {saving || restarting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <ServerCog className="h-4 w-4" />
-              )}
-              完成设置
-            </Button>
-          ) : (
+          <div className="flex items-center gap-2">
             <>
               <Button
                 size="sm"
@@ -694,27 +724,34 @@ export default function ConfigPage() {
                 立即应用
               </Button>
             </>
-          )}
-        </div>
-      </header>
+          </div>
+        </header>
+      )}
 
-      <main className="mx-auto w-full max-w-5xl px-6 py-6">
+      <main
+        className={cn(
+          "mx-auto w-full px-6 py-6",
+          onboardingMode
+            ? "flex min-h-[calc(100vh-var(--app-footer-height))] max-w-lg flex-col justify-center"
+            : "max-w-5xl"
+        )}
+      >
+        {onboardingMode && (
+          <div className="mb-4 text-center">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              首次设置 InternAgents
+            </h1>
+            <div className="mt-2 text-sm text-muted-foreground">
+              默认使用 deepseek-v4-flash；进入工作台后可在配置页更改。
+            </div>
+          </div>
+        )}
         {error && (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
             {error}
           </div>
         )}
-        {onboardingMode && (
-          <div className="mb-4 rounded-md border border-[#BFD9D4] bg-[#F1F7F5] px-4 py-3 text-sm text-[#24595A] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
-            <div className="font-medium">欢迎使用 InternAgents 桌面版</div>
-            {onboardingMissingLabels.length > 0 && (
-              <div className="mt-1 text-xs">
-                还需要设置：{onboardingMissingLabels.join("、")}
-              </div>
-            )}
-          </div>
-        )}
-        {config.workspaceError && !loading && (
+        {config.workspaceError && !loading && !onboardingMode && (
           <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
             {config.workspaceError}
           </div>
@@ -730,65 +767,63 @@ export default function ConfigPage() {
               void applyWhenIdle();
             }
           }}
-          className="space-y-5"
+          className={cn(onboardingMode ? "w-full space-y-4" : "space-y-5")}
         >
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>
-              模型和授权模式需要重启后端后生效；技能在技能卡片中单独应用；工作区和界面风格会立即生效。
-            </span>
-            {requiresRestart && !hasChanges && (
-              <span className="text-amber-700">有配置等待应用。</span>
-            )}
-            {restartResult && (
-              <span
-                className={cn(
-                  restartResult.status === "restarted"
-                    ? "text-green-700"
-                    : "text-red-700"
-                )}
-              >
-                {restartResult.message}
+          {!onboardingMode && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                模型和授权模式需要重启后端后生效；技能在技能卡片中单独应用；工作区和界面风格会立即生效。
               </span>
-            )}
-            {backendStatus && showBackendStatus && (
-              <span
-                className={cn(
-                  backendStatus.status === "idle"
-                    ? "text-green-700"
-                    : backendStatus.status === "busy"
-                    ? "text-amber-700"
-                    : "text-red-700"
-                )}
-              >
-                {backendStatus.message}
-              </span>
-            )}
-          </div>
-
-          <section className="rounded-lg border border-[#BFD9D4] bg-[#F1F7F5] p-4 text-sm text-[#24595A] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100">
-            <div className="font-medium">配置指引</div>
-            <div className="mt-2 grid gap-2 md:grid-cols-3">
-              <div>1. 填写邮箱、用户名和邀请码，完成集思绑定。</div>
-              <div>2. 选择本机工作区；远程工作区在工作台左上角添加。</div>
-              <div>3. 改完后点“空闲时应用”；需要马上生效再点“立即应用”。</div>
+              {requiresRestart && !hasChanges && (
+                <span className="text-amber-700">有配置等待应用。</span>
+              )}
+              {restartResult && (
+                <span
+                  className={cn(
+                    restartResult.status === "restarted"
+                      ? "text-green-700"
+                      : "text-red-700"
+                  )}
+                >
+                  {restartResult.message}
+                </span>
+              )}
+              {backendStatus && showBackendStatus && (
+                <span
+                  className={cn(
+                    backendStatus.status === "idle"
+                      ? "text-green-700"
+                      : backendStatus.status === "busy"
+                      ? "text-amber-700"
+                      : "text-red-700"
+                  )}
+                >
+                  {backendStatus.message}
+                </span>
+              )}
             </div>
-          </section>
+          )}
 
           <section
-            className="rounded-lg border border-border bg-card p-5 shadow-sm"
+            className={cn(
+              "rounded-lg border border-border bg-card shadow-sm",
+              onboardingMode ? "p-4" : "p-5"
+            )}
             data-tour="config-model"
           >
-            <div className="mb-5 flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
-                <Cpu className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-base font-semibold">模型</h2>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  使用集思统一管理 key、额度和模型服务。
+            {!onboardingMode && (
+              <div className="mb-5 flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                  <Cpu className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold">模型</h2>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    使用集思或 OpenRouter 管理模型服务。
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {loading ? (
               <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
@@ -796,432 +831,516 @@ export default function ConfigPage() {
                 正在读取配置...
               </div>
             ) : (
-              <div className="rounded-md border border-border bg-background p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <Label htmlFor="gateway-email">集思账号绑定</Label>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      保存时会校验邮箱、用户名和邀请码，并完成集思账号绑定。
-                    </div>
-                  </div>
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-1 text-xs font-medium",
-                      config.gatewayApiKeySet
-                        ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
-                        : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {config.gatewayApiKeySet ? "已绑定" : "未绑定"}
-                  </span>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Mail className="h-3.5 w-3.5" />
-                      邮箱
-                    </div>
-                    <Input
-                      id="gateway-email"
-                      type="email"
-                      autoComplete="email"
-                      value={config.gatewayEmail}
-                      disabled={loading}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          gatewayEmail: event.target.value,
-                        }))
-                      }
-                      placeholder="you@example.com"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <User className="h-3.5 w-3.5" />
-                      用户名
-                    </div>
-                    <Input
-                      id="gateway-username"
-                      type="text"
-                      autoComplete="name"
-                      value={config.gatewayUsername}
-                      disabled={loading}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          gatewayUsername: event.target.value,
-                        }))
-                      }
-                      placeholder="你的用户名"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Ticket className="h-3.5 w-3.5" />
-                      邀请码
-                    </div>
-                    <Input
-                      id="gateway-invite-code"
-                      type="text"
-                      autoComplete="off"
-                      value={config.gatewayInviteCode}
-                      disabled={loading}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          gatewayInviteCode: event.target.value,
-                        }))
-                      }
-                      placeholder="JISI-XXXXXXXXXX"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-5 space-y-3">
-                  <Label>模型选择</Label>
+              <div
+                className={cn(
+                  onboardingMode ? "space-y-4" : "space-y-5"
+                )}
+              >
+                <div className="space-y-3">
+                  {!onboardingMode && <Label>模型服务</Label>}
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {MODEL_SELECTION_OPTIONS.map((option) => {
-                      const active = config.modelSelectionMode === option.id;
+                    {MODEL_PROVIDER_OPTIONS.map((option) => {
+                      const active = config.modelProvider === option.id;
+                      const ProviderIcon =
+                        option.id === "gateway" ? ServerCog : KeyRound;
                       return (
                         <button
                           key={option.id}
                           type="button"
-                          onClick={() =>
-                            setConfig((current) => ({
-                              ...current,
-                              modelSelectionMode: option.id,
-                            }))
-                          }
+                          onClick={() => updateModelProvider(option.id)}
                           className={cn(
-                            "rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
+                            "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent",
                             active
                               ? "border-primary ring-2 ring-primary/20"
                               : "border-border"
                           )}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-semibold">
-                              {option.title}
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                              <ProviderIcon className="h-4 w-4" />
                             </div>
                             {option.badge && (
-                              <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
+                              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
                                 {option.badge}
                               </span>
                             )}
                           </div>
-                          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                          <div className="text-sm font-semibold">
+                            {option.title}
+                          </div>
+                          <div className="mt-1.5 text-sm text-foreground">
                             {option.description}
                           </div>
+                          {option.subtitle && (
+                            <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                              {option.subtitle}
+                            </div>
+                          )}
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
-                {config.modelSelectionMode === "auto" ? (
-                  <div className="mt-3 rounded-md bg-[#F1F7F5] px-3 py-2 text-sm text-[#2F6868] dark:bg-teal-950/40 dark:text-teal-100">
-                    已启用自动模型选择。集思会根据问题自动匹配合适模型。
-                  </div>
-                ) : (
-                  <div className="mt-5 space-y-4">
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-end justify-between gap-2">
-                        <div>
-                          <Label>集思可用模型</Label>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            从集思后端读取可用模型；也可以在下方填写模型 ID。
-                          </div>
-                        </div>
-                        {selectedJisiModel ? (
-                          <span className="rounded-full bg-[#E8F3F1] px-2 py-1 text-xs font-medium text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200">
-                            当前：{selectedJisiModel.title}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                            当前：自定义模型
-                          </span>
-                        )}
-                      </div>
-
-                      {gatewayModelsLoading && (
-                        <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          正在从集思读取可用模型...
-                        </div>
-                      )}
-
-                      {gatewayModelsError && !gatewayModelsLoading && (
-                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-                          {gatewayModelsError} 你仍然可以在下方手动填写模型 ID。
-                        </div>
-                      )}
-
-                      {gatewayModelOptions.length > 0 ? (
-                        <div className="grid gap-1.5 md:grid-cols-2">
-                          {gatewayModelOptions.map((option) => {
-                          const active = config.model === option.id;
-                          const price = priceSummary(option);
-                          return (
-                            <button
-                              key={option.id}
-                              type="button"
-                              onClick={() =>
-                                setConfig((current) => ({
-                                  ...current,
-                                  model: option.id,
-                                }))
-                              }
-                              className={cn(
-                                "flex min-h-20 flex-col rounded-md border bg-background px-3 py-2.5 text-left transition hover:border-primary/60 hover:bg-accent",
-                                active
-                                  ? "border-primary ring-2 ring-primary/20"
-                                  : "border-border"
-                              )}
-                            >
-                              <div className="flex min-w-0 items-center justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <div className="truncate text-[13px] font-semibold leading-5">
-                                    {option.title}
-                                  </div>
-                                  <div className="shrink-0 text-[11px] text-muted-foreground">
-                                    {option.provider}
-                                  </div>
-                                </div>
-                                {option.isDefault && (
-                                  <span className="shrink-0 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary-foreground">
-                                    默认
-                                  </span>
-                                )}
-                              </div>
-                              <div className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
-                                {option.description}
-                              </div>
-                              <div className="mt-1 truncate font-mono text-[11px] leading-4 text-muted-foreground">
-                                {option.id}
-                              </div>
-                              {price && (
-                                <div className="mt-0.5 truncate text-[10px] leading-4 text-muted-foreground">
-                                  {price}
-                                </div>
-                              )}
-                            </button>
-                          );
-                          })}
-                        </div>
-                      ) : !gatewayModelsLoading && !gatewayModelsError ? (
-                        <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
-                          暂无可展示模型。请稍后重试，或在下方手动填写模型 ID。
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="jisi-model">填写模型 ID</Label>
-                      <Input
-                        id="jisi-model"
-                        value={config.model}
-                        onChange={(event) =>
-                          setConfig((current) => ({
-                            ...current,
-                            model: event.target.value,
-                          }))
-                        }
-                        placeholder={gatewayModelOptions[0]?.id || "deepseek-v4-flash"}
-                      />
-                      <div className="text-xs text-muted-foreground">
-                        可以直接粘贴集思支持的模型 ID。
-                      </div>
-                    </div>
+                {!onboardingMode && (
+                  <div className="text-xs leading-5 text-muted-foreground">
+                    默认模型：deepseek-v4-flash
                   </div>
                 )}
 
-                <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                  <div className="min-w-0 truncate">
-                    模型：
-                    {config.modelSelectionMode === "auto"
-                      ? config.autoModel || "jisi/auto"
-                      : config.model || "qwen3.5-397b-a17b"}
-                  </div>
-                  <div className="min-w-0 truncate">
-                    额度：
-                    {config.gatewayRemainingRmb
-                      ? `剩余 ¥${config.gatewayRemainingRmb}`
-                      : config.gatewayCreditRmb
-                      ? `总额 ¥${config.gatewayCreditRmb}`
-                      : "绑定后显示"}
-                  </div>
-                </div>
+                {config.modelProvider === "gateway" ? (
+                  <>
+                    {!onboardingMode && (
+                      <div className="mt-5 mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <Label htmlFor="gateway-email">
+                            集思账号绑定
+                          </Label>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            保存时会校验邮箱、用户名和邀请码，并完成账号绑定。
+                          </div>
+                        </div>
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-1 text-xs font-medium",
+                            config.gatewayApiKeySet
+                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {config.gatewayApiKeySet ? "已绑定" : "未绑定"}
+                        </span>
+                      </div>
+                    )}
 
+                    <div
+                      className={cn(
+                        "grid md:grid-cols-3",
+                        onboardingMode ? "mt-4 gap-3" : "gap-4"
+                      )}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <Mail className="h-3.5 w-3.5" />
+                          邮箱
+                        </div>
+                        <Input
+                          id="gateway-email"
+                          type="email"
+                          autoComplete="email"
+                          value={config.gatewayEmail}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              gatewayEmail: event.target.value,
+                            }))
+                          }
+                          placeholder="you@example.com"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <User className="h-3.5 w-3.5" />
+                          用户名
+                        </div>
+                        <Input
+                          id="gateway-username"
+                          type="text"
+                          autoComplete="name"
+                          value={config.gatewayUsername}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              gatewayUsername: event.target.value,
+                            }))
+                          }
+                          placeholder="你的用户名"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <Ticket className="h-3.5 w-3.5" />
+                          邀请码
+                        </div>
+                        <Input
+                          id="gateway-invite-code"
+                          type="text"
+                          autoComplete="off"
+                          value={config.gatewayInviteCode}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              gatewayInviteCode: event.target.value,
+                            }))
+                          }
+                          placeholder="JISI-XXXXXXXXXX"
+                        />
+                      </div>
+                    </div>
+
+                    {!onboardingMode && (
+                      <div className="mt-5 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <Label>集思模型</Label>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              从集思读取可用模型，选择后保存生效。
+                            </div>
+                          </div>
+                          {selectedJisiModel ? (
+                            <span className="rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
+                              当前：{selectedJisiModel.title}
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+                              当前：请选择模型
+                            </span>
+                          )}
+                        </div>
+
+                        {gatewayModelsLoading && (
+                          <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            正在读取可用模型...
+                          </div>
+                        )}
+
+                        {gatewayModelsError && !gatewayModelsLoading && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                            {gatewayModelsError} 请稍后重试。
+                          </div>
+                        )}
+
+                        {gatewayModelOptions.length > 0 ? (
+                          <div className="grid gap-2 md:grid-cols-2">
+                        {gatewayModelOptions.map((option) => {
+                          const active = config.model === option.id;
+                          const summary = priceSummary(option);
+                          return (
+                            <button
+                                  key={option.id}
+                                  type="button"
+                                  onClick={() =>
+                                    setConfig((current) => ({
+                                      ...current,
+                                      model: option.id,
+                                      modelSelectionMode: "manual",
+                                    }))
+                                  }
+                                  className={cn(
+                                    "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent",
+                                    active
+                                      ? "border-primary ring-2 ring-primary/20"
+                                      : "border-border"
+                                  )}
+                                >
+                                  <div className="mb-3 flex items-center justify-between gap-2">
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                                      <Cpu className="h-4 w-4" />
+                                    </div>
+                                    {option.isDefault && (
+                                      <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                                        默认
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-sm font-semibold">
+                                    {option.title}
+                                  </div>
+                                  <div className="mt-1.5 text-sm text-foreground">
+                                    {option.provider}
+                                  </div>
+                                  <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                                    {option.description}
+                                  </div>
+                                  {summary && (
+                                    <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                      {summary}
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : !gatewayModelsLoading && !gatewayModelsError ? (
+                          <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
+                            暂无可展示模型。请稍后重试。
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {!onboardingMode && (
+                      <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                        <div className="min-w-0 truncate">
+                          模型：{config.model || "deepseek-v4-flash"}
+                        </div>
+                        <div className="min-w-0 truncate">服务：免费</div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div
+                    className={cn(
+                      onboardingMode ? "mt-4 space-y-3" : "mt-5 space-y-4"
+                    )}
+                  >
+                    {!onboardingMode && (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label htmlFor="openrouter-api-key">
+                          OpenRouter API Key
+                        </Label>
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-1 text-xs font-medium",
+                            config.openrouterApiKeySet
+                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                              : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          {config.openrouterApiKeySet ? "已保存" : "未保存"}
+                        </span>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <KeyRound className="h-3.5 w-3.5" />
+                        API Key
+                      </div>
+                      <Input
+                        id="openrouter-api-key"
+                        type="password"
+                        autoComplete="off"
+                        value={config.openrouterApiKey}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            openrouterApiKey: event.target.value,
+                          }))
+                        }
+                        placeholder={
+                          config.openrouterApiKeySet
+                            ? "已保存，留空则继续使用当前 key"
+                            : "sk-or-..."
+                        }
+                      />
+                    </div>
+                    {!onboardingMode && (
+                      <div className="text-xs text-muted-foreground">
+                        模型：{config.openrouterModel || "deepseek-v4-flash"}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </section>
 
-          <section
-            className="rounded-lg border border-border bg-card p-5 shadow-sm"
-            data-tour="config-workspace"
-          >
-            <div className="mb-4 flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
-                <FolderOpen className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="text-base font-semibold">工作区</h2>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  选择本机资源的文件夹；文件浏览和 Agent 命令都会以它为根目录。
-                </div>
-              </div>
-            </div>
+          {onboardingMode && (
+            <Button
+              type="submit"
+              disabled={!canApplyNow}
+              className="h-10 w-full bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+            >
+              {saving || restarting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ServerCog className="h-4 w-4" />
+              )}
+              完成设置，进入InternAgents
+            </Button>
+          )}
 
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="workspace-path">本机工作区路径</Label>
-                <Input
-                  id="workspace-path"
-                  value={config.workspacePath}
-                  disabled={loading}
-                  onChange={(event) =>
-                    setConfig((current) => ({
-                      ...current,
-                      workspacePath: event.target.value,
-                    }))
-                  }
-                  placeholder="/Users/you/Projects/example"
-                />
-              </div>
-              <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                <div className="min-w-0 truncate">
-                  当前解析：{config.workspaceResolvedPath || "-"}
+          {!onboardingMode && (
+            <>
+              <section
+                className="rounded-lg border border-border bg-card p-5 shadow-sm"
+                data-tour="config-workspace"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                    <FolderOpen className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">工作区</h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      选择本机资源的文件夹；文件浏览和 Agent 命令都会以它为根目录。
+                    </div>
+                  </div>
                 </div>
-                <div className="min-w-0 truncate">
-                  资源配置：{config.resourcesPath || "-"}
-                </div>
-              </div>
-            </div>
-          </section>
 
-          <section
-            className="rounded-lg border border-border bg-card p-5 shadow-sm"
-            data-tour="config-authorization"
-          >
-            <div className="mb-4 flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold">授权模式</h2>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  授权模式决定 InternAgent 调用工具时是否需要你手动确认。
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="workspace-path">本机工作区路径</Label>
+                    <Input
+                      id="workspace-path"
+                      value={config.workspacePath}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          workspacePath: event.target.value,
+                        }))
+                      }
+                      placeholder="/Users/you/Projects/example"
+                    />
+                  </div>
+                  <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                    <div className="min-w-0 truncate">
+                      当前解析：{config.workspaceResolvedPath || "-"}
+                    </div>
+                    <div className="min-w-0 truncate">
+                      资源配置：{config.resourcesPath || "-"}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </section>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              {AUTHORIZATION_OPTIONS.map((option) => {
-                const active = config.authorizationMode === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() =>
-                      setConfig((current) => ({
-                        ...current,
-                        authorizationMode: option.id,
-                      }))
-                    }
-                    className={cn(
-                      "flex min-h-44 flex-col rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent",
-                      active
-                        ? "border-primary ring-2 ring-primary/20"
-                        : "border-border"
+              <section
+                className="rounded-lg border border-border bg-card p-5 shadow-sm"
+                data-tour="config-authorization"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold">授权模式</h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      设置读取、写入等权限是否需要手动确认。
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  {AUTHORIZATION_OPTIONS.map((option) => {
+                    const active = config.authorizationMode === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() =>
+                          setConfig((current) => ({
+                            ...current,
+                            authorizationMode: option.id,
+                          }))
+                        }
+                        className={cn(
+                          "flex min-h-44 flex-col rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent",
+                          active
+                            ? "border-primary ring-2 ring-primary/20"
+                            : "border-border"
+                        )}
+                      >
+                        <div className="mb-4 flex items-center justify-between gap-2">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                            <Shield className="h-4 w-4" />
+                          </div>
+                          {option.badge && (
+                            <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                              {option.badge}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm font-semibold">
+                          {option.title}
+                        </div>
+                        <div className="mt-2 text-sm text-foreground">
+                          {option.description}
+                        </div>
+                        <div className="mt-3 text-xs leading-5 text-muted-foreground">
+                          {option.detail}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <SkillsConfigCard />
+
+              <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                    {themeMode === "dark" ? (
+                      <Moon className="h-5 w-5" />
+                    ) : (
+                      <Sun className="h-5 w-5" />
                     )}
-                  >
-                    <div className="mb-4 flex items-center justify-between gap-2">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
-                        <Shield className="h-4 w-4" />
-                      </div>
-                      {option.badge && (
-                        <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
-                          {option.badge}
-                        </span>
-                      )}
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold">界面风格</h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      选择白天或黑夜模式。这个设置会立即应用在当前浏览器。
                     </div>
-                    <div className="text-sm font-semibold">{option.title}</div>
-                    <div className="mt-2 text-sm text-foreground">
-                      {option.description}
-                    </div>
-                    <div className="mt-3 text-xs leading-5 text-muted-foreground">
-                      {option.detail}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+                  </div>
+                </div>
 
-          {!onboardingMode && <SkillsConfigCard />}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {THEME_OPTIONS.map((option) => {
+                    const active = themeMode === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => updateTheme(option.id)}
+                        className={cn(
+                          "flex items-start gap-3 rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent",
+                          active
+                            ? "border-primary ring-2 ring-primary/20"
+                            : "border-border"
+                        )}
+                      >
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                          {option.id === "dark" ? (
+                            <Moon className="h-4 w-4" />
+                          ) : (
+                            <Sun className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold">
+                            {option.title}
+                          </div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            {option.description}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
 
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            <div className="mb-4 flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
-                {themeMode === "dark" ? (
-                  <Moon className="h-5 w-5" />
-                ) : (
-                  <Sun className="h-5 w-5" />
-                )}
-              </div>
-              <div>
-                <h2 className="text-base font-semibold">界面风格</h2>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  选择白天或黑夜模式。这个设置会立即应用在当前浏览器。
+              <ArchivedThreadsCard />
+
+              <div className="flex justify-end text-xs text-muted-foreground">
+                <div className="truncate">
+                  配置文件：{config.configPath || "-"}
                 </div>
               </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {THEME_OPTIONS.map((option) => {
-                const active = themeMode === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => updateTheme(option.id)}
-                    className={cn(
-                      "flex items-start gap-3 rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent",
-                      active
-                        ? "border-primary ring-2 ring-primary/20"
-                        : "border-border"
-                    )}
-                  >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
-                      {option.id === "dark" ? (
-                        <Moon className="h-4 w-4" />
-                      ) : (
-                        <Sun className="h-4 w-4" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold">
-                        {option.title}
-                      </div>
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        {option.description}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          {!onboardingMode && <ArchivedThreadsCard />}
-
-          <div className="flex justify-end text-xs text-muted-foreground">
-            <div className="truncate">配置文件：{config.configPath || "-"}</div>
-          </div>
+            </>
+          )}
         </form>
       </main>
     </div>
+  );
+}
+
+export default function ConfigPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[calc(100vh-var(--app-footer-height))] items-center justify-center bg-background text-foreground">
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      }
+    >
+      <ConfigPageContent />
+    </Suspense>
   );
 }

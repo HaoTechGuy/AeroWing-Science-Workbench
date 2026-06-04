@@ -10,7 +10,7 @@ import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_RELEASE_REPO = "shuyuehu/InternAgents";
+const DEFAULT_RELEASE_REPO = "InternScience/InternAgents";
 const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 const COMMAND_TIMEOUT_MS = 60 * 1000;
 const MAX_BUFFER = 8 * 1024 * 1024;
@@ -665,7 +665,9 @@ async function fetchLatestRelease(): Promise<UpdateReleaseInfo> {
             fallbackError instanceof Error
               ? fallbackError.message
               : "公开 Release 页面回退检查失败。";
-          throw new Error(`${apiError} 公开 Release 回退也失败：${fallbackMessage}`);
+          throw new Error(`${apiError} 公开 Release 回退也失败：${fallbackMessage}`, {
+            cause: fallbackError,
+          });
         }
       }
       throw new Error(apiError);

@@ -106,7 +106,7 @@ DEEPAGENT_MODEL=
 Set `DEEPAGENT_MODEL` to override the model explicitly:
 
 ```env
-DEEPAGENT_MODEL=openrouter:qwen3.5-397b-a17b
+DEEPAGENT_MODEL=openrouter:deepseek-v4-flash
 ```
 
 集思 exposes an OpenAI-compatible chat-completions endpoint, while the local
@@ -200,13 +200,14 @@ The About page includes a local software update panel. The installed macOS app
 checks a GitHub Releases feed for binary DMG assets. By default it reads:
 
 ```text
-shuyuehu/InternAgents
+InternScience/InternAgents
 ```
 
 Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
 a public release-only repository. The source repository can stay private; the
 release repository only needs GitHub Releases with assets named like
-`InternAgents-0.1.1-arm64.dmg` and `InternAgents-0.1.1-x64.dmg`.
+`InternAgents-0.1.1-arm64.dmg`, `InternAgents-0.1.1-x64.dmg`, and
+`internagents-backend-cli.tar.gz`.
 
 Public release repositories do not require a token. The updater first tries the
 GitHub Releases API and, if the unauthenticated API is rate-limited, falls back
@@ -220,6 +221,18 @@ place that can query the fixed release feed, download the matching DMG, mount
 it, verify the `.app`, and launch the local installer script that replaces the
 current app and reopens InternAgents.
 
+When a user selects a local-managed SSH workspace, the local Next.js API also
+checks the same release repository for the backend CLI package matching the
+current local app version, for example `v0.1.1`. If the remote runtime has not
+recorded that release tag, the API downloads `internagents-backend-cli.tar.gz`,
+uploads it over SSH, installs it in the remote user state directory, restarts
+that resource runtime, and rewrites the local resource metadata. The resource
+metadata also remembers the remote install mode, custom Python path, or
+Conda/Mamba command chosen during setup so later syncs can reuse the same
+environment strategy. Set
+`INTERNAGENTS_REMOTE_BACKEND_UPDATE_REPO` only when the backend package should
+come from a different release repository than the app updater.
+
 Publishing a new desktop release is tag driven. Create the tag on the branch or
 commit you want to ship, then push that tag:
 
@@ -231,7 +244,8 @@ git push origin v0.1.1
 The workflow uses that tag as the App version, runs on macOS, validates Python
 files, lints and builds the UI, builds the architecture-specific DMGs, clears
 any existing uploaded release assets, and uploads both DMGs to
-`shuyuehu/InternAgents`. If the workflow runs in a private source repository,
+`InternScience/InternAgents` together with `internagents-backend-cli.tar.gz`. If
+the workflow runs in a private source repository,
 set:
 
 ```text
@@ -402,8 +416,10 @@ git push origin v0.1.1
 
 The GitHub Actions workflow builds Apple Silicon (`arm64`) and Intel (`x64`)
 macOS DMGs plus Windows x64 EXE/ZIP artifacts, then publishes them to the
-public release repository `shuyuehu/InternAgents`. Because the workflow runs in
-the source repository, configure the cross-repository token there:
+public release repository `InternScience/InternAgents`. The same release also
+includes `internagents-backend-cli.tar.gz`, which SSH workspaces use to sync
+their remote backend runtime to the local app version. Because the workflow
+runs in the source repository, configure the cross-repository token there:
 
 ```text
 qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions
@@ -413,7 +429,7 @@ Value: <GitHub PAT>
 ```
 
 Recommended PAT: fine-grained token with repository access limited to
-`shuyuehu/InternAgents`, `Contents: Read and write`, and default `Metadata`
+`InternScience/InternAgents`, `Contents: Read and write`, and default `Metadata`
 read access. If using a classic token, grant `repo`.
 
 ## Smoke Tests

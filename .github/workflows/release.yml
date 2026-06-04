@@ -22,7 +22,7 @@ permissions:
 
 env:
   # Public release-only repository. The source repository only triggers CI.
-  INTERNAGENTS_OFFICIAL_RELEASE_REPO: shuyuehu/InternAgents
+  INTERNAGENTS_OFFICIAL_RELEASE_REPO: InternScience/InternAgents
 
 jobs:
   metadata:
@@ -211,6 +211,14 @@ jobs:
           path: desktop/release/InternAgents-*-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
+      - name: Upload backend CLI artifact
+        if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: internagents-backend-cli
+          path: dist-app/internagents-template/internagents-backend-cli.tar.gz
+          if-no-files-found: error
+
   build-windows:
     name: Build Windows installer (x64)
     needs: metadata
@@ -350,7 +358,7 @@ jobs:
           INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
         run: |
           if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions."
+            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in the source repository -> Settings -> Secrets and variables -> Actions."
             exit 1
           fi
 
@@ -368,6 +376,7 @@ jobs:
           shopt -s nullglob
           dmg_assets=(release-assets/InternAgents-*.dmg)
           windows_assets=(release-assets/InternAgents-*.exe release-assets/InternAgents-*.zip)
+          backend_assets=(release-assets/internagents-backend-cli.tar.gz)
           if [ "${#dmg_assets[@]}" -ne 2 ]; then
             printf 'Expected exactly two DMGs, found %s:\n' "${#dmg_assets[@]}"
             printf '  %s\n' "${dmg_assets[@]}"
@@ -378,7 +387,12 @@ jobs:
             printf '  %s\n' "${windows_assets[@]}"
             exit 1
           fi
-          release_assets=("${dmg_assets[@]}" "${windows_assets[@]}")
+          if [ "${#backend_assets[@]}" -ne 1 ]; then
+            printf 'Expected exactly one backend CLI asset, found %s:\n' "${#backend_assets[@]}"
+            printf '  %s\n' "${backend_assets[@]}"
+            exit 1
+          fi
+          release_assets=("${dmg_assets[@]}" "${windows_assets[@]}" "${backend_assets[@]}")
 
           if [ "$INTERNAGENTS_IS_TEST_RELEASE" = "true" ]; then
             release_kind="test release"
@@ -400,11 +414,12 @@ jobs:
           Release highlights:
           - macOS desktop app packaged for Apple Silicon and Intel Macs.
           - Windows desktop app packaged as an x64 NSIS installer plus ZIP.
+          - Remote backend CLI package for SSH workspace runtime synchronization.
           - Auto-update assets are published separately by platform and architecture.
 
           Desktop version: ${INTERNAGENTS_DESKTOP_VERSION}
           Source ref: ${INTERNAGENTS_SOURCE_LABEL}
-          Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, and Windows x64 ZIP${test_update_notes}"
+          Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, Windows x64 ZIP, and remote backend CLI tarball${test_update_notes}"
 
           if [ -n "${INTERNAGENTS_EXTRA_NOTES:-}" ]; then
             NOTES="${NOTES}

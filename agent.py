@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Annotated, Any, Awaitable, Callable, NotRequired, TypedDict
 
+from langchain.chat_models import init_chat_model
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from dotenv import load_dotenv
@@ -25,6 +26,7 @@ if BUNDLED_DEEPAGENTS.exists():
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
+from deepagents.profiles.provider import apply_provider_profile
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
@@ -34,7 +36,6 @@ from goal_middleware import GoalContextMiddleware, goal_system_prompt
 from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
-from mineru_middleware import PdfMinerUMiddleware
 from ssh_backend import SshShellBackend
 
 
@@ -100,7 +101,7 @@ def _config_model() -> str | None:
     elif config.get("model_selection_mode") == "manual":
         model = config.get("manual_model")
     else:
-        model = "openrouter/auto"
+        model = "deepseek-v4-flash"
     return model.strip() if isinstance(model, str) and model.strip() else None
 
 
@@ -151,11 +152,17 @@ def _resolve_model() -> str:
     if provider == "openrouter" and model:
         return f"openrouter:{model}"
 
-    return "openrouter:openrouter/auto"
+    return "openrouter:deepseek-v4-flash"
 
 
 _lock_gateway_environment()
 MODEL = _resolve_model()
+REASONING_OUTPUT_MODEL_ALIASES = {
+    "deepseek-v4-flash",
+    "deepseek/deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "deepseek/deepseek-v4-pro",
+}
 GOAL_CONTINUATION_TURNS_KEY = "goalContinuationTurns"
 GOAL_MAX_AUTO_TURNS_ENV = "INTERNAGENT_GOAL_MAX_AUTO_TURNS"
 REMOTE_RUNTIME_INTERNAL_STATE_KEYS = {GOAL_CONTINUATION_TURNS_KEY}
@@ -177,6 +184,42 @@ REMOTE_RUNTIME_PARENT_CONFIG_KEYS = {
     "thread_id",
     "user_id",
 }
+
+
+def _model_name_from_spec(model_spec: str) -> str:
+    _, separator, model_name = model_spec.partition(":")
+    return model_name if separator else model_spec
+
+
+def _openrouter_model_profile_names(model_name: str) -> set[str]:
+    names = {model_name.lower()}
+    if "/" not in model_name and model_name.startswith("deepseek-"):
+        names.add(f"deepseek/{model_name}".lower())
+    return names
+
+
+def _supports_reasoning_output(model_spec: str) -> bool:
+    model_name = _model_name_from_spec(model_spec)
+    profile_names = _openrouter_model_profile_names(model_name)
+    try:
+        from langchain_openrouter.data._profiles import _PROFILES  # noqa: PLC0415
+    except Exception:
+        return any(name in REASONING_OUTPUT_MODEL_ALIASES for name in profile_names)
+
+    return any(
+        (_PROFILES.get(name) or {}).get("reasoning_output") is True
+        or name in REASONING_OUTPUT_MODEL_ALIASES
+        for name in profile_names
+    )
+
+
+def _create_agent_model() -> str | Any:
+    if MODEL.startswith("openrouter:") and _supports_reasoning_output(MODEL):
+        return init_chat_model(
+            MODEL,
+            **apply_provider_profile(MODEL, {"reasoning": {"enabled": True}}),
+        )
+    return MODEL
 
 
 class InternAgentState(TypedDict):
@@ -670,7 +713,6 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     backend = _create_backend_for_resource(resource)
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
-    middleware.append(PdfMinerUMiddleware(backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
@@ -734,7 +776,6 @@ def create_runtime_agent():  # noqa: ANN201
     middleware = list(agent_config.get("middleware") or [])
     if runtime_resource is not None and runtime_resource.kb_path:
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
-    middleware.append(PdfMinerUMiddleware(backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(

@@ -20,8 +20,8 @@ export const runtime = "nodejs";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type ModelProvider = "gateway";
-type OnboardingMissing = "gatewayEmail" | "workspacePath";
+type ModelProvider = "gateway" | "openrouter";
+type OnboardingMissing = "gatewayEmail" | "openrouterApiKey";
 
 interface AgentConfig {
   interrupt_on?: Record<string, unknown>;
@@ -43,12 +43,16 @@ interface UpdateConfigRequest {
   gatewayEmail?: unknown;
   gatewayUsername?: unknown;
   gatewayInviteCode?: unknown;
+  openrouterApiKey?: unknown;
   authorizationMode?: unknown;
   workspacePath?: unknown;
 }
 
 const AUTO_MODEL = "jisi/auto";
-const DEFAULT_MANUAL_MODEL = "qwen3.5-397b-a17b";
+const DEFAULT_MANUAL_MODEL = "deepseek-v4-flash";
+const DEFAULT_OPENROUTER_MODEL = "deepseek-v4-flash";
+const LEGACY_OPENROUTER_AUTO_MODEL = "openrouter/auto";
+const OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
 const COMMON_TOOLS = [
@@ -184,9 +188,9 @@ function stripModelProviderPrefix(model: string | undefined) {
   return model;
 }
 
-function normalizeModel(model: unknown) {
+function normalizeModel(model: unknown, fallback = DEFAULT_MANUAL_MODEL) {
   if (typeof model !== "string") {
-    return DEFAULT_MANUAL_MODEL;
+    return fallback;
   }
 
   const trimmed = stripModelProviderPrefix(model.trim());
@@ -196,12 +200,19 @@ function normalizeModel(model: unknown) {
   return trimmed;
 }
 
+function normalizeOpenRouterModel(model: unknown) {
+  const normalized = normalizeModel(model, DEFAULT_OPENROUTER_MODEL);
+  return normalized === LEGACY_OPENROUTER_AUTO_MODEL
+    ? DEFAULT_OPENROUTER_MODEL
+    : normalized;
+}
+
 function isAuthorizationMode(value: unknown): value is AuthorizationMode {
   return value === "auto" || value === "write" || value === "all";
 }
 
-function isModelSelectionMode(value: unknown): value is ModelSelectionMode {
-  return value === "auto" || value === "manual";
+function isModelProvider(value: unknown): value is ModelProvider {
+  return value === "gateway" || value === "openrouter";
 }
 
 function normalizeEmail(value: unknown): string {
@@ -216,24 +227,38 @@ function normalizeInviteCode(value: unknown): string {
   return typeof value === "string" ? value.trim().toUpperCase() : "";
 }
 
+function normalizeApiKey(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function inferModelSelectionMode(config: AgentConfig): ModelSelectionMode {
-  return isModelSelectionMode(config.model_selection_mode)
-    ? config.model_selection_mode
-    : "auto";
+function inferModelSelectionMode(_config: AgentConfig): ModelSelectionMode {
+  return "manual";
 }
 
-function inferModelProvider(): ModelProvider {
+function inferModelProvider(
+  config: AgentConfig,
+  env: Record<string, string>
+): ModelProvider {
+  if (isModelProvider(config.model_provider)) {
+    return config.model_provider;
+  }
+  if (config.openrouter_direct_enabled === true) {
+    return "openrouter";
+  }
+  if (isModelProvider(env.INTERNAGENTS_MODEL_PROVIDER)) {
+    return env.INTERNAGENTS_MODEL_PROVIDER;
+  }
   return "gateway";
 }
 
 function selectedGatewayModel(config: AgentConfig) {
-  return inferModelSelectionMode(config) === "auto"
-    ? AUTO_MODEL
-    : normalizeModel(config.manual_model || DEFAULT_MANUAL_MODEL);
+  return normalizeModel(
+    config.manual_model || config.gateway_model || DEFAULT_MANUAL_MODEL
+  );
 }
 
 function inferAuthorizationMode(config: AgentConfig): AuthorizationMode {
@@ -287,20 +312,29 @@ async function normalizedResponse(config: AgentConfig) {
   const envModel = normalizeModel(
     env.DEEPAGENT_MODEL || env.LLM_MODEL || AUTO_MODEL
   );
-  const modelProvider = inferModelProvider();
+  const modelProvider = inferModelProvider(config, env);
   const modelSelectionMode = inferModelSelectionMode(config);
   const manualModel = normalizeModel(
     config.manual_model ||
       (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
   );
+  const openrouterModel = normalizeOpenRouterModel(
+    config.openrouter_model ||
+      (envModel === AUTO_MODEL ? DEFAULT_OPENROUTER_MODEL : envModel)
+  );
   const effectiveModel =
-    modelSelectionMode === "auto" ? AUTO_MODEL : manualModel;
-  const gatewayKey = env.INTERNAGENTS_GATEWAY_KEY || env.OPENAI_API_KEY;
+    modelProvider === "gateway" ? manualModel : openrouterModel;
+  const gatewayKey =
+    env.INTERNAGENTS_GATEWAY_KEY ||
+    (modelProvider === "gateway" ? env.OPENAI_API_KEY : "");
+  const openrouterKey =
+    env.OPENROUTER_API_KEY ||
+    (modelProvider === "openrouter" ? env.OPENAI_API_KEY : "");
   const gatewayEmail = env.INTERNAGENTS_USER_EMAIL || "";
   const gatewayUsername = env.INTERNAGENTS_USER_NAME || "";
   const gatewayInviteCode =
     env.INTERNAGENTS_INVITE_CODE || env.INTERNAGENTS_GATEWAY_INVITE_CODE || "";
-  const gatewayModel = effectiveModel;
+  const gatewayModel = manualModel;
   let workspacePath = ".";
   let workspaceResolvedPath = "";
   let workspaceError: string | undefined;
@@ -324,8 +358,8 @@ async function normalizedResponse(config: AgentConfig) {
   ) {
     missing.push("gatewayEmail");
   }
-  if (workspaceError) {
-    missing.push("workspacePath");
+  if (modelProvider === "openrouter" && !openrouterKey?.trim()) {
+    missing.push("openrouterApiKey");
   }
   const desktopMode = isDesktopMode();
 
@@ -337,7 +371,7 @@ async function normalizedResponse(config: AgentConfig) {
     workspaceResolvedPath,
     workspaceError,
     modelProvider,
-    model: manualModel,
+    model: modelProvider === "gateway" ? manualModel : openrouterModel,
     modelSelectionMode,
     effectiveModel,
     autoModel: AUTO_MODEL,
@@ -349,6 +383,9 @@ async function normalizedResponse(config: AgentConfig) {
     gatewayApiKeyPreview: "",
     gatewayCreditRmb: env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "",
     gatewayRemainingRmb: env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "",
+    openrouterModel,
+    openrouterApiKeySet: Boolean(openrouterKey),
+    openrouterApiKeyPreview: "",
     authorizationMode: inferAuthorizationMode(config),
     desktopMode,
     needsOnboarding: missing.length > 0,
@@ -374,18 +411,14 @@ export async function PUT(request: NextRequest) {
     const body = (await request.json()) as UpdateConfigRequest;
     const currentConfig = await readConfig();
     const currentEnv = await readEnvValues();
-    const modelProvider: ModelProvider = "gateway";
-    const modelSelectionMode = isModelSelectionMode(body.modelSelectionMode)
-      ? body.modelSelectionMode
-      : "auto";
+    const modelProvider = isModelProvider(body.modelProvider)
+      ? body.modelProvider
+      : inferModelProvider(currentConfig, currentEnv);
+    const modelSelectionMode: ModelSelectionMode = "manual";
     const model =
-      modelSelectionMode === "manual"
-        ? normalizeModel(body.model)
-        : normalizeModel(
-            typeof body.model === "string" && body.model.trim()
-              ? body.model
-              : DEFAULT_MANUAL_MODEL
-          );
+      modelProvider === "openrouter"
+        ? normalizeOpenRouterModel(body.model || DEFAULT_OPENROUTER_MODEL)
+        : normalizeModel(body.model || DEFAULT_MANUAL_MODEL);
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
@@ -404,11 +437,19 @@ export async function PUT(request: NextRequest) {
       ...currentConfig,
       authorization_mode: authorizationMode,
       model_provider: modelProvider,
-      model_selection_mode: modelSelectionMode,
-      manual_model: model,
+      model_selection_mode:
+        modelProvider === "gateway" ? modelSelectionMode : "manual",
+      manual_model: modelProvider === "gateway" ? model : DEFAULT_MANUAL_MODEL,
     };
-    delete nextConfig.openrouter_direct_enabled;
-    delete nextConfig.openrouter_model;
+    if (modelProvider === "openrouter") {
+      nextConfig.openrouter_direct_enabled = true;
+      nextConfig.openrouter_model = model;
+      delete nextConfig.gateway_model;
+      delete nextConfig.gateway_base_url;
+    } else {
+      delete nextConfig.openrouter_direct_enabled;
+      delete nextConfig.openrouter_model;
+    }
     const interruptOn = buildInterruptOn(authorizationMode);
     if (interruptOn) {
       nextConfig.interrupt_on = interruptOn;
@@ -416,11 +457,18 @@ export async function PUT(request: NextRequest) {
       delete nextConfig.interrupt_on;
     }
 
-    const envUpdates = await buildGatewayEnvUpdates({
-      body,
-      config: nextConfig,
-      env: currentEnv,
-    });
+    const envUpdates =
+      modelProvider === "gateway"
+        ? await buildGatewayEnvUpdates({
+            body,
+            config: nextConfig,
+            env: currentEnv,
+          })
+        : buildOpenRouterEnvUpdates({
+            body,
+            config: nextConfig,
+            env: currentEnv,
+          });
     await writeConfig(nextConfig);
     await writeEnvValues(envUpdates);
     if (shouldUpdateWorkspace) {
@@ -563,6 +611,48 @@ async function buildGatewayEnvUpdates({
   };
 }
 
+function buildOpenRouterEnvUpdates({
+  body,
+  config,
+  env,
+}: {
+  body: UpdateConfigRequest;
+  config: AgentConfig;
+  env: Record<string, string>;
+}) {
+  const existingOpenRouterKey =
+    env.OPENROUTER_API_KEY ||
+    (env.INTERNAGENTS_MODEL_PROVIDER === "openrouter"
+      ? env.OPENAI_API_KEY
+      : "");
+  const apiKey =
+    normalizeApiKey(body.openrouterApiKey) || existingOpenRouterKey;
+  if (!apiKey) {
+    throw new Error("请填写 OpenRouter API Key。");
+  }
+
+  const model = normalizeOpenRouterModel(
+    config.openrouter_model || body.model || DEFAULT_OPENROUTER_MODEL
+  );
+  config.openrouter_direct_enabled = true;
+  config.openrouter_model = model;
+  delete config.gateway_base_url;
+  delete config.gateway_model;
+
+  return {
+    INTERNAGENTS_MODEL_PROVIDER: "openrouter",
+    LLM_PROVIDER: "openrouter",
+    LLM_MODEL: model,
+    DEEPAGENT_MODEL: `openrouter:${model}`,
+    OPENROUTER_API_KEY: apiKey,
+    OPENROUTER_API_BASE: OPENROUTER_API_BASE_URL,
+    OPENROUTER_BASE_URL: OPENROUTER_API_BASE_URL,
+    OPENAI_API_KEY: apiKey,
+    OPENAI_BASE_URL: OPENROUTER_API_BASE_URL,
+    OPENAI_API_BASE: OPENROUTER_API_BASE_URL,
+  };
+}
+
 async function requestGatewayBootstrap({
   gatewayUrl,
   email,
@@ -620,7 +710,7 @@ async function requestGatewayBootstrap({
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("集思绑定超时，请稍后重试。");
+      throw new Error("集思绑定超时，请稍后重试。", { cause: error });
     }
     throw error;
   } finally {
