@@ -31,12 +31,10 @@ type TourEventDetail = {
 const QUICKSTART_COMPLETED_KEY = "internagents.quickstart.completed.v1";
 const QUICKSTART_STEP_KEY = "internagents.quickstart.step.v1";
 const QUICKSTART_ONBOARDING_ENDPOINT = "/api/onboarding/quickstart";
-const INTRO_COMPLETE_EVENT = "internagents.intro.complete";
 const WORKBENCH_HREF = "/?assistantId=agent";
 const WORKBENCH_PARAM_KEYS = ["resourceId", "assistantId", "workspaceId"];
 
-type IntroWindow = Window & {
-  __internagentsIntroComplete?: boolean;
+type RuntimeWindow = Window & {
   __INTERNAGENTS_RUNTIME_CONFIG__?: {
     desktopMode?: boolean;
   };
@@ -100,7 +98,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
   {
     id: "config-model",
     route: "/config",
-    target: '[data-tour="config-header"]',
+    target: '[data-tour="config-model"]',
     title: "配置页",
     body: "这里集中管理模型、工作区、授权和界面设置。默认自动模型选择就可以直接使用，只有需要自定义模型时再修改。",
   },
@@ -166,16 +164,12 @@ function removeStoredStep() {
   }
 }
 
-function hasIntroCompleted() {
-  return Boolean((window as IntroWindow).__internagentsIntroComplete);
-}
-
 function isDesktopRuntime() {
   if (typeof window === "undefined") {
     return false;
   }
   return Boolean(
-    (window as IntroWindow).__INTERNAGENTS_RUNTIME_CONFIG__?.desktopMode
+    (window as RuntimeWindow).__INTERNAGENTS_RUNTIME_CONFIG__?.desktopMode
   );
 }
 
@@ -252,10 +246,6 @@ export function QuickstartTour() {
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [targetMissing, setTargetMissing] = useState(false);
-  const [introComplete, setIntroComplete] = useState(false);
-  const [pendingStart, setPendingStart] = useState<TourEventDetail | null>(
-    null
-  );
   const [autoStartGate, setAutoStartGate] = useState<AutoStartGate>(
     getInitialAutoStartGate
   );
@@ -271,11 +261,6 @@ export function QuickstartTour() {
   );
 
   const startTour = useCallback((detail?: TourEventDetail) => {
-    if (!introComplete) {
-      setPendingStart(detail || {});
-      return;
-    }
-
     if (!detail?.restart && !detail?.force && readCompleted()) {
       return;
     }
@@ -299,38 +284,10 @@ export function QuickstartTour() {
     }
     setStepIndex(nextIndex);
     setActive(true);
-  }, [introComplete]);
-
-  useEffect(() => {
-    if (hasIntroCompleted()) {
-      setIntroComplete(true);
-      return;
-    }
-
-    function handleIntroComplete() {
-      setIntroComplete(true);
-    }
-
-    window.addEventListener(INTRO_COMPLETE_EVENT, handleIntroComplete);
-    return () => {
-      window.removeEventListener(INTRO_COMPLETE_EVENT, handleIntroComplete);
-    };
   }, []);
 
   useEffect(() => {
-    if (!introComplete || pendingStart === null) {
-      return;
-    }
-
-    const detail = pendingStart;
-    setPendingStart(null);
-    startTour(detail);
-  }, [introComplete, pendingStart, startTour]);
-
-  useEffect(() => {
     if (
-      !introComplete ||
-      pendingStart !== null ||
       autoStartGate === "pending" ||
       autoStartGate === "desktop"
     ) {
@@ -341,7 +298,7 @@ export function QuickstartTour() {
       setStepIndex(readStoredStepIndex());
       setActive(true);
     }
-  }, [active, autoStartGate, introComplete, pathname, pendingStart]);
+  }, [active, autoStartGate, pathname]);
 
   const endTour = useCallback(() => {
     writeCompleted(true);

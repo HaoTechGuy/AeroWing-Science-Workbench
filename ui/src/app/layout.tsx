@@ -1,7 +1,6 @@
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "sonner";
 import { QuickstartTour } from "@/components/onboarding/QuickstartTour";
-import { WaterRippleIntro } from "@/components/WaterRippleIntro";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
@@ -14,6 +13,22 @@ const themeBootstrapScript = `
     document.documentElement.setAttribute("data-joy-color-scheme", theme);
   } catch {
     document.documentElement.dataset.theme = "light";
+  }
+})();
+`;
+
+const startupSplashDismissScript = `
+(() => {
+  const markReady = () => {
+    document.body.dataset.internagentsStartup = "ready";
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      requestAnimationFrame(markReady);
+    }, { once: true });
+  } else {
+    requestAnimationFrame(markReady);
   }
 })();
 `;
@@ -37,9 +52,17 @@ export default function RootLayout({
         className="min-h-screen bg-background text-foreground"
         suppressHydrationWarning
       >
-        <script src="/api/runtime/desktop-config" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
-        <WaterRippleIntro />
+        <div
+          id="internagents-startup-splash"
+          className="internagents-startup-splash"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="internagents-startup-splash__spinner" />
+          <span>InternAgents正在启动中...</span>
+        </div>
+        <script src="/api/runtime/desktop-config" />
         <NuqsAdapter>
           <div className="min-h-[calc(100vh-var(--app-footer-height))]">
             {children}
@@ -50,6 +73,9 @@ export default function RootLayout({
         </footer>
         <QuickstartTour />
         <Toaster />
+        <script
+          dangerouslySetInnerHTML={{ __html: startupSplashDismissScript }}
+        />
       </body>
     </html>
   );

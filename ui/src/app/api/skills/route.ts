@@ -34,7 +34,7 @@ export async function PUT(request: NextRequest) {
       {
         ...skillsConfig,
         requiresRestart: true,
-        message: "技能配置已保存，将在空闲时自动应用。",
+        message: "技能配置已保存，应用后生效。",
       }
     );
   } catch (error) {

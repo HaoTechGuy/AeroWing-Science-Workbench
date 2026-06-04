@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -30,7 +30,11 @@ import {
   type ThemeMode,
 } from "@/lib/theme";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
-import { SkillsConfigCard } from "@/app/config/components/SkillsConfigCard";
+import {
+  SkillsConfigCard,
+  type SkillsConfigCardHandle,
+  type SkillsConfigCardState,
+} from "@/app/config/components/SkillsConfigCard";
 import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 
 type AuthorizationMode = "auto" | "write" | "all";
@@ -277,6 +281,7 @@ function priceSummary(option: GatewayModelOption) {
 
 function ConfigPageContent() {
   const searchParams = useSearchParams();
+  const skillsConfigRef = useRef<SkillsConfigCardHandle>(null);
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] =
     useState<ConfigResponse>(DEFAULT_CONFIG);
@@ -300,9 +305,14 @@ function ConfigPageContent() {
   const [gatewayModelsError, setGatewayModelsError] = useState<string | null>(
     null
   );
+  const [skillsState, setSkillsState] = useState<SkillsConfigCardState>({
+    hasChanges: false,
+    isBusy: false,
+    requiresRestart: false,
+  });
 
   const actionBusy = loading || saving || restarting;
-  const isBusy = actionBusy || checkingStatus;
+  const isBusy = actionBusy || checkingStatus || skillsState.isBusy;
   const hasChanges = useMemo(() => {
     return (
       config.modelProvider !== savedConfig.modelProvider ||
@@ -366,6 +376,8 @@ function ConfigPageContent() {
     savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
   ]);
+  const hasAnyChanges = hasChanges || skillsState.hasChanges;
+  const hasPendingRestart = requiresRestart || skillsState.requiresRestart;
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
   const onboardingMode = onboardingRequested || config.needsOnboarding;
@@ -406,7 +418,7 @@ function ConfigPageContent() {
   }
 
   async function saveConfig(
-    options: { scheduleIdle?: boolean } = {}
+    options: { scheduleIdle?: boolean; silent?: boolean } = {}
   ): Promise<{ saved: boolean; needsRestart: boolean }> {
     const scheduleIdle = options.scheduleIdle ?? true;
     const needsRestart = restartSensitiveChanged;
@@ -454,13 +466,15 @@ function ConfigPageContent() {
       setBackendStatus(null);
       setRestartResult(null);
       setAutoRestart(scheduleIdle && needsRestart);
-      toast.success(
-        needsRestart
-          ? scheduleIdle
-            ? "配置已保存，将在空闲时自动应用"
-            : "配置已保存"
-          : "工作区已保存，已热切换"
-      );
+      if (!options.silent) {
+        toast.success(
+          needsRestart
+            ? scheduleIdle
+              ? "配置已保存，将在空闲时自动应用"
+              : "配置已保存"
+            : "工作区已保存，已热切换"
+        );
+      }
       return { saved: true, needsRestart };
     } catch (saveError) {
       const message =
@@ -528,6 +542,7 @@ function ConfigPageContent() {
 
       setAutoRestart(false);
       setBackendStatus(null);
+      skillsConfigRef.current?.markApplied();
       toast.success(restart.message || "配置已应用");
       if (redirectHome) {
         window.location.href = "/?assistantId=agent_local";
@@ -544,12 +559,64 @@ function ConfigPageContent() {
     }
   }
 
+  async function saveUnifiedConfig(): Promise<{
+    saved: boolean;
+    needsRestart: boolean;
+  }> {
+    let configResult = {
+      saved: true,
+      needsRestart: requiresRestart,
+    };
+    if (hasChanges) {
+      configResult = await saveConfig({ scheduleIdle: false, silent: true });
+      if (!configResult.saved) {
+        return { saved: false, needsRestart: false };
+      }
+    }
+
+    let skillsResult = {
+      saved: true,
+      needsRestart: skillsState.requiresRestart,
+    };
+    if (skillsState.hasChanges) {
+      const skillsConfig = skillsConfigRef.current;
+      if (!skillsConfig) {
+        toast.error("技能配置尚未加载完成。");
+        return { saved: false, needsRestart: false };
+      }
+      skillsResult = await skillsConfig.save({ silent: true });
+      if (!skillsResult.saved) {
+        return { saved: false, needsRestart: false };
+      }
+    }
+
+    return {
+      saved: true,
+      needsRestart:
+        configResult.needsRestart ||
+        skillsResult.needsRestart ||
+        requiresRestart ||
+        skillsState.requiresRestart,
+    };
+  }
+
   async function applyWhenIdle() {
-    await saveConfig({ scheduleIdle: true });
+    const result = await saveUnifiedConfig();
+    if (!result.saved) {
+      return;
+    }
+
+    if (result.needsRestart) {
+      setAutoRestart(true);
+      toast.success("配置已保存，将在空闲时自动应用");
+      return;
+    }
+
+    toast.success("配置已保存");
   }
 
   async function applyNow() {
-    const result = await saveConfig({ scheduleIdle: false });
+    const result = await saveUnifiedConfig();
     if (result.saved && result.needsRestart) {
       await restartBackendNow({ manual: true });
     }
@@ -594,7 +661,13 @@ function ConfigPageContent() {
   }, []);
 
   useEffect(() => {
-    if (!autoRestart || !requiresRestart || hasChanges || actionBusy) {
+    if (
+      !autoRestart ||
+      !hasPendingRestart ||
+      hasAnyChanges ||
+      actionBusy ||
+      skillsState.isBusy
+    ) {
       return;
     }
 
@@ -618,7 +691,13 @@ function ConfigPageContent() {
       window.clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRestart, requiresRestart, hasChanges, actionBusy]);
+  }, [
+    autoRestart,
+    hasPendingRestart,
+    hasAnyChanges,
+    actionBusy,
+    skillsState.isBusy,
+  ]);
 
   useEffect(() => {
     if (loading || onboardingMode || config.modelProvider !== "gateway") {
@@ -695,9 +774,9 @@ function ConfigPageContent() {
                 onClick={applyWhenIdle}
                 disabled={!canApplyWhenIdle}
                 title={
-                  hasChanges
-                    ? "保存当前配置，并在后台空闲时自动应用。"
-                    : "后台空闲时自动重启并加载当前配置。"
+                  hasAnyChanges
+                    ? "保存当前配置和技能选择，并在后台空闲时自动应用。"
+                    : "后台空闲时自动重启并加载当前配置和技能。"
                 }
                 className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
               >
@@ -713,7 +792,7 @@ function ConfigPageContent() {
                 size="sm"
                 onClick={() => void applyNow()}
                 disabled={!canApplyNow}
-                title="保存配置并立即应用。"
+                title="保存当前配置和技能选择并立即应用。"
                 className="h-9"
               >
                 {restarting ? (
@@ -772,9 +851,9 @@ function ConfigPageContent() {
           {!onboardingMode && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>
-                模型和授权模式需要重启后端后生效；技能在技能卡片中单独应用；工作区和界面风格会立即生效。
+                模型、授权模式和技能需要重启后端后生效；工作区和界面风格会立即生效。
               </span>
-              {requiresRestart && !hasChanges && (
+              {hasPendingRestart && !hasAnyChanges && (
                 <span className="text-amber-700">有配置等待应用。</span>
               )}
               {restartResult && (
@@ -1261,7 +1340,10 @@ function ConfigPageContent() {
                 </div>
               </section>
 
-              <SkillsConfigCard />
+              <SkillsConfigCard
+                ref={skillsConfigRef}
+                onStateChange={setSkillsState}
+              />
 
               <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-start gap-3">
