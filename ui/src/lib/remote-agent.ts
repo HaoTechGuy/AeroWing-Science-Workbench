@@ -84,6 +84,16 @@ function splitRawEvent(rawEvent: string): {
   };
 }
 
+function shouldForwardEventToUseStream(rawEvent: string): boolean {
+  const { mode, namespace } = splitRawEvent(rawEvent);
+  if (!namespace?.length) {
+    return true;
+  }
+
+  // Keep subgraph message chunks in streamEvents, but out of the top-level chat reducer.
+  return mode !== "messages" && mode !== "messages-tuple";
+}
+
 export class WebRemoteAgent {
   readonly url: string;
   readonly graphName: string;
@@ -197,7 +207,9 @@ export class WebRemoteAgent {
         typeof args[0] === "string" || args[0] === null ? args[0] : undefined;
       for await (const event of originalStream(...args)) {
         this.captureSdkEvent(event, threadId);
-        yield event;
+        if (shouldForwardEventToUseStream(event.event)) {
+          yield event;
+        }
       }
     }.bind(this);
 
@@ -209,7 +221,9 @@ export class WebRemoteAgent {
         typeof args[0] === "string" || args[0] === null ? args[0] : undefined;
       for await (const event of originalJoinStream(...args)) {
         this.captureSdkEvent(event, threadId);
-        yield event;
+        if (shouldForwardEventToUseStream(event.event)) {
+          yield event;
+        }
       }
     }.bind(this);
   }

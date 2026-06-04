@@ -644,7 +644,7 @@ export async function updateSkillsConfig(
     activePath: nextSettings.activePath,
     selected: nextSettings.selected,
     skills,
-    message: "技能配置已保存，将在空闲时自动应用。",
+    message: "技能配置已保存，应用后生效。",
   };
 }
 

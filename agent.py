@@ -590,6 +590,70 @@ def _sanitize_remote_runtime_config(config: RunnableConfig) -> RunnableConfig:
     return sanitized
 
 
+def _string_from_error_body(body: Any) -> str | None:
+    if isinstance(body, dict):
+        for key in ("message", "detail", "error"):
+            value = body.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, dict):
+                nested = _string_from_error_body(value)
+                if nested:
+                    return nested
+    if isinstance(body, str) and body.strip():
+        return body.strip()
+    return None
+
+
+def _remote_runtime_exception_message(resource: ResourceConfig, error: Exception) -> str:
+    body = getattr(error, "body", None)
+    if isinstance(body, dict) and (body_message := _string_from_error_body(body)):
+        return body_message
+
+    for arg in getattr(error, "args", ()):
+        if isinstance(arg, dict) and (arg_message := _string_from_error_body(arg)):
+            return arg_message
+
+    string_candidates = [
+        body if isinstance(body, str) else "",
+        *[arg for arg in getattr(error, "args", ()) if isinstance(arg, str)],
+        str(error),
+    ]
+    message = next(
+        (candidate.strip() for candidate in string_candidates if candidate.strip()),
+        "",
+    )
+    if (
+        any("Response validation failed" in candidate for candidate in string_candidates)
+        and any("body.error.code" in candidate for candidate in string_candidates)
+    ):
+        return (
+            "远端 runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应"
+            "（error.code 为 null）。请查看远端 runtime 日志获取真实失败原因。"
+        )
+
+    if message:
+        return message
+
+    return f"远端 runtime {resource.id!r} 返回了空错误。请查看 runtime 日志。"
+
+
+async def _invoke_remote_runtime(
+    remote: RemoteGraph,
+    resource: ResourceConfig,
+    state: InternAgentState,
+    config: RunnableConfig,
+) -> Any:
+    try:
+        return await remote.ainvoke(
+            _normalize_state_for_remote_runtime(state),
+            config=_sanitize_remote_runtime_config(config),
+        )
+    except Exception as exc:
+        message = _remote_runtime_exception_message(resource, exc)
+        raise RuntimeError(message) from exc
+
+
 def _goal_status(state: dict[str, Any]) -> str | None:
     goal = state.get("goal")
     status = goal.get("status") if isinstance(goal, dict) else None
@@ -676,10 +740,9 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             state: InternAgentState,
             config: RunnableConfig,
         ) -> dict[str, Any]:
-            result = await remote.ainvoke(
-                _normalize_state_for_remote_runtime(state),
-                config=_sanitize_remote_runtime_config(config),
-            )
+            result = await _invoke_remote_runtime(remote, resource, state, config)
+            if not isinstance(result, dict):
+                raise RuntimeError("远端 runtime 没有返回有效的 LangGraph 状态。")
             return _with_goal_continuation_accounting(dict(state), result)
 
         graph = StateGraph(InternAgentState)

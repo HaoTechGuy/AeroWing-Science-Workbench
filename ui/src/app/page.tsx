@@ -83,6 +83,32 @@ function isLocalDeploymentUrl(value: string): boolean {
   }
 }
 
+async function isLocalBackendReady(deploymentUrl: string): Promise<boolean> {
+  try {
+    const params = new URLSearchParams({ url: deploymentUrl });
+    const response = await fetch(`/api/runtime/backend/ready?${params}`, {
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      ready?: boolean;
+    } | null;
+    return response.ok && payload?.ready === true;
+  } catch {
+    return false;
+  }
+}
+
+function StartupState() {
+  return (
+    <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span>InternAgents正在启动中...</span>
+      </div>
+    </div>
+  );
+}
+
 interface HomePageInnerProps {
   config: StandaloneConfig;
   activeResource: ResourceConfig;
@@ -816,11 +842,13 @@ function HomePageInner({
 function HomePageContent() {
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
   const [workspaces, setWorkspaces] = useState<LocalWorkspace[]>([]);
+  const [localBackendReady, setLocalBackendReady] = useState(false);
   const [assistantId, setAssistantId] = useQueryState("assistantId");
   const [resourceId, setResourceId] = useQueryState("resourceId");
   const [workspaceId, setWorkspaceId] = useQueryState("workspaceId");
   const [threadId, setThreadId] = useQueryState("threadId");
   const previousResourceId = useRef<string | null>(null);
+  const deploymentUrl = config?.deploymentUrl;
 
   const refreshResources = useCallback(
     async (knownResources?: ResourceConfig[]) => {
@@ -875,20 +903,7 @@ function HomePageContent() {
   useEffect(() => {
     let cancelled = false;
 
-    async function initialize() {
-      try {
-        const response = await fetch("/api/config", { cache: "no-store" });
-        const payload = (await response.json()) as {
-          needsOnboarding?: boolean;
-        };
-        if (!cancelled && response.ok && payload.needsOnboarding) {
-          window.location.replace("/config?onboarding=1");
-          return;
-        }
-      } catch {
-        // The workspace can still render config errors through its own panels.
-      }
-
+    function initialize() {
       if (cancelled) {
         return;
       }
@@ -918,13 +933,50 @@ function HomePageContent() {
       }
     }
 
-    void initialize();
+    initialize();
 
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!deploymentUrl) {
+      setLocalBackendReady(false);
+      return;
+    }
+
+    if (!isLocalDeploymentUrl(deploymentUrl)) {
+      setLocalBackendReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId = 0;
+
+    setLocalBackendReady(false);
+
+    const poll = async () => {
+      if (await isLocalBackendReady(deploymentUrl)) {
+        if (!cancelled) {
+          setLocalBackendReady(true);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        timeoutId = window.setTimeout(poll, 800);
+      }
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [deploymentUrl]);
 
   useEffect(() => {
     if (!config) return;
@@ -971,13 +1023,11 @@ function HomePageContent() {
     config?.langsmithApiKey || process.env.NEXT_PUBLIC_LANGSMITH_API_KEY || "";
 
   if (!config) {
-    return (
-      <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
-        <p className="text-muted-foreground">
-          Connecting to local InternAgents...
-        </p>
-      </div>
-    );
+    return <StartupState />;
+  }
+
+  if (isLocalDeploymentUrl(config.deploymentUrl) && !localBackendReady) {
+    return <StartupState />;
   }
 
   const activeResource = getResource(config, resourceId);
@@ -1083,7 +1133,7 @@ export default function HomePage() {
     <Suspense
       fallback={
         <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
-          <p className="text-muted-foreground">Loading...</p>
+          <p className="text-muted-foreground">InternAgents正在启动中...</p>
         </div>
       }
     >

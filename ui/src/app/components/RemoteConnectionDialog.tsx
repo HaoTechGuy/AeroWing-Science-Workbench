@@ -21,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import type { ResourceConfig } from "@/lib/config";
 
 type ConnectionMode = "sshConfig" | "sshCommand";
@@ -91,7 +90,6 @@ export function RemoteConnectionDialog({
   const [label, setLabel] = useState("");
   const [workspace, setWorkspace] = useState("");
   const [localPort, setLocalPort] = useState("");
-  const [copyEnv, setCopyEnv] = useState(false);
   const [installMode, setInstallMode] = useState<RemoteInstallMode>("auto");
   const [pythonPath, setPythonPath] = useState("");
   const [condaCommand, setCondaCommand] = useState("");
@@ -210,7 +208,6 @@ export function RemoteConnectionDialog({
           label,
           workspace,
           localPort: Number.isFinite(port) && port > 0 ? port : undefined,
-          copyEnv,
           installMode,
           pythonPath: pythonPath.trim() || undefined,
           condaCommand: condaCommand.trim() || undefined,
@@ -485,22 +482,15 @@ export function RemoteConnectionDialog({
         </div>
 
         <div className="rounded-lg border border-border bg-muted/30 p-3">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="mt-0.5 h-4 w-4 flex-none text-[#2F6868]" />
             <div className="min-w-0 space-y-1">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <ShieldCheck className="h-4 w-4 text-[#2F6868]" />
-                同步模型配置到远端
-              </div>
+              <div className="text-sm font-medium">自动同步本机运行配置</div>
               <p className="text-xs leading-5 text-muted-foreground">
-                开启后，会把本机用于模型调用的配置同步到远端，让远端也能直接使用模型。
-                这些配置可能包含 API Key，请只在信任的远端机器上开启。关闭后，远端需要自己配置好模型环境，否则运行任务时可能无法调用模型。
+                首次接入和每次切换到远端工作区时，都会同步本机 .env 和
+                deepagent.config.json。配置可能包含 API Key，请只连接信任的远端机器。
               </p>
             </div>
-            <Switch
-              checked={copyEnv}
-              onCheckedChange={setCopyEnv}
-              aria-label="同步模型配置到远端"
-            />
           </div>
         </div>
 

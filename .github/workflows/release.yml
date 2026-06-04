@@ -8,7 +8,7 @@ on:
     inputs:
       base_version:
         description: "Base desktop version for test releases, for example 0.1.5"
-        required: true
+        required: false
         default: "0.1.5"
       release_notes:
         description: "Optional extra notes for the test release"
@@ -21,13 +21,15 @@ permissions:
 jobs:
   metadata:
     name: Prepare release metadata
-    if: github.event_name == 'workflow_dispatch' || github.repository == 'InternScience/InternAgents'
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     outputs:
       desktop_version: ${{ steps.release.outputs.desktop_version }}
       is_test_release: ${{ steps.release.outputs.is_test_release }}
       release_repo: ${{ steps.release.outputs.release_repo }}
       release_tag: ${{ steps.release.outputs.release_tag }}
+      source_repository: ${{ steps.release.outputs.source_repository }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
       source_label: ${{ steps.release.outputs.source_label }}
       extra_notes: ${{ steps.release.outputs.extra_notes }}
 
@@ -59,7 +61,9 @@ jobs:
             release_tag="v${desktop_version}"
             release_repo="${GITHUB_REPOSITORY}"
             is_test_release="true"
-            source_label="${GITHUB_REF_NAME}@${GITHUB_SHA}"
+            source_repository="${GITHUB_REPOSITORY}"
+            source_ref="${GITHUB_REF_NAME}"
+            source_label="${GITHUB_REPOSITORY}@${GITHUB_REF_NAME} (${GITHUB_SHA})"
           else
             tag="${GITHUB_REF_NAME}"
             if ! [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
@@ -69,9 +73,15 @@ jobs:
 
             desktop_version="${BASH_REMATCH[1]}"
             release_tag="$tag"
-            release_repo="${GITHUB_REPOSITORY}"
+            if [ "${GITHUB_REPOSITORY}" = "InternScience/InternAgents" ]; then
+              release_repo="${GITHUB_REPOSITORY}"
+            else
+              release_repo="InternScience/InternAgents"
+            fi
             is_test_release="false"
-            source_label="$tag"
+            source_repository="${GITHUB_REPOSITORY}"
+            source_ref="$tag"
+            source_label="${GITHUB_REPOSITORY}@${tag}"
           fi
 
           {
@@ -79,6 +89,8 @@ jobs:
             echo "is_test_release=$is_test_release"
             echo "release_repo=$release_repo"
             echo "release_tag=$release_tag"
+            echo "source_repository=$source_repository"
+            echo "source_ref=$source_ref"
             echo "source_label=$source_label"
             {
               echo "extra_notes<<EOF"
@@ -90,6 +102,8 @@ jobs:
           printf 'Release repo: %s\n' "$release_repo"
           printf 'Release tag: %s\n' "$release_tag"
           printf 'Desktop version: %s\n' "$desktop_version"
+          printf 'Source repository: %s\n' "$source_repository"
+          printf 'Source ref: %s\n' "$source_ref"
 
   build:
     name: Build macOS DMG (${{ matrix.arch }})
@@ -107,6 +121,10 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -222,6 +240,10 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -345,6 +367,17 @@ jobs:
             exit 1
           fi
 
+      - name: Require cross-repository release token
+        if: needs.metadata.outputs.is_test_release != 'true' && needs.metadata.outputs.release_repo != github.repository
+        env:
+          INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
+          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
+        run: |
+          if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
+            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in ${GITHUB_REPOSITORY} with Contents write access to ${INTERNAGENTS_RELEASE_REPO}."
+            exit 1
+          fi
+
       - name: Download desktop artifacts
         uses: actions/download-artifact@v8
         with:
@@ -354,7 +387,7 @@ jobs:
 
       - name: Publish binary release
         env:
-          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
         run: |
           shopt -s nullglob
           dmg_assets=(release-assets/InternAgents-*.dmg)

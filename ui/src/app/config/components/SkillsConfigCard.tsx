@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
 import {
   Check,
   CloudDownload,
+  ExternalLink,
   FolderCog,
   FolderPlus,
   Loader2,
-  Save,
-  ServerCog,
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,12 +24,32 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type {
-  BackendRestartResult,
-  BackendStatusResult,
   ImportSkillsResponse,
   SkillImportType,
   SkillsConfigResponse,
 } from "@/app/skills/types";
+
+export interface SkillsConfigCardState {
+  hasChanges: boolean;
+  isBusy: boolean;
+  requiresRestart: boolean;
+}
+
+export interface SkillsConfigSaveResult {
+  saved: boolean;
+  needsRestart: boolean;
+}
+
+export interface SkillsConfigCardHandle {
+  save: (options?: {
+    silent?: boolean;
+  }) => Promise<SkillsConfigSaveResult>;
+  markApplied: () => void;
+}
+
+interface SkillsConfigCardProps {
+  onStateChange?: (state: SkillsConfigCardState) => void;
+}
 
 function SkillSkeleton() {
   return (
@@ -48,22 +74,20 @@ function emptyResponse(): SkillsConfigResponse {
   };
 }
 
-export function SkillsConfigCard() {
+export const SkillsConfigCard = forwardRef<
+  SkillsConfigCardHandle,
+  SkillsConfigCardProps
+>(function SkillsConfigCard({ onStateChange }, ref) {
   const [data, setData] = useState<SkillsConfigResponse>(() => emptyResponse());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [restarting, setRestarting] = useState(false);
-  const [checkingStatus, setCheckingStatus] = useState(false);
   const [importingSkill, setImportingSkill] = useState<SkillImportType | null>(
     null
   );
   const [pickingLocalFolder, setPickingLocalFolder] = useState(false);
   const [localSource, setLocalSource] = useState("");
   const [cloudSource, setCloudSource] = useState("");
-  const [autoRestart, setAutoRestart] = useState(false);
-  const [backendStatus, setBackendStatus] =
-    useState<BackendStatusResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedCount = selected.size;
@@ -71,10 +95,9 @@ export function SkillsConfigCard() {
   const actionBusy =
     loading ||
     saving ||
-    restarting ||
     pickingLocalFolder ||
     importingSkill !== null;
-  const isBusy = actionBusy || checkingStatus;
+  const isBusy = actionBusy;
   const hasChanges = useMemo(() => {
     const initial = new Set(data.selected);
     if (draftEnabled !== data.enabled || selected.size !== initial.size) {
@@ -82,12 +105,7 @@ export function SkillsConfigCard() {
     }
     return Array.from(selected).some((key) => !initial.has(key));
   }, [data.enabled, data.selected, draftEnabled, selected]);
-  const canApplyWhenIdle = !isBusy;
-  const canApplyNow = !isBusy;
-  const restartMessage = data.restart?.message.trim();
-  const backendStatusMessage = backendStatus?.message.trim();
-  const showBackendStatus =
-    Boolean(backendStatusMessage) && backendStatusMessage !== restartMessage;
+  const requiresRestart = Boolean(data.requiresRestart);
 
   async function loadSkills() {
     setLoading(true);
@@ -110,13 +128,16 @@ export function SkillsConfigCard() {
     }
   }
 
-  async function saveSkills(
-    options: { scheduleIdle?: boolean } = {}
-  ): Promise<boolean> {
-    const scheduleIdle = options.scheduleIdle ?? true;
+  const saveSkills = useCallback(async function saveSkills(
+    options: { silent?: boolean } = {}
+  ): Promise<SkillsConfigSaveResult> {
     setSaving(true);
     setError(null);
     try {
+      if (!hasChanges) {
+        return { saved: true, needsRestart: requiresRestart };
+      }
+
       const response = await fetch("/api/skills", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -135,123 +156,20 @@ export function SkillsConfigCard() {
         requiresRestart: true,
       });
       setSelected(new Set(nextData.selected));
-      setBackendStatus(null);
-      setAutoRestart(scheduleIdle);
-      toast.success(
-        scheduleIdle
-          ? nextData.message || "技能配置已保存，将在空闲时自动应用"
-          : "技能配置已保存"
-      );
-      return true;
+      if (!options.silent) {
+        toast.success("技能配置已保存");
+      }
+      return { saved: true, needsRestart: true };
     } catch (saveError) {
       const message =
         saveError instanceof Error ? saveError.message : "技能配置保存失败";
       setError(message);
       toast.error(message);
-      return false;
+      return { saved: false, needsRestart: false };
     } finally {
       setSaving(false);
     }
-  }
-
-  async function checkBackendStatus(): Promise<BackendStatusResult> {
-    setCheckingStatus(true);
-    try {
-      const response = await fetch("/api/runtime/backend/status", {
-        cache: "no-store",
-      });
-      const status = (await response.json()) as BackendStatusResult;
-      setBackendStatus(status);
-      setData((current) => ({
-        ...current,
-        backendStatus: status,
-      }));
-      return status;
-    } finally {
-      setCheckingStatus(false);
-    }
-  }
-
-  async function restartBackendNow({ manual }: { manual: boolean }) {
-    if (manual) {
-      const status = await checkBackendStatus();
-      const confirmed = window.confirm(
-        [
-          "立即应用会重新加载技能配置。",
-          "",
-          "风险：正在运行或等待审批的任务可能中断。历史会话会保留，但当前未完成的步骤可能需要重新发送。",
-          "",
-          status.status === "idle"
-            ? "当前检测结果：后台空闲。确认立即应用？"
-            : `当前检测结果：${status.message} 确认仍然立即应用？`,
-        ].join("\n")
-      );
-      if (!confirmed) {
-        return;
-      }
-    }
-
-    setRestarting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/runtime/backend/restart", {
-        method: "POST",
-      });
-      const restart = (await response.json()) as BackendRestartResult;
-      setData((current) => ({
-        ...current,
-        requiresRestart: restart.status !== "restarted",
-        restart,
-      }));
-
-      if (!response.ok || restart.status !== "restarted") {
-        throw new Error(restart.message || "后台重启失败");
-      }
-
-      setAutoRestart(false);
-      setBackendStatus({
-        status: "idle",
-        message: "技能配置已应用。",
-        url: restart.url,
-        busyThreads: 0,
-        interruptedThreads: 0,
-      });
-      toast.success(restart.message || "技能配置已应用");
-    } catch (restartError) {
-      const message =
-        restartError instanceof Error ? restartError.message : "技能配置应用失败";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setRestarting(false);
-    }
-  }
-
-  async function applyWhenIdle() {
-    if (hasChanges) {
-      await saveSkills({ scheduleIdle: true });
-      return;
-    }
-
-    setData((current) => ({
-      ...current,
-      requiresRestart: true,
-    }));
-    setBackendStatus(null);
-    setAutoRestart(true);
-    toast.success("将在后台空闲时自动应用当前技能配置");
-  }
-
-  async function applyNow() {
-    if (hasChanges) {
-      const saved = await saveSkills({ scheduleIdle: false });
-      if (!saved) {
-        return;
-      }
-    }
-
-    await restartBackendNow({ manual: true });
-  }
+  }, [draftEnabled, hasChanges, requiresRestart, selected]);
 
   function toggleSkill(key: string, checked: boolean) {
     const next = new Set(selected);
@@ -356,38 +274,36 @@ export function SkillsConfigCard() {
     void loadSkills();
   }, []);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      save: saveSkills,
+      markApplied: () => {
+        setData((current) => ({
+          ...current,
+          requiresRestart: false,
+          restart: undefined,
+          backendStatus: undefined,
+        }));
+      },
+    }),
+    [saveSkills]
+  );
+
   useEffect(() => {
-    if (!autoRestart || !data.requiresRestart || hasChanges || actionBusy) {
-      return;
-    }
-
-    let cancelled = false;
-    const checkAndRestart = async () => {
-      try {
-        const status = await checkBackendStatus();
-        if (!cancelled && status.status === "idle") {
-          await restartBackendNow({ manual: false });
-        }
-      } catch {
-        // Keep polling; the visible status panel will update on the next success.
-      }
-    };
-    void checkAndRestart();
-    const interval = window.setInterval(checkAndRestart, 5000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRestart, data.requiresRestart, hasChanges, actionBusy]);
+    onStateChange?.({
+      hasChanges,
+      isBusy,
+      requiresRestart,
+    });
+  }, [hasChanges, isBusy, onStateChange, requiresRestart]);
 
   return (
     <section
       className="rounded-lg border border-border bg-card p-5 shadow-sm"
       data-tour="config-skills"
     >
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="mb-4 flex items-start gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
             <Sparkles className="h-5 w-5" />
@@ -395,47 +311,18 @@ export function SkillsConfigCard() {
           <div className="min-w-0">
             <h2 className="text-base font-semibold">技能</h2>
             <div className="mt-1 text-sm text-muted-foreground">
-              选择本地可加载技能，也可以添加本地路径或云端来源。
+              选择本地可加载技能，也可以添加本地路径或云端来源；通过页面顶部按钮统一应用。
+              <a
+                href="https://scphub.intern-ai.org.cn/"
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 inline-flex items-center gap-1 font-medium text-[#2F6868] underline-offset-4 hover:underline dark:text-teal-300"
+              >
+                SCPHub 提供了 200+ 高质量科学领域技能
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
             </div>
           </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void applyWhenIdle()}
-            disabled={!canApplyWhenIdle}
-            title={
-              hasChanges
-                ? "保存当前技能选择，并在后台空闲时自动应用。"
-                : "后台空闲时自动重启并加载当前技能配置。"
-            }
-            className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            空闲应用
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void applyNow()}
-            disabled={!canApplyNow}
-            title="保存技能选择并立即应用。"
-            className="h-9"
-          >
-            {restarting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ServerCog className="h-4 w-4" />
-            )}
-            立即应用
-          </Button>
         </div>
       </div>
 
@@ -449,32 +336,8 @@ export function SkillsConfigCard() {
         <span>
           已选择 {selectedCount} 个技能。建议选择 20 个以内；新选择的技能需要应用后生效。
         </span>
-        {data.requiresRestart && !hasChanges && (
+        {requiresRestart && !hasChanges && (
           <span className="text-amber-700">有技能配置等待应用。</span>
-        )}
-        {data.restart && (
-          <span
-            className={cn(
-              data.restart.status === "restarted"
-                ? "text-green-700"
-                : "text-red-700"
-            )}
-          >
-            {data.restart.message}
-          </span>
-        )}
-        {backendStatus && showBackendStatus && (
-          <span
-            className={cn(
-              backendStatus.status === "idle"
-                ? "text-green-700"
-                : backendStatus.status === "busy"
-                ? "text-amber-700"
-                : "text-red-700"
-            )}
-          >
-            {backendStatus.message}
-          </span>
         )}
       </div>
 
@@ -608,4 +471,4 @@ export function SkillsConfigCard() {
       </div>
     </section>
   );
-}
+});
