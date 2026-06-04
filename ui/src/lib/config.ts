@@ -10,6 +10,7 @@ export interface ResourceConfig {
   id: string;
   label: string;
   assistantId: string;
+  backend?: "local_shell" | "ssh_shell";
   runtimeUrl?: string;
   workspacePath?: string;
 }
@@ -73,6 +74,10 @@ function parseResourceEnv(value: string | undefined): ResourceConfig[] | null {
           id: record.id,
           label: record.label,
           assistantId: record.assistantId,
+          backend:
+            record.backend === "local_shell" || record.backend === "ssh_shell"
+              ? record.backend
+              : undefined,
           runtimeUrl:
             typeof record.runtimeUrl === "string"
               ? record.runtimeUrl

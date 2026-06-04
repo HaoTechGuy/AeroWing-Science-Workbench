@@ -746,6 +746,68 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+function splitShellWords(value: string): string[] {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaping = false;
+
+  for (const char of value.trim()) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaping = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (escaping || quote) {
+    throw new Error("Invalid SSH command quoting.");
+  }
+  if (current) {
+    words.push(current);
+  }
+  return words;
+}
+
+function sshArgsFromCommand(sshCommand: string): string[] {
+  const words = splitShellWords(sshCommand);
+  if (words[0] !== "ssh" || words.length < 2) {
+    throw new Error("Remote workspace SSH command must start with ssh.");
+  }
+  return [
+    words[0],
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=8",
+    ...words.slice(1),
+  ];
+}
+
 async function runRemoteWorkspacePython<T>(
   resource: ResourceRecord,
   operation: string,
@@ -765,19 +827,25 @@ async function runRemoteWorkspacePython<T>(
     ignoredNames: Array.from(DEFAULT_IGNORED_NAMES),
     ...extra,
   });
-  const command = `${resource.ssh_command} ${shellQuote(
-    `python3 -c ${shellQuote(REMOTE_WORKSPACE_SCRIPT)} ${shellQuote(payload)}`
-  )}`;
+  const [sshBinary, ...sshArgs] = sshArgsFromCommand(resource.ssh_command);
+  const remoteCommand = `python3 -c ${shellQuote(
+    REMOTE_WORKSPACE_SCRIPT
+  )} ${shellQuote(payload)}`;
 
-  const { stdout } = await execFileAsync("bash", ["-lc", command], {
-    timeout: resource.timeout
-      ? resource.timeout * 1000
-      : REMOTE_WORKSPACE_TIMEOUT_MS,
-    maxBuffer: Math.max(
-      resource.max_output_bytes || 0,
-      REMOTE_WORKSPACE_MAX_BUFFER
-    ),
-  });
+  const { stdout } = await execFileAsync(
+    sshBinary,
+    [...sshArgs, remoteCommand],
+    {
+      timeout: resource.timeout
+        ? resource.timeout * 1000
+        : REMOTE_WORKSPACE_TIMEOUT_MS,
+      maxBuffer: Math.max(
+        resource.max_output_bytes || 0,
+        REMOTE_WORKSPACE_MAX_BUFFER
+      ),
+      windowsHide: true,
+    }
+  );
 
   const trimmed = stdout.trim();
   if (!trimmed) {
@@ -815,13 +883,15 @@ function runRemoteWorkspacePythonWithInput<T>(
     ignoredNames: Array.from(DEFAULT_IGNORED_NAMES),
     ...extra,
   });
-  const command = `${resource.ssh_command} ${shellQuote(
-    `python3 -c ${shellQuote(REMOTE_WORKSPACE_SCRIPT)} ${shellQuote(payload)}`
-  )}`;
+  const [sshBinary, ...sshArgs] = sshArgsFromCommand(resource.ssh_command);
+  const remoteCommand = `python3 -c ${shellQuote(
+    REMOTE_WORKSPACE_SCRIPT
+  )} ${shellQuote(payload)}`;
 
   return new Promise((resolve, reject) => {
-    const child = spawn("bash", ["-lc", command], {
+    const child = spawn(sshBinary, [...sshArgs, remoteCommand], {
       stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
     });
     const chunks: Buffer[] = [];
     const errorChunks: Buffer[] = [];

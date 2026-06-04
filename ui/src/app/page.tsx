@@ -15,6 +15,7 @@ import {
   Loader2,
   Plus,
   Settings,
+  UploadCloud,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { useSearchParams } from "next/navigation";
@@ -56,6 +57,19 @@ import { pageHrefWithWorkbenchReturn } from "@/app/utils/navigationContext";
 
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
 const ADD_REMOTE_WORKSPACE_VALUE = "__add_remote_workspace__";
+
+interface BackendCliPushResult {
+  resource: ResourceConfig;
+  resources: ResourceConfig[];
+  remoteUrl: string;
+  backendCliFingerprint: string;
+  log: string[];
+}
+
+type BackendCliPushStreamEvent =
+  | { type: "log"; message?: string }
+  | { type: "done"; result?: BackendCliPushResult }
+  | { type: "error"; error?: string };
 
 function isLocalDeploymentUrl(value: string): boolean {
   try {
@@ -123,6 +137,7 @@ function HomePageInner({
     null
   );
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
+  const [pushingBackendCli, setPushingBackendCli] = useState(false);
   const [workspacePanelCompact, setWorkspacePanelCompact] = useState(false);
   const workspacePanelRef = useRef<ImperativePanelHandle>(null);
   const [viewerPanelCompact, setViewerPanelCompact] = useState(false);
@@ -327,6 +342,10 @@ function HomePageInner({
     setWorkspaceRefreshKey((key) => key + 1);
   }, [mutateThreads]);
 
+  const isActiveSshResource =
+    activeResource.backend === "ssh_shell" ||
+    (!isActiveLocalResource && activeResource.id !== "local");
+
   const handleWorkspacePanelCompactChange = useCallback((compact: boolean) => {
     setWorkspacePanelCompact(compact);
     window.requestAnimationFrame(() => {
@@ -358,9 +377,103 @@ function HomePageInner({
     ]
   );
 
+  const handlePushBackendCli = useCallback(async () => {
+    if (!isActiveSshResource || pushingBackendCli) {
+      return;
+    }
+
+    setPushingBackendCli(true);
+    const toastId = toast.loading("Pushing backend CLI...");
+    try {
+      const response = await fetch("/api/remote-connections/push-backend-cli", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resourceId: activeResource.id, force: true }),
+      });
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/x-ndjson")) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error || "Backend CLI push failed.");
+      }
+      if (!response.body) {
+        throw new Error("Backend CLI push failed: no log stream returned.");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result: BackendCliPushResult | null = null;
+      let streamError: string | null = null;
+
+      const parseLine = (line: string): BackendCliPushStreamEvent | null => {
+        const trimmed = line.trim();
+        return trimmed
+          ? (JSON.parse(trimmed) as BackendCliPushStreamEvent)
+          : null;
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const event = parseLine(line);
+          if (event?.type === "log" && event.message) {
+            toast.loading(event.message, { id: toastId });
+          } else if (event?.type === "done" && event.result) {
+            result = event.result;
+          } else if (event?.type === "error") {
+            streamError = event.error || "Backend CLI push failed.";
+          }
+        }
+        if (done) break;
+      }
+
+      const lastEvent = parseLine(buffer);
+      if (lastEvent?.type === "log" && lastEvent.message) {
+        toast.loading(lastEvent.message, { id: toastId });
+      } else if (lastEvent?.type === "done" && lastEvent.result) {
+        result = lastEvent.result;
+      } else if (lastEvent?.type === "error") {
+        streamError = lastEvent.error || "Backend CLI push failed.";
+      }
+
+      if (streamError) {
+        throw new Error(streamError);
+      }
+      if (!result) {
+        throw new Error("Backend CLI push failed: completion event missing.");
+      }
+
+      await onResourcesRefresh(result.resources);
+      mutateThreads?.();
+      setWorkspaceRefreshKey((key) => key + 1);
+      toast.success(`${result.resource.label} backend CLI updated`, {
+        id: toastId,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Backend CLI push failed.";
+      toast.error(message, { id: toastId });
+    } finally {
+      setPushingBackendCli(false);
+    }
+  }, [
+    activeResource.id,
+    isActiveSshResource,
+    mutateThreads,
+    onResourcesRefresh,
+    pushingBackendCli,
+  ]);
+
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("internagents.quickstart.autostart"));
+      window.dispatchEvent(
+        new CustomEvent("internagents.quickstart.autostart")
+      );
     }, 300);
 
     return () => window.clearTimeout(timeoutId);
@@ -484,6 +597,23 @@ function HomePageInner({
               </SelectGroup>
             </SelectContent>
           </Select>
+          {isActiveSshResource && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 border-border bg-card"
+              disabled={pushingBackendCli}
+              onClick={() => void handlePushBackendCli()}
+            >
+              {pushingBackendCli ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UploadCloud className="h-4 w-4" />
+              )}
+              同步远端智能体
+            </Button>
+          )}
           {interruptCount > 0 && (
             <div className="rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 shadow-sm shadow-orange-900/5">
               {interruptCount} interrupted

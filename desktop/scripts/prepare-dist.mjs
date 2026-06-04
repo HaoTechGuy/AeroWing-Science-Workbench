@@ -29,6 +29,7 @@ const backendWheelhouseTargets = [
   },
 ];
 const backendSourceDistributions = new Set(["forbiddenfruit"]);
+const backendRuntimeBinaryRequirements = ["httptools>=0.5.0", "uvloop>=0.18.0"];
 const canCreatePortableSymlinks = process.platform !== "win32";
 const standaloneCopyLinkOptions = {
   verbatimSymlinks: canCreatePortableSymlinks,
@@ -81,7 +82,9 @@ function run(command, args, options = {}) {
   if (result.status !== 0) {
     if (result.error) {
       throw new Error(
-        `${resolved.executable} ${resolved.args.join(" ")} failed: ${result.error.message}`
+        `${resolved.executable} ${resolved.args.join(" ")} failed: ${
+          result.error.message
+        }`
       );
     }
     throw new Error(`${command} ${args.join(" ")} failed`);
@@ -122,7 +125,9 @@ async function prepareUiStandalone() {
 
   const standaloneSource = path.join(uiDir, ".next", "standalone");
   if (!existsSync(standaloneSource)) {
-    throw new Error("Next standalone output is missing. Check ui/next.config.ts.");
+    throw new Error(
+      "Next standalone output is missing. Check ui/next.config.ts."
+    );
   }
 
   await fs.cp(standaloneSource, uiStandaloneDir, {
@@ -136,8 +141,14 @@ async function prepareUiStandalone() {
     throw new Error("Unable to find Next standalone server.js.");
   }
 
-  await copyIfExists(path.join(uiDir, ".next", "static"), path.join(serverDir, ".next", "static"));
-  await copyIfExists(path.join(uiDir, "public"), path.join(serverDir, "public"));
+  await copyIfExists(
+    path.join(uiDir, ".next", "static"),
+    path.join(serverDir, ".next", "static")
+  );
+  await copyIfExists(
+    path.join(uiDir, "public"),
+    path.join(serverDir, "public")
+  );
   await copyIfExists(
     path.join(uiStandaloneDir, "node_modules"),
     path.join(uiStandaloneDir, "standalone_node_modules"),
@@ -150,7 +161,10 @@ async function prepareUiStandalone() {
 
 async function rewriteUiStandaloneNodeModuleSymlinks() {
   const nodeModulesDir = path.join(uiStandaloneDir, "node_modules");
-  const standaloneNodeModulesDir = path.join(uiStandaloneDir, "standalone_node_modules");
+  const standaloneNodeModulesDir = path.join(
+    uiStandaloneDir,
+    "standalone_node_modules"
+  );
   if (!existsSync(nodeModulesDir) || !existsSync(standaloneNodeModulesDir)) {
     return;
   }
@@ -177,7 +191,10 @@ async function rewriteUiStandaloneNodeModuleSymlinks() {
       return;
     }
 
-    const relativeTarget = path.relative(path.dirname(entryPath), bundledTarget);
+    const relativeTarget = path.relative(
+      path.dirname(entryPath),
+      bundledTarget
+    );
     await fs.rm(entryPath, { force: true });
     await fs.symlink(relativeTarget || path.basename(bundledTarget), entryPath);
   });
@@ -198,9 +215,12 @@ async function listPackageNames(nodeModulesDir) {
       continue;
     }
     if (entry.name.startsWith("@")) {
-      const scopedEntries = await fs.readdir(path.join(nodeModulesDir, entry.name), {
-        withFileTypes: true,
-      });
+      const scopedEntries = await fs.readdir(
+        path.join(nodeModulesDir, entry.name),
+        {
+          withFileTypes: true,
+        }
+      );
       for (const scopedEntry of scopedEntries) {
         if (scopedEntry.isDirectory()) {
           names.push(`${entry.name}/${scopedEntry.name}`);
@@ -248,7 +268,10 @@ async function ensureDirectoryLink(linkPath, targetPath) {
 }
 
 async function linkStandalonePackageDependencies() {
-  const standaloneNodeModulesDir = path.join(uiStandaloneDir, "standalone_node_modules");
+  const standaloneNodeModulesDir = path.join(
+    uiStandaloneDir,
+    "standalone_node_modules"
+  );
   if (!existsSync(standaloneNodeModulesDir)) {
     return;
   }
@@ -263,7 +286,9 @@ async function linkStandalonePackageDependencies() {
 
   for (const packageName of packageNames) {
     const currentPackagePath = packagePaths.get(packageName);
-    const manifest = await readJsonIfExists(path.join(currentPackagePath, "package.json"));
+    const manifest = await readJsonIfExists(
+      path.join(currentPackagePath, "package.json")
+    );
     if (!manifest) {
       continue;
     }
@@ -275,14 +300,21 @@ async function linkStandalonePackageDependencies() {
       }
 
       await ensureDirectoryLink(
-        packagePath(path.join(currentPackagePath, "node_modules"), dependencyName),
+        packagePath(
+          path.join(currentPackagePath, "node_modules"),
+          dependencyName
+        ),
         dependencyPath
       );
     }
   }
 }
 
-async function ensureStandalonePackage(packageName, sourceNodeModulesDir, targetNodeModulesDir) {
+async function ensureStandalonePackage(
+  packageName,
+  sourceNodeModulesDir,
+  targetNodeModulesDir
+) {
   const targetPath = packagePath(targetNodeModulesDir, packageName);
   const sourcePath = packagePath(sourceNodeModulesDir, packageName);
   if (!existsSync(sourcePath)) {
@@ -307,9 +339,15 @@ async function ensureStandalonePackage(packageName, sourceNodeModulesDir, target
 }
 
 async function copyMissingStandalonePackageDependencies() {
-  const standaloneNodeModulesDir = path.join(uiStandaloneDir, "standalone_node_modules");
+  const standaloneNodeModulesDir = path.join(
+    uiStandaloneDir,
+    "standalone_node_modules"
+  );
   const sourceNodeModulesDir = path.join(uiDir, "node_modules");
-  if (!existsSync(standaloneNodeModulesDir) || !existsSync(sourceNodeModulesDir)) {
+  if (
+    !existsSync(standaloneNodeModulesDir) ||
+    !existsSync(sourceNodeModulesDir)
+  ) {
     return;
   }
 
@@ -327,7 +365,10 @@ async function copyMissingStandalonePackageDependencies() {
     }
 
     const manifest = await readJsonIfExists(
-      path.join(packagePath(standaloneNodeModulesDir, packageName), "package.json")
+      path.join(
+        packagePath(standaloneNodeModulesDir, packageName),
+        "package.json"
+      )
     );
     if (!manifest) {
       continue;
@@ -354,7 +395,10 @@ async function copyMissingStandalonePackageDependencies() {
 async function prepareRuntimeTemplate() {
   await fs.mkdir(templateDir, { recursive: true });
   for (const entry of runtimeEntries) {
-    await copyIfExists(path.join(rootDir, entry), path.join(templateDir, entry));
+    await copyIfExists(
+      path.join(rootDir, entry),
+      path.join(templateDir, entry)
+    );
   }
   await copyIfExists(
     path.join(desktopTemplateDir, "deepagent.config.json"),
@@ -372,17 +416,27 @@ function pythonBuildBinary() {
   const candidates =
     process.platform === "win32"
       ? [
-          explicitRuntime ? path.join(explicitRuntime, "venv", "Scripts", "python.exe") : "",
-          explicitRuntime ? path.join(explicitRuntime, ".venv", "Scripts", "python.exe") : "",
-          explicitRuntime ? path.join(explicitRuntime, "Scripts", "python.exe") : "",
+          explicitRuntime
+            ? path.join(explicitRuntime, "venv", "Scripts", "python.exe")
+            : "",
+          explicitRuntime
+            ? path.join(explicitRuntime, ".venv", "Scripts", "python.exe")
+            : "",
+          explicitRuntime
+            ? path.join(explicitRuntime, "Scripts", "python.exe")
+            : "",
           explicitRuntime ? path.join(explicitRuntime, "python.exe") : "",
           path.join(rootDir, ".venv", "Scripts", "python.exe"),
           path.join(rootDir, ".conda", "python.exe"),
           "python",
         ].filter(Boolean)
       : [
-          explicitRuntime ? path.join(explicitRuntime, "venv", "bin", "python") : "",
-          explicitRuntime ? path.join(explicitRuntime, ".venv", "bin", "python") : "",
+          explicitRuntime
+            ? path.join(explicitRuntime, "venv", "bin", "python")
+            : "",
+          explicitRuntime
+            ? path.join(explicitRuntime, ".venv", "bin", "python")
+            : "",
           explicitRuntime ? path.join(explicitRuntime, "bin", "python") : "",
           path.join(rootDir, ".venv", "bin", "python"),
           path.join(rootDir, ".conda", "bin", "python"),
@@ -444,7 +498,10 @@ function requirementName(requirement) {
 async function prepareBackendWheelhouse() {
   const pythonBin = pythonBuildBinary();
   const wheelhouseDir = path.join(templateDir, backendWheelhouseDirName);
-  const requirementsPath = path.join(distDir, "backend-wheelhouse-requirements.txt");
+  const requirementsPath = path.join(
+    distDir,
+    "backend-wheelhouse-requirements.txt"
+  );
   const sourceRequirementsPath = path.join(
     distDir,
     "backend-wheelhouse-source-requirements.txt"
@@ -454,13 +511,26 @@ async function prepareBackendWheelhouse() {
     backendSourceDistributions.has(requirementName(requirement))
   );
   const binaryRequirements = requirements.filter(
-    (requirement) => !backendSourceDistributions.has(requirementName(requirement))
+    (requirement) =>
+      !backendSourceDistributions.has(requirementName(requirement))
   );
+  for (const requirement of backendRuntimeBinaryRequirements) {
+    if (
+      !binaryRequirements.some(
+        (item) => requirementName(item) === requirementName(requirement)
+      )
+    ) {
+      binaryRequirements.push(requirement);
+    }
+  }
 
   await fs.rm(wheelhouseDir, { recursive: true, force: true });
   await fs.mkdir(wheelhouseDir, { recursive: true });
   await fs.writeFile(requirementsPath, `${binaryRequirements.join("\n")}\n`);
-  await fs.writeFile(sourceRequirementsPath, `${sourceRequirements.join("\n")}\n`);
+  await fs.writeFile(
+    sourceRequirementsPath,
+    `${sourceRequirements.join("\n")}\n`
+  );
 
   for (const target of backendWheelhouseTargets) {
     const platformArgs = target.platforms.flatMap((platform) => [
@@ -545,7 +615,9 @@ async function relink(linkPath, targetName) {
     await fs.rm(linkPath, { force: true });
     await fs.symlink(targetName, linkPath);
   } catch (error) {
-    throw new Error(`Unable to create ${linkPath} -> ${targetName}: ${error.message}`);
+    throw new Error(
+      `Unable to create ${linkPath} -> ${targetName}: ${error.message}`
+    );
   }
 }
 
@@ -629,7 +701,10 @@ async function rewriteRuntimeSymlinks(sourceRoot) {
       return;
     }
 
-    const relativeTarget = path.relative(path.dirname(entryPath), bundledTarget);
+    const relativeTarget = path.relative(
+      path.dirname(entryPath),
+      bundledTarget
+    );
     await fs.rm(entryPath, { force: true });
     await fs.symlink(relativeTarget || path.basename(bundledTarget), entryPath);
   });
