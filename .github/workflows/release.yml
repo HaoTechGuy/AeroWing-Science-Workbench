@@ -18,13 +18,10 @@ on:
 permissions:
   contents: read
 
-env:
-  # Public release-only repository. The source repository only triggers CI.
-  INTERNAGENTS_OFFICIAL_RELEASE_REPO: InternScience/InternAgents
-
 jobs:
   metadata:
     name: Prepare release metadata
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'InternScience/InternAgents'
     runs-on: ubuntu-latest
     outputs:
       desktop_version: ${{ steps.release.outputs.desktop_version }}
@@ -72,7 +69,7 @@ jobs:
 
             desktop_version="${BASH_REMATCH[1]}"
             release_tag="$tag"
-            release_repo="${INTERNAGENTS_OFFICIAL_RELEASE_REPO}"
+            release_repo="${GITHUB_REPOSITORY}"
             is_test_release="false"
             source_label="$tag"
           fi
@@ -346,17 +343,7 @@ jobs:
           INTERNAGENTS_LOCAL_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN }}
         run: |
           if [ -z "$INTERNAGENTS_LOCAL_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_LOCAL_RELEASE_TOKEN in qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions."
-            exit 1
-          fi
-
-      - name: Require cross-repository release token
-        if: needs.metadata.outputs.is_test_release != 'true'
-        env:
-          INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
-        run: |
-          if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in the source repository -> Settings -> Secrets and variables -> Actions."
+            echo "::error::Set INTERNAGENTS_LOCAL_RELEASE_TOKEN in ${GITHUB_REPOSITORY} -> Settings -> Secrets and variables -> Actions."
             exit 1
           fi
 
@@ -369,7 +356,7 @@ jobs:
 
       - name: Publish binary release
         env:
-          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || secrets.INTERNAGENTS_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || github.token }}
         run: |
           shopt -s nullglob
           dmg_assets=(release-assets/InternAgents-*.dmg)

@@ -205,8 +205,9 @@ InternScience/InternAgents
 ```
 
 Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
-a public release-only repository. The source repository can stay private; the
-release repository only needs GitHub Releases with assets named like
+a different release repository. The official release repository is
+`InternScience/InternAgents`; it receives the commit and tag to build, runs the
+release workflow there, and hosts GitHub Releases with assets named like
 `InternAgents-0.1.1-arm64.dmg`, `InternAgents-0.1.1-x64.dmg`, and
 `internagents-backend-cli.tar.gz`.
 
@@ -240,24 +241,23 @@ or unavailable. Set
 `INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN` only when you need a higher
 GitHub API rate limit or intentionally use a private backend release repository.
 
-Publishing a new desktop release is tag driven. Create the tag on the branch or
-commit you want to ship, then push that tag:
+Publishing a new desktop release is tag driven from the public release
+repository. Create the tag on the branch or commit you want to ship, then push
+that tag to `InternScience/InternAgents`:
 
 ```bash
 git tag v0.1.1
-git push origin v0.1.1
+git remote add official git@github.com:InternScience/InternAgents.git
+git push official main
+git push official v0.1.1
 ```
 
 The workflow uses that tag as the App version, runs on macOS, validates Python
 files, lints and builds the UI, builds the architecture-specific DMGs, clears
-any existing uploaded release assets, and uploads both DMGs to
-`InternScience/InternAgents` together with `internagents-backend-cli.tar.gz`. If
-the workflow runs in a private source repository,
-set:
-
-```text
-Repository secret:   INTERNAGENTS_RELEASE_TOKEN=<PAT with contents:write on that repo>
-```
+any existing uploaded release assets, and uploads both DMGs plus
+`internagents-backend-cli.tar.gz` to the same `InternScience/InternAgents`
+release. The release job uses the official repository's built-in `GITHUB_TOKEN`;
+no cross-repository release PAT is required for official releases.
 
 ### Tool Display Names
 
@@ -413,32 +413,51 @@ DeepSeek and LiteLLM master keys belong only in the separate
 
 ### Publishing Desktop Releases
 
-Desktop releases are tag driven from the source repository
-`qzzqzzb/InternAgents`. Create and push a semver tag on the commit you want to
-ship:
+Desktop releases are tag driven from the public release repository
+`InternScience/InternAgents`. Create a semver tag on the commit you want to
+ship, then push the branch and tag to that repository:
 
 ```bash
 git tag v0.1.1
-git push origin v0.1.1
+git remote add official git@github.com:InternScience/InternAgents.git
+git push official main
+git push official v0.1.1
 ```
 
 The GitHub Actions workflow builds Apple Silicon (`arm64`) and Intel (`x64`)
-macOS DMGs plus Windows x64 EXE/ZIP artifacts, then publishes them to the
-public release repository `InternScience/InternAgents`. The same release also
-includes `internagents-backend-cli.tar.gz`, which SSH workspaces use to sync
-their remote backend runtime to the local app version. Because the workflow
-runs in the source repository, configure the cross-repository token there:
+macOS DMGs plus Windows x64 EXE/ZIP artifacts, then publishes them to the same
+`InternScience/InternAgents` release. The same release also includes
+`internagents-backend-cli.tar.gz`, which SSH workspaces use to sync their remote
+backend runtime to the local app version. Official releases use the official
+repository's built-in `GITHUB_TOKEN`; they do not need
+`INTERNAGENTS_RELEASE_TOKEN`.
 
-```text
-qzzqzzb/InternAgents -> Settings -> Secrets and variables -> Actions
-New repository secret:
-Name:  INTERNAGENTS_RELEASE_TOKEN
-Value: <GitHub PAT>
+If a matching official tag is pushed to `qzzqzzb/InternAgents`, the release
+workflow skips all jobs. Manual test releases can still be run there with
+`workflow_dispatch`.
+
+### Package-Only Builds
+
+Use the `Package` workflow when you want InternScience-hosted Actions to build
+desktop artifacts without creating or updating a GitHub Release. Run it
+manually in `InternScience/InternAgents` and point it at the source ref to
+package:
+
+```bash
+gh workflow run package.yml \
+  --repo InternScience/InternAgents \
+  -f source_repository=qzzqzzb/InternAgents \
+  -f source_ref=main \
+  -f desktop_version=0.1.1
 ```
 
-Recommended PAT: fine-grained token with repository access limited to
-`InternScience/InternAgents`, `Contents: Read and write`, and default `Metadata`
-read access. If using a classic token, grant `repo`.
+This starts Actions in `InternScience/InternAgents`, builds the same macOS,
+Windows, and remote backend CLI artifacts as the release workflow, and leaves
+them only as workflow artifacts. It does not publish a Release and does not
+replace any existing release assets. For a private source repository, configure
+`INTERNAGENTS_SOURCE_TOKEN` in `InternScience/InternAgents` with read access to
+that source repository. This workflow does not update the
+`InternScience/InternAgents` `main` branch.
 
 ## Smoke Tests
 
