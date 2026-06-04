@@ -16,8 +16,10 @@ const PRESERVED_RUNTIME_FILES = new Set([
 ]);
 
 let mainWindow = null;
+let splashWindow = null;
 let nextProcess = null;
 let runtimeRoot = "";
+let splashStatus = "Starting InternAgents...";
 
 app.setName("InternAgents");
 
@@ -27,6 +29,11 @@ if (!gotSingleInstanceLock) {
 }
 
 app.on("second-instance", () => {
+  if (!mainWindow && splashWindow) {
+    splashWindow.show();
+    splashWindow.focus();
+    return;
+  }
   if (!mainWindow) {
     return;
   }
@@ -46,6 +53,82 @@ function resourcesRoot() {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function splashPath() {
+  return path.join(__dirname, "splash.html");
+}
+
+function runSplashScript(script) {
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    return;
+  }
+  try {
+    splashWindow.webContents.executeJavaScript(script).catch(() => {
+      // The splash is cosmetic; startup should not depend on renderer updates.
+    });
+  } catch {
+    // The splash may be closing while the main window takes over.
+  }
+}
+
+function updateSplashStatus(message) {
+  splashStatus = message;
+  const script = `window.setSplashStatus && window.setSplashStatus(${JSON.stringify(
+    message,
+  )})`;
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    return;
+  }
+  if (splashWindow.webContents.isLoading()) {
+    splashWindow.webContents.once("did-finish-load", () => runSplashScript(script));
+    return;
+  }
+  runSplashScript(script);
+}
+
+async function createSplashWindow() {
+  if (splashWindow || mainWindow) {
+    return;
+  }
+
+  splashWindow = new BrowserWindow({
+    width: 460,
+    height: 320,
+    show: false,
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    title: "InternAgents",
+    backgroundColor: "#10131a",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+
+  await splashWindow.loadFile(splashPath());
+  updateSplashStatus(splashStatus);
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.show();
+  }
+}
+
+function closeSplashWindow() {
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    splashWindow = null;
+    return;
+  }
+  const currentSplash = splashWindow;
+  splashWindow = null;
+  currentSplash.close();
 }
 
 function requestJson(url, options = {}) {
@@ -573,6 +656,7 @@ async function createWindow(startUrl) {
     height: 980,
     minWidth: 1100,
     minHeight: 720,
+    show: false,
     title: "InternAgents",
     webPreferences: {
       contextIsolation: true,
@@ -581,26 +665,48 @@ async function createWindow(startUrl) {
     },
   });
 
+  mainWindow.once("ready-to-show", () => {
+    if (!mainWindow) {
+      return;
+    }
+    mainWindow.show();
+    mainWindow.focus();
+    closeSplashWindow();
+  });
+
   await mainWindow.loadURL(startUrl);
+  if (mainWindow && !mainWindow.isVisible()) {
+    mainWindow.show();
+    mainWindow.focus();
+    closeSplashWindow();
+  }
 }
 
 async function boot() {
+  await createSplashWindow();
+
   const root = resourcesRoot();
   const templateRoot = path.join(root, "internagents-template");
   runtimeRoot = path.join(app.getPath("userData"), "runtime");
 
+  updateSplashStatus("Preparing local workspace...");
   await copyRuntimeTemplate(templateRoot, runtimeRoot);
 
+  updateSplashStatus("Choosing local ports...");
   const uiPort = await findAvailablePort();
   const backendPort = await findAvailablePort();
   const runtimePort = await findAvailablePort();
 
+  updateSplashStatus("Preparing runtime resources...");
   await ensureRuntimeResources(runtimePort);
 
+  updateSplashStatus("Starting desktop services...");
   await startNextServer(uiPort, backendPort, runtimePort);
 
+  updateSplashStatus("Connecting local runtime...");
   await restartBackend(uiPort);
 
+  updateSplashStatus("Opening workspace...");
   const startPath = "/?assistantId=agent_local";
   await createWindow(`http://${HOST}:${uiPort}${startPath}`);
 }
@@ -608,6 +714,7 @@ async function boot() {
 if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
     boot().catch((error) => {
+      updateSplashStatus("Startup failed.");
       dialog.showErrorBox("InternAgents failed to start", error.message);
       app.quit();
     });
