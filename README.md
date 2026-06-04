@@ -425,7 +425,7 @@ git push official v0.1.1
 ```
 
 The GitHub Actions workflow builds Apple Silicon (`arm64`) and Intel (`x64`)
-macOS DMGs plus Windows x64 EXE/ZIP artifacts, then publishes them to the same
+macOS DMGs plus the Windows x64 installer, then publishes them to the same
 `InternScience/InternAgents` release. The same release also includes
 `internagents-backend-cli.tar.gz`, which SSH workspaces use to sync their remote
 backend runtime to the local app version. Official releases use the official

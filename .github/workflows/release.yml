@@ -330,15 +330,13 @@ jobs:
           npm --prefix ui run build
 
       - name: Build Windows artifacts
-        run: npm --prefix desktop run build:win:all
+        run: npm --prefix desktop run build:win
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v6
         with:
           name: internagents-windows-x64
-          path: |
-            desktop/release/InternAgents-*-x64.exe
-            desktop/release/InternAgents-*-x64.zip
+          path: desktop/release/InternAgents-*-x64.exe
           if-no-files-found: error
 
   release:
@@ -393,15 +391,15 @@ jobs:
         run: |
           shopt -s nullglob
           dmg_assets=(release-assets/InternAgents-*.dmg)
-          windows_assets=(release-assets/InternAgents-*.exe release-assets/InternAgents-*.zip)
+          windows_assets=(release-assets/InternAgents-*.exe)
           backend_assets=(release-assets/internagents-backend-cli.tar.gz)
           if [ "${#dmg_assets[@]}" -ne 2 ]; then
             printf 'Expected exactly two DMGs, found %s:\n' "${#dmg_assets[@]}"
             printf '  %s\n' "${dmg_assets[@]}"
             exit 1
           fi
-          if [ "${#windows_assets[@]}" -ne 2 ]; then
-            printf 'Expected exactly two Windows assets, found %s:\n' "${#windows_assets[@]}"
+          if [ "${#windows_assets[@]}" -ne 1 ]; then
+            printf 'Expected exactly one Windows installer, found %s:\n' "${#windows_assets[@]}"
             printf '  %s\n' "${windows_assets[@]}"
             exit 1
           fi
@@ -431,13 +429,13 @@ jobs:
 
           Release highlights:
           - macOS desktop app packaged for Apple Silicon and Intel Macs.
-          - Windows desktop app packaged as an x64 NSIS installer plus ZIP.
+          - Windows desktop app packaged as an x64 NSIS installer.
           - Remote backend CLI package for SSH workspace runtime synchronization.
           - Auto-update assets are published separately by platform and architecture.
 
           Desktop version: ${INTERNAGENTS_DESKTOP_VERSION}
           Source ref: ${INTERNAGENTS_SOURCE_LABEL}
-          Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, Windows x64 ZIP, and remote backend CLI tarball${test_update_notes}"
+          Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, and remote backend CLI tarball${test_update_notes}"
 
           if [ -n "${INTERNAGENTS_EXTRA_NOTES:-}" ]; then
             NOTES="${NOTES}

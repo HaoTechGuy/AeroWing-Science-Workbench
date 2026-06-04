@@ -72,6 +72,11 @@ type BackendCliPushStreamEvent =
   | { type: "done"; result?: BackendCliPushResult }
   | { type: "error"; error?: string };
 
+interface RuntimeConfigStatus {
+  desktopMode?: boolean;
+  needsOnboarding?: boolean;
+}
+
 function isLocalDeploymentUrl(value: string): boolean {
   try {
     const hostname = new URL(value).hostname;
@@ -93,6 +98,22 @@ async function isLocalBackendReady(deploymentUrl: string): Promise<boolean> {
       ready?: boolean;
     } | null;
     return response.ok && payload?.ready === true;
+  } catch {
+    return false;
+  }
+}
+
+async function shouldOpenOnboarding(): Promise<boolean> {
+  try {
+    const response = await fetch("/api/config", { cache: "no-store" });
+    const payload = (await response.json().catch(() => null)) as
+      | RuntimeConfigStatus
+      | null;
+    return (
+      response.ok &&
+      payload?.desktopMode === true &&
+      payload?.needsOnboarding === true
+    );
   } catch {
     return false;
   }
@@ -903,13 +924,19 @@ function HomePageContent() {
   useEffect(() => {
     let cancelled = false;
 
-    function initialize() {
+    async function initialize() {
       if (cancelled) {
         return;
       }
 
       const initialConfig = getConfig();
       setConfig(initialConfig);
+      if (await shouldOpenOnboarding()) {
+        if (!cancelled) {
+          window.location.href = "/config?onboarding=1";
+        }
+        return;
+      }
       const initialResource = getResource(initialConfig, resourceId);
       if (!resourceId && initialResource) {
         setResourceId(initialResource.id);
@@ -933,7 +960,7 @@ function HomePageContent() {
       }
     }
 
-    initialize();
+    void initialize();
 
     return () => {
       cancelled = true;

@@ -83,7 +83,6 @@ The workflow should publish a prerelease in `qzzqzzb/InternAgents` with:
 - macOS Apple Silicon DMG
 - macOS Intel DMG
 - Windows x64 NSIS installer
-- Windows x64 ZIP
 - remote backend CLI tarball: `internagents-backend-cli.tar.gz`
 
 The release notes include:
@@ -122,7 +121,6 @@ Expected workflow artifacts:
 - macOS Apple Silicon DMG
 - macOS Intel DMG
 - Windows x64 NSIS installer
-- Windows x64 ZIP
 - remote backend CLI tarball: `internagents-backend-cli.tar.gz`
 
 The workflow does not create or edit a GitHub Release. Pushing a package tag

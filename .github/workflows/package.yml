@@ -303,13 +303,11 @@ jobs:
           npm --prefix ui run build
 
       - name: Build Windows artifacts
-        run: npm --prefix desktop run build:win:all
+        run: npm --prefix desktop run build:win
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v6
         with:
           name: internagents-package-windows-${{ needs.metadata.outputs.desktop_version }}-x64
-          path: |
-            desktop/release/InternAgents-*-x64.exe
-            desktop/release/InternAgents-*-x64.zip
+          path: desktop/release/InternAgents-*-x64.exe
           if-no-files-found: error

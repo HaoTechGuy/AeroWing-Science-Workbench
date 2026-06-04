@@ -678,6 +678,78 @@ async function walk(directory, visit) {
   }
 }
 
+async function pruneWindowsUiStandalone() {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  let removedFiles = 0;
+  let removedBytes = 0;
+  await walk(uiStandaloneDir, async (entryPath, entry) => {
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".map") {
+      return;
+    }
+
+    const stat = await fs.stat(entryPath);
+    await fs.rm(entryPath, { force: true });
+    removedFiles += 1;
+    removedBytes += stat.size;
+  });
+
+  console.log(
+    `Pruned ${removedFiles} UI source map files from Windows package (${formatBytes(
+      removedBytes
+    )}).`
+  );
+}
+
+async function pruneWindowsPythonRuntime() {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  let removedFiles = 0;
+  let removedBytes = 0;
+  const pycacheDirs = [];
+  await walk(pythonRuntimeDir, async (entryPath, entry) => {
+    if (entry.isDirectory() && entry.name === "__pycache__") {
+      pycacheDirs.push(entryPath);
+      return;
+    }
+
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".pyc") {
+      return;
+    }
+
+    const stat = await fs.stat(entryPath);
+    await fs.rm(entryPath, { force: true });
+    removedFiles += 1;
+    removedBytes += stat.size;
+  });
+
+  for (const directory of pycacheDirs.sort(
+    (left, right) => right.length - left.length
+  )) {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+
+  console.log(
+    `Pruned ${removedFiles} Python bytecode files from Windows package (${formatBytes(
+      removedBytes
+    )}).`
+  );
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 async function rewriteRuntimeSymlinks(sourceRoot) {
   await walk(pythonRuntimeDir, async (entryPath, entry) => {
     if (!entry.isSymbolicLink()) {
@@ -736,10 +808,12 @@ async function main() {
   await fs.mkdir(distDir, { recursive: true });
 
   await prepareUiStandalone();
+  await pruneWindowsUiStandalone();
   await prepareRuntimeTemplate();
   await prepareBackendWheelhouse();
   await prepareBackendCliArchive();
   await preparePythonRuntime();
+  await pruneWindowsPythonRuntime();
 
   console.log(`Prepared desktop resources at ${distDir}`);
 }

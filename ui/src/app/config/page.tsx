@@ -279,6 +279,25 @@ function priceSummary(option: GatewayModelOption) {
   return `¥${option.inputPriceRmbPer1m}/百万输入 · ¥${option.outputPriceRmbPer1m}/百万输出`;
 }
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+async function waitForHomeUrl(url: string) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // Retry while the local desktop server is settling.
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  return false;
+}
+
 function ConfigPageContent() {
   const searchParams = useSearchParams();
   const skillsConfigRef = useRef<SkillsConfigCardHandle>(null);
@@ -381,6 +400,15 @@ function ConfigPageContent() {
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
   const onboardingMode = onboardingRequested || config.needsOnboarding;
+  const canFinishOnboarding =
+    !actionBusy &&
+    (config.modelProvider === "gateway"
+      ? Boolean(
+          config.gatewayEmail.trim() &&
+            config.gatewayUsername.trim() &&
+            config.gatewayInviteCode.trim()
+        )
+      : Boolean(config.openrouterApiKey.trim() || config.openrouterApiKeySet));
   const backendStatusMessage = backendStatus?.message.trim();
   const showBackendStatus = Boolean(backendStatusMessage) && !restartResult;
   const workbenchHref = useMemo(
@@ -545,7 +573,9 @@ function ConfigPageContent() {
       skillsConfigRef.current?.markApplied();
       toast.success(restart.message || "配置已应用");
       if (redirectHome) {
-        window.location.href = "/?assistantId=agent_local";
+        const homeUrl = new URL("/?assistantId=agent_local", window.location.origin);
+        await waitForHomeUrl(homeUrl.toString());
+        window.location.replace(homeUrl.toString());
       }
       return true;
     } catch (restartError) {
@@ -623,6 +653,26 @@ function ConfigPageContent() {
   }
 
   async function finishOnboarding() {
+    if (config.modelProvider === "gateway") {
+      if (!isValidEmail(config.gatewayEmail)) {
+        const message = "请输入完整邮箱，例如 name@example.com。";
+        setError(message);
+        toast.error(message);
+        return;
+      }
+      if (!config.gatewayUsername.trim() || !config.gatewayInviteCode.trim()) {
+        const message = "请填写用户名和邀请码。";
+        setError(message);
+        toast.error(message);
+        return;
+      }
+    } else if (!config.openrouterApiKey.trim() && !config.openrouterApiKeySet) {
+      const message = "请填写 OpenRouter API Key。";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
     const result = await saveConfig({ scheduleIdle: false });
     if (!result.saved) {
       return;
@@ -631,7 +681,9 @@ function ConfigPageContent() {
       await restartBackendNow({ manual: false, redirectHome: true });
       return;
     }
-    window.location.href = "/?assistantId=agent_local";
+    const homeUrl = new URL("/?assistantId=agent_local", window.location.origin);
+    await waitForHomeUrl(homeUrl.toString());
+    window.location.replace(homeUrl.toString());
   }
 
   function updateModelProvider(modelProvider: ModelProvider) {
@@ -838,6 +890,7 @@ function ConfigPageContent() {
 
         <form
           id="internagents-config-form"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             if (onboardingMode) {
@@ -1222,7 +1275,7 @@ function ConfigPageContent() {
           {onboardingMode && (
             <Button
               type="submit"
-              disabled={!canApplyNow}
+              disabled={!canFinishOnboarding}
               className="h-10 w-full bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
             >
               {saving || restarting ? (

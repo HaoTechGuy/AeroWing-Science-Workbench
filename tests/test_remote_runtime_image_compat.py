@@ -6,6 +6,8 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from agent import (
     GOAL_CONTINUATION_TURNS_KEY,
     ImageContentCompatibilityMiddleware,
+    _goal_blocked_after_remote_runtime_error,
+    _remote_runtime_exception_message,
     _route_after_remote_runtime,
     _sanitize_remote_runtime_config,
     _should_continue_goal,
@@ -158,6 +160,64 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
             _route_after_remote_runtime({"goal": {"status": "complete"}}),
             "__end__",
         )
+
+    def test_remote_runtime_error_extracts_gateway_message(self) -> None:
+        class Resource:
+            id = "local"
+
+        error = RuntimeError(
+            "Response validation failed: 1 validation error for Unmarshaller\n"
+            "body.error.code\n"
+            "  Field required [type=missing, "
+            "input_value={'message': 'Upstream request failed.'}, input_type=dict]"
+        )
+
+        self.assertEqual(
+            _remote_runtime_exception_message(Resource(), error),  # type: ignore[arg-type]
+            "模型网关上游请求失败，请稍后重试或切换模型。",
+        )
+
+    def test_goal_continuation_error_blocks_goal(self) -> None:
+        update = _goal_blocked_after_remote_runtime_error(
+            {
+                GOAL_CONTINUATION_TURNS_KEY: 1,
+                "goal": {
+                    "id": "goal-1",
+                    "objective": "say hi",
+                    "status": "active",
+                    "tokensUsed": 0,
+                    "timeUsedSeconds": 0,
+                    "createdAt": 100,
+                    "updatedAt": 100,
+                },
+            },
+            "模型网关上游请求失败，请稍后重试或切换模型。",
+        )
+
+        self.assertIsNotNone(update)
+        assert update is not None
+        self.assertEqual(update["goal"]["status"], "blocked")
+        self.assertEqual(update[GOAL_CONTINUATION_TURNS_KEY], 0)
+        self.assertIn("messages", update)
+
+    def test_first_remote_runtime_error_is_not_converted_to_blocked_goal(self) -> None:
+        update = _goal_blocked_after_remote_runtime_error(
+            {
+                GOAL_CONTINUATION_TURNS_KEY: 0,
+                "goal": {
+                    "id": "goal-1",
+                    "objective": "say hi",
+                    "status": "active",
+                    "tokensUsed": 0,
+                    "timeUsedSeconds": 0,
+                    "createdAt": 100,
+                    "updatedAt": 100,
+                },
+            },
+            "模型网关上游请求失败，请稍后重试或切换模型。",
+        )
+
+        self.assertIsNone(update)
 
     def test_model_request_middleware_normalizes_tool_image_blocks(self) -> None:
         request = ModelRequest(
