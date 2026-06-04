@@ -80,6 +80,10 @@ function localRuntimePort(): number {
   return Number(process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT || 22024);
 }
 
+function langGraphJobsPerWorker(): string {
+  return process.env.INTERNAGENTS_LANGGRAPH_JOBS_PER_WORKER || "5";
+}
+
 function isExecutable(filePath: string): boolean {
   if (IS_WINDOWS) {
     return existsSync(filePath);
@@ -559,6 +563,8 @@ async function startLangGraphServer({
     String(port),
     "--no-browser",
     "--no-reload",
+    "--n-jobs-per-worker",
+    langGraphJobsPerWorker(),
     ...(shouldAllowBlocking ? ["--allow-blocking"] : []),
     "--config",
     configFile,

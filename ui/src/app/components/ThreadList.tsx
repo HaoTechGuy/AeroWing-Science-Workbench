@@ -134,6 +134,23 @@ export function ThreadList({
   const flattened = useMemo(() => {
     return threads.data?.flat() ?? [];
   }, [threads.data]);
+  const mutateThreads = threads.mutate;
+  const hasBusyThreads = useMemo(
+    () => flattened.some((thread) => thread.status === "busy"),
+    [flattened]
+  );
+
+  useEffect(() => {
+    if (!hasBusyThreads) return;
+
+    const interval = window.setInterval(() => {
+      void mutateThreads();
+    }, 2500);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [hasBusyThreads, mutateThreads]);
 
   const isLoadingMore =
     threads.size > 0 && threads.data?.[threads.size - 1] == null;
@@ -313,7 +330,9 @@ export function ThreadList({
           <LoadingState />
         )}
 
-        {!threads.error && !threads.isLoading && isEmpty && <EmptyState />}
+        {!threads.error && !threads.isLoading && isEmpty && (
+          <EmptyState />
+        )}
 
         {!threads.error && !isEmpty && (
           <div className="box-border w-full max-w-full overflow-hidden px-4 py-2">

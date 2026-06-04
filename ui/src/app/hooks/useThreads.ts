@@ -6,6 +6,10 @@ import {
   inferThreadDescription,
   inferThreadTitle,
 } from "@/app/utils/threadTitle";
+import {
+  loadPendingRunInputPreview,
+  pendingRunValues,
+} from "@/lib/pending-run-input";
 
 export interface ThreadItem {
   id: string;
@@ -30,33 +34,60 @@ function messagesFromValues(values: unknown): any[] {
 
 async function resolveThreadValues(
   thread: Thread,
+  client: Client,
   runtimeClient: Client | null
 ): Promise<unknown> {
-  if (messagesFromValues(thread.values).length > 0 || !runtimeClient) {
+  if (messagesFromValues(thread.values).length > 0) {
     return thread.values;
   }
 
-  try {
-    const runtimeThread = await runtimeClient.threads.get(thread.thread_id);
-    if (messagesFromValues(runtimeThread.values).length > 0) {
-      return runtimeThread.values;
+  if (runtimeClient) {
+    try {
+      const runtimeState = await runtimeClient.threads.getState(
+        thread.thread_id
+      );
+      if (messagesFromValues(runtimeState.values).length > 0) {
+        return runtimeState.values;
+      }
+    } catch {
+      // Runtime state may be absent for queued runs that have not started.
     }
-  } catch {
-    // Main service history remains the source of truth when runtime is absent.
+
+    try {
+      const runtimeThread = await runtimeClient.threads.get(thread.thread_id);
+      if (messagesFromValues(runtimeThread.values).length > 0) {
+        return runtimeThread.values;
+      }
+    } catch {
+      // Main service history remains the source of truth when runtime is absent.
+    }
+
+    try {
+      const history = await runtimeClient.threads.getHistory(thread.thread_id, {
+        limit: 80,
+      });
+      const stateWithMessages = history.find(
+        (state) => messagesFromValues(state.values).length > 0
+      );
+      if (stateWithMessages) {
+        return stateWithMessages.values;
+      }
+    } catch {
+      // Keep the original thread record if runtime history cannot be read.
+    }
   }
 
-  try {
-    const history = await runtimeClient.threads.getHistory(thread.thread_id, {
-      limit: 80,
-    });
-    const stateWithMessages = history.find(
-      (state) => messagesFromValues(state.values).length > 0
-    );
-    if (stateWithMessages) {
-      return stateWithMessages.values;
-    }
-  } catch {
-    // Keep the original thread record if runtime history cannot be read.
+  const pendingRunPreview = await loadPendingRunInputPreview(
+    client,
+    thread.thread_id
+  );
+  if (pendingRunPreview) {
+    return {
+      ...(thread.values && typeof thread.values === "object"
+        ? thread.values
+        : {}),
+      ...pendingRunValues(pendingRunPreview),
+    };
   }
 
   return thread.values;
@@ -138,7 +169,11 @@ export function useThreads(props: {
       const resolvedThreads = await Promise.all(
         threads.map(async (thread) => ({
           thread,
-          values: await resolveThreadValues(thread, runtimeClient),
+          values: await resolveThreadValues(
+            thread,
+            remoteAgent.client,
+            runtimeClient
+          ),
         }))
       );
 

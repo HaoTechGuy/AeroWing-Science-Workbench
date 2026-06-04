@@ -30,6 +30,7 @@ import {
   Loader2,
   Paperclip,
   Pencil,
+  RotateCcw,
   Target,
   X,
 } from "lucide-react";
@@ -44,7 +45,7 @@ import type {
   ChatAttachment,
   GoalState,
 } from "@/app/types/types";
-import { Assistant, Message } from "@langchain/langgraph-sdk";
+import { Assistant, type Checkpoint, Message } from "@langchain/langgraph-sdk";
 import { extractStringFromMessageContent } from "@/app/utils/utils";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
@@ -58,6 +59,12 @@ import {
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
+}
+
+interface RetryTarget {
+  message: Message;
+  checkpoint: Checkpoint | null;
+  previousMessages: Message[];
 }
 
 const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
@@ -207,6 +214,15 @@ function todoStatusLabel(status: TodoItem["status"]): string {
 
 function createAttachmentId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function hasUsableRetryCheckpoint(
+  checkpoint?: Checkpoint | null
+): checkpoint is Checkpoint {
+  return (
+    typeof checkpoint?.checkpoint_id === "string" &&
+    checkpoint.checkpoint_id.length > 0
+  );
 }
 
 function getAttachmentFileKey(fileName: string): string {
@@ -596,7 +612,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     runStatus,
     threadTitle,
     updateThreadTitle,
+    getMessagesMetadata,
     sendMessage,
+    retryMessage,
     stopStream,
     resumeInterrupt,
     threadId,
@@ -1077,6 +1095,59 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     visibleMessages,
   ]);
 
+  const latestRetryTarget = useMemo<RetryTarget | null>(() => {
+    for (let index = displayMessages.length - 1; index >= 0; index -= 1) {
+      const message = displayMessages[index].message;
+      if (message.type === "human") {
+        const messageIndex = messages.findIndex((candidate) =>
+          message.id ? candidate.id === message.id : candidate === message
+        );
+        const metadata = getMessagesMetadata(
+          message,
+          messageIndex >= 0 ? messageIndex : undefined
+        );
+        return {
+          message,
+          checkpoint: metadata?.firstSeenState?.parent_checkpoint ?? null,
+          previousMessages:
+            messageIndex >= 0 ? messages.slice(0, messageIndex) : [],
+        };
+      }
+    }
+
+    return null;
+  }, [displayMessages, getMessagesMetadata, messages]);
+  const handleRetryMessage = useCallback(
+    (target: RetryTarget | null) => {
+      if (!target) {
+        toast.error("没有可重试的用户消息。");
+        return;
+      }
+      if (isLoading) {
+        toast.info("当前会话正在运行，完成后可重试。");
+        return;
+      }
+      if (interrupt) {
+        toast.info("请先处理当前权限确认。");
+        return;
+      }
+      if (!assistant) {
+        toast.error("模型服务未就绪，请稍后重试。");
+        return;
+      }
+      if (!hasUsableRetryCheckpoint(target.checkpoint)) {
+        toast.error("当前会话缺少可回退的历史点，请重新发送问题。");
+        return;
+      }
+
+      retryMessage(target.message, {
+        checkpoint: target.checkpoint,
+        previousMessages: target.previousMessages,
+      });
+    },
+    [assistant, interrupt, isLoading, retryMessage]
+  );
+
   const completedMessageId = useMemo(() => {
     if (
       showRuntimeDetails ||
@@ -1125,9 +1196,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     completed: displayTodos.filter((t) => t.status === "completed"),
   };
 
-  const hasTasks = displayTodos.length > 0;
-  const hasFiles = Object.keys(files).length > 0;
   const hasGoal = Boolean(goal?.objective);
+  const hasTasks = hasGoal && displayTodos.length > 0;
+  const hasFiles = Object.keys(files).length > 0;
 
   // Parse out any action requests or review configs from the interrupt
   const actionRequestsMap: Map<string, ActionRequest> | null = useMemo(() => {
@@ -1309,9 +1380,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                 const isLastMessage = index === displayMessages.length - 1;
                 const prevVisibleMessage =
                   index > 0 ? displayMessages[index - 1].message : null;
+                const messageKey =
+                  data.message.id ?? `${data.message.type}-${index}`;
                 return (
                   <ChatMessage
-                    key={data.message.id}
+                    key={messageKey}
                     message={data.message}
                     toolCalls={showRuntimeDetails ? data.toolCalls : []}
                     showAvatar={data.message.type !== prevVisibleMessage?.type}
@@ -1374,14 +1447,52 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                 </div>
               )}
               {completedMessageId && (
-                <div className="ml-10 mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <div className="ml-10 mt-2 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
                   <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                   <span>已完成</span>
+                  {latestRetryTarget && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 gap-1.5 px-1.5 text-xs text-muted-foreground hover:text-primary"
+                          onClick={() => handleRetryMessage(latestRetryTarget)}
+                          aria-label="重试上一条用户消息"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          重试
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="bottom"
+                        align="start"
+                        sideOffset={6}
+                        className="whitespace-nowrap"
+                      >
+                        重新发送上一条用户消息
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               )}
               {errorMessage && (
                 <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
-                  {errorMessage}
+                  <div>{errorMessage}</div>
+                  {latestRetryTarget && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 h-7 gap-1.5 px-2 text-xs text-red-700 hover:bg-red-100 hover:text-red-800 dark:text-red-200 dark:hover:bg-red-900/40 dark:hover:text-red-100"
+                      onClick={() => handleRetryMessage(latestRetryTarget)}
+                      aria-label="重试上一条用户消息"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      重试上一条消息
+                    </Button>
+                  )}
                 </div>
               )}
               {orphanActionRequests.length > 0 && (

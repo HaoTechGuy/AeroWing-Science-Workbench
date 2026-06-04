@@ -22,11 +22,19 @@ import {
   THREAD_TITLE_METADATA_KEY,
   THREAD_TITLE_UPDATED_AT_METADATA_KEY,
 } from "@/app/utils/threadTitle";
+import {
+  loadPendingRunInputPreview,
+  type PendingRunInputPreview,
+} from "@/lib/pending-run-input";
 
 type RunConfig = Record<string, any>;
 type ParsedGoalCommand = {
   objective: string;
   tokenBudget?: number;
+};
+type RetryMessageOptions = {
+  checkpoint?: Checkpoint | null;
+  previousMessages?: Message[];
 };
 type RunLifecycleStatus =
   | "idle"
@@ -107,6 +115,37 @@ function emptyThreadState(threadId: string): ThreadState<StateType> {
     tasks: [],
     metadata: {},
     created_at: now,
+    checkpoint: {
+      thread_id: threadId,
+      checkpoint_ns: "",
+      checkpoint_id: null,
+      checkpoint_map: {},
+    },
+    parent_checkpoint: null,
+  });
+}
+
+function pendingRunToState(
+  threadId: string,
+  preview: PendingRunInputPreview
+): ThreadState<StateType> {
+  const now = new Date().toISOString();
+
+  return sanitizeThreadState({
+    values: {
+      messages: preview.messages,
+      todos: [],
+      files: {},
+      goal: null,
+    },
+    next: [],
+    tasks: [],
+    metadata: {
+      ...preview.metadata,
+      internagents_pending_run_id: preview.runId,
+      internagents_pending_run_status: preview.status,
+    },
+    created_at: preview.updatedAt ?? preview.createdAt ?? now,
     checkpoint: {
       thread_id: threadId,
       checkpoint_ns: "",
@@ -241,6 +280,36 @@ function mergeStateValues(
   });
 }
 
+function mergeStateSnapshot(
+  primaryState: ThreadState<StateType>,
+  snapshotState: ThreadState<StateType>
+): ThreadState<StateType> {
+  const primaryValues =
+    primaryState.values && typeof primaryState.values === "object"
+      ? (primaryState.values as Partial<StateType>)
+      : {};
+  const snapshotValues =
+    snapshotState.values && typeof snapshotState.values === "object"
+      ? (snapshotState.values as Partial<StateType>)
+      : {};
+  const snapshotMessages = messagesFromValues(snapshotState.values);
+  const primaryMessages = messagesFromValues(primaryState.values);
+
+  return sanitizeThreadState({
+    ...snapshotState,
+    values: {
+      ...primaryValues,
+      ...snapshotValues,
+      messages:
+        snapshotMessages.length > 0 ? snapshotMessages : primaryMessages,
+    } as StateType,
+    metadata: {
+      ...(primaryState.metadata || {}),
+      ...(snapshotState.metadata || {}),
+    },
+  });
+}
+
 function mergeThreadRecord(
   state: ThreadState<StateType>,
   thread: Thread<StateType>
@@ -317,6 +386,24 @@ async function loadThreadSnapshot({
 
   if (runtimeClient) {
     try {
+      const runtimeState = sanitizeThreadState(
+        await runtimeClient.threads.getState<StateType>(threadId)
+      );
+      if (stateHasMessages(runtimeState)) {
+        return [
+          primaryState
+            ? mergeStateSnapshot(primaryState, runtimeState)
+            : runtimeState,
+        ];
+      }
+      if (!primaryState) {
+        primaryState = runtimeState;
+      }
+    } catch {
+      // Runtime may not have a materialized state for queued main-service runs.
+    }
+
+    try {
       const runtimeThread = await runtimeClient.threads.get<StateType>(
         threadId
       );
@@ -324,7 +411,7 @@ async function loadThreadSnapshot({
       if (stateHasMessages(runtimeState)) {
         return [
           primaryState
-            ? mergeStateValues(primaryState, runtimeState.values)
+            ? mergeStateSnapshot(primaryState, runtimeState)
             : sanitizeThreadState(runtimeState),
         ];
       }
@@ -341,13 +428,23 @@ async function loadThreadSnapshot({
       if (runtimeStateWithMessages) {
         return [
           primaryState
-            ? mergeStateValues(primaryState, runtimeStateWithMessages.values)
+            ? mergeStateSnapshot(primaryState, runtimeStateWithMessages)
             : sanitizeThreadState(runtimeStateWithMessages),
         ];
       }
     } catch {
       // Keep the primary snapshot below if runtime history is unavailable.
     }
+  }
+
+  const pendingRunPreview = await loadPendingRunInputPreview(client, threadId);
+  if (pendingRunPreview) {
+    const pendingState = pendingRunToState(threadId, pendingRunPreview);
+    return [
+      primaryState
+        ? mergeStateSnapshot(primaryState, pendingState)
+        : pendingState,
+    ];
   }
 
   if (primaryState) {
@@ -372,10 +469,12 @@ function useThreadSnapshot({
 }): UseStreamThread<StateType> | undefined {
   const requestIdRef = useRef(0);
   const [snapshot, setSnapshot] = useState<{
+    threadId: string | null;
     data: ThreadState<StateType>[] | null | undefined;
     error: unknown;
     isLoading: boolean;
   }>({
+    threadId: null,
     data: undefined,
     error: undefined,
     isLoading: false,
@@ -388,6 +487,7 @@ function useThreadSnapshot({
 
       if (!targetThreadId) {
         const empty = {
+          threadId: null,
           data: undefined,
           error: undefined,
           isLoading: false,
@@ -398,7 +498,8 @@ function useThreadSnapshot({
 
       setSnapshot((current) => ({
         ...current,
-        data: undefined,
+        threadId: targetThreadId,
+        data: current.threadId === targetThreadId ? current.data : undefined,
         error: undefined,
         isLoading: true,
       }));
@@ -411,6 +512,7 @@ function useThreadSnapshot({
         });
         if (requestIdRef.current === requestId) {
           setSnapshot({
+            threadId: targetThreadId,
             data,
             error: undefined,
             isLoading: false,
@@ -599,6 +701,16 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
   return blocks;
 }
 
+function cloneMessageContent(content: Message["content"]): Message["content"] {
+  if (!Array.isArray(content)) {
+    return content;
+  }
+
+  return content.map((block) =>
+    block && typeof block === "object" ? { ...block } : block
+  ) as Message["content"];
+}
+
 function parseGoalCommand(content: string): ParsedGoalCommand | null {
   const match = content.trim().match(/^\/goal(?:\s+([\s\S]+))?$/i);
   const rawObjective = match?.[1]?.trim();
@@ -644,6 +756,7 @@ export function useChat({
   activeAssistant,
   streamConfig,
   onHistoryRevalidate,
+  onGeneratedThreadId,
   thread,
   resourceId,
   resourceLabel,
@@ -655,6 +768,7 @@ export function useChat({
   activeAssistant: Assistant | null;
   streamConfig: StreamConfig;
   onHistoryRevalidate?: () => void;
+  onGeneratedThreadId?: (threadId: string) => void;
   thread?: UseStreamThread<StateType>;
   resourceId?: string;
   resourceLabel?: string;
@@ -766,6 +880,8 @@ export function useChat({
 
   const withStreamSubmitOptions = useCallback(
     <T extends object>(options: T) => ({
+      streamResumable: true,
+      onDisconnect: "continue" as const,
       ...streamSubmitOptions,
       ...options,
     }),
@@ -775,6 +891,13 @@ export function useChat({
     const headCheckpoint = threadSnapshot?.data?.[0]?.checkpoint;
     return hasUsableCheckpoint(headCheckpoint) ? {} : { checkpoint: null };
   }, [threadSnapshot?.data]);
+  const handleGeneratedThreadId = useCallback(
+    (generatedThreadId: string) => {
+      onGeneratedThreadId?.(generatedThreadId);
+      setThreadId(generatedThreadId);
+    },
+    [onGeneratedThreadId, setThreadId]
+  );
 
   const handleStreamCreated = useCallback(
     (run?: { run_id?: string; thread_id?: string }) => {
@@ -831,7 +954,7 @@ export function useChat({
     client: client ?? undefined,
     reconnectOnMount: true,
     threadId: threadId ?? null,
-    onThreadId: setThreadId,
+    onThreadId: handleGeneratedThreadId,
     defaultHeaders: { "x-auth-scheme": "langsmith" },
     // Enable fetching state history when switching to existing threads
     fetchStateHistory: true,
@@ -842,6 +965,49 @@ export function useChat({
     onStop: handleStreamStop,
     experimental_thread: threadSnapshot,
   });
+
+  const shouldPollThreadSnapshot =
+    Boolean(threadId) && (stream.isLoading || runLifecycle.status === "running");
+
+  const mutateThreadSnapshot = threadSnapshot?.mutate;
+
+  useEffect(() => {
+    if (!shouldPollThreadSnapshot || !mutateThreadSnapshot || !threadId) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void mutateThreadSnapshot(threadId);
+    }, 2500);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [shouldPollThreadSnapshot, threadId, mutateThreadSnapshot]);
+
+  const effectiveStreamValues = useMemo<StateType>(() => {
+    const currentValues = stream.values;
+    const snapshotValues = threadSnapshot?.data?.[0]?.values;
+    const currentMessages = messagesFromValues(currentValues);
+    const snapshotMessages = messagesFromValues(snapshotValues);
+
+    if (snapshotMessages.length <= currentMessages.length) {
+      return currentValues;
+    }
+
+    const currentRecord =
+      currentValues && typeof currentValues === "object" ? currentValues : {};
+    const snapshotRecord =
+      snapshotValues && typeof snapshotValues === "object"
+        ? snapshotValues
+        : {};
+
+    return {
+      ...currentRecord,
+      ...snapshotRecord,
+      messages: snapshotMessages,
+    } as StateType;
+  }, [stream.values, threadSnapshot?.data]);
 
   const streamScopeKey = useMemo(
     () =>
@@ -953,6 +1119,55 @@ export function useChat({
     ]
   );
 
+  const retryMessage = useCallback(
+    (message: Message, options: RetryMessageOptions = {}) => {
+      if (message.type !== "human") {
+        return;
+      }
+
+      const newMessage: Message = {
+        ...message,
+        id: uuidv4(),
+        type: "human",
+        content: cloneMessageContent(message.content),
+        additional_kwargs: message.additional_kwargs
+          ? { ...message.additional_kwargs }
+          : undefined,
+      };
+
+      clearStreamEvents();
+      markRunStarting();
+      const checkpointOptions = hasUsableCheckpoint(options.checkpoint)
+        ? { checkpoint: { ...options.checkpoint } }
+        : invalidImplicitCheckpointOptions;
+      stream.submit(
+        { messages: [newMessage] },
+        withStreamSubmitOptions({
+          metadata: workspaceMetadata,
+          ...checkpointOptions,
+          optimisticValues: (prev: StateType) => ({
+            messages: [
+              ...(options.previousMessages ?? prev.messages ?? []),
+              newMessage,
+            ],
+          }),
+          config: buildRunConfig({ recursion_limit: 100 }),
+        })
+      );
+      onHistoryRevalidate?.();
+    },
+    [
+      stream,
+      clearStreamEvents,
+      markRunStarting,
+      withStreamSubmitOptions,
+      workspaceMetadata,
+      invalidImplicitCheckpointOptions,
+      buildRunConfig,
+      onHistoryRevalidate,
+    ]
+  );
+
   const runSingleStep = useCallback(
     (
       messages: Message[],
@@ -1008,11 +1223,13 @@ export function useChat({
   );
 
   const isThreadScopedStateLoading = Boolean(
-    threadId && (stream.isThreadLoading || threadSnapshot?.isLoading)
+    threadId &&
+      (stream.isThreadLoading ||
+        (threadSnapshot?.isLoading && !threadSnapshot.data))
   );
   const scopedValues = useMemo<StateType>(() => {
     if (!isThreadScopedStateLoading) {
-      return stream.values;
+      return effectiveStreamValues;
     }
 
     return {
@@ -1021,10 +1238,10 @@ export function useChat({
       files: {},
       goal: null,
     };
-  }, [isThreadScopedStateLoading, stream.values]);
+  }, [effectiveStreamValues, isThreadScopedStateLoading]);
   const scopedMessages = useMemo(
-    () => (isThreadScopedStateLoading ? [] : stream.messages),
-    [isThreadScopedStateLoading, stream.messages]
+    () => (isThreadScopedStateLoading ? [] : messagesFromValues(scopedValues)),
+    [isThreadScopedStateLoading, scopedValues]
   );
   const activeGoal = scopedValues.goal ?? null;
 
@@ -1160,10 +1377,21 @@ export function useChat({
   );
 
   const markCurrentThreadAsResolved = useCallback(() => {
-    stream.submit(null, { command: { goto: "__end__", update: null } });
+    stream.submit(
+      null,
+      withStreamSubmitOptions({
+        ...invalidImplicitCheckpointOptions,
+        command: { goto: "__end__", update: null },
+      })
+    );
     // Update thread list when marking thread as resolved
     onHistoryRevalidate?.();
-  }, [stream, onHistoryRevalidate]);
+  }, [
+    stream,
+    withStreamSubmitOptions,
+    invalidImplicitCheckpointOptions,
+    onHistoryRevalidate,
+  ]);
 
   const resumeInterrupt = useCallback(
     (value: any) => {
@@ -1228,7 +1456,7 @@ export function useChat({
     messages: scopedMessages,
     error: stream.error,
     isLoading: stream.isLoading,
-    isThreadLoading: stream.isThreadLoading || Boolean(threadSnapshot?.isLoading),
+    isThreadLoading: isThreadScopedStateLoading,
     interrupt: activeInterrupt,
     runStatus,
     runUpdatedAt: runLifecycle.updatedAt,
@@ -1237,6 +1465,7 @@ export function useChat({
     clearStreamEvents: streamEventLayer.clearStreamEvents,
     lastUpdateNamespace: streamEventLayer.lastUpdateNamespace,
     sendMessage,
+    retryMessage,
     runSingleStep,
     continueStream,
     stopStream,

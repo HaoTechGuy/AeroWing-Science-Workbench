@@ -61,7 +61,7 @@ cp .env.example .env
 
 The script creates `.venv` when needed, installs the Python project, installs UI
 dependencies when missing, starts both local services, waits for health checks,
-and opens:
+starts the backend and runtime with 5 worker slots each, and opens:
 
 ```text
 http://127.0.0.1:3000/?assistantId=agent
@@ -82,6 +82,7 @@ Useful overrides:
 
 ```bash
 INTERNAGENTS_BACKEND_PORT=2025 INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
+INTERNAGENTS_LANGGRAPH_JOBS_PER_WORKER=8 ./scripts/dev.sh
 INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
 INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 ```
@@ -301,6 +302,7 @@ python -m langgraph_cli dev \
   --host 127.0.0.1 \
   --port 2024 \
   --no-browser \
+  --n-jobs-per-worker 5 \
   --config langgraph.json
 
 cd ui
@@ -578,12 +580,14 @@ python -m langgraph_cli dev \
   --host 127.0.0.1 \
   --port 22024 \
   --no-browser \
+  --n-jobs-per-worker 5 \
   --config langgraph.runtime.json
 
 python -m langgraph_cli dev \
   --host 127.0.0.1 \
   --port 2024 \
   --no-browser \
+  --n-jobs-per-worker 5 \
   --config langgraph.json
 ```
 

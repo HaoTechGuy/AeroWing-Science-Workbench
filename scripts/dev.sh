@@ -13,6 +13,7 @@ OPEN_BROWSER="${INTERNAGENTS_OPEN_BROWSER:-1}"
 SKIP_INSTALL="${INTERNAGENTS_SKIP_INSTALL:-0}"
 ASSISTANT_ID="${INTERNAGENTS_ASSISTANT_ID:-agent_local}"
 LANGGRAPH_NO_RELOAD="${INTERNAGENTS_LANGGRAPH_NO_RELOAD:-1}"
+LANGGRAPH_JOBS_PER_WORKER="${INTERNAGENTS_LANGGRAPH_JOBS_PER_WORKER:-5}"
 
 RUNTIME_DIR="$ROOT_DIR/.internagents"
 LOG_DIR="$RUNTIME_DIR/logs"
@@ -44,6 +45,13 @@ log() {
 langgraph_reload_args() {
   if [ "$LANGGRAPH_NO_RELOAD" = "1" ]; then
     printf '%s\n' "--no-reload"
+  fi
+}
+
+langgraph_jobs_args() {
+  if [ -n "$LANGGRAPH_JOBS_PER_WORKER" ] && [ "$LANGGRAPH_JOBS_PER_WORKER" != "0" ]; then
+    printf '%s\n' "--n-jobs-per-worker"
+    printf '%s\n' "$LANGGRAPH_JOBS_PER_WORKER"
   fi
 }
 
@@ -230,6 +238,7 @@ start_local_runtime() {
         --port "$LOCAL_RUNTIME_PORT" \
         --no-browser \
         $(langgraph_reload_args) \
+        $(langgraph_jobs_args) \
         --config langgraph.runtime.json
   ) >>"$LOCAL_RUNTIME_LOG" 2>&1 &
 
@@ -259,6 +268,7 @@ start_backend() {
       --port "$BACKEND_PORT" \
       --no-browser \
       $(langgraph_reload_args) \
+      $(langgraph_jobs_args) \
       --config langgraph.json
   ) >>"$BACKEND_LOG" 2>&1 &
 

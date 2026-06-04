@@ -57,6 +57,7 @@ import { pageHrefWithWorkbenchReturn } from "@/app/utils/navigationContext";
 
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
 const ADD_REMOTE_WORKSPACE_VALUE = "__add_remote_workspace__";
+const NEW_THREAD_MARKER = "__new_thread__";
 
 interface BackendCliPushResult {
   resource: ResourceConfig;
@@ -125,13 +126,14 @@ function HomePageInner({
 }: HomePageInnerProps) {
   const remoteAgent = useRemoteAgent();
   const searchParams = useSearchParams();
-  const [, setThreadId] = useQueryState("threadId");
+  const [threadId, setThreadId] = useQueryState("threadId");
   const [selectedFilePath, setSelectedFilePath] = useQueryState("file");
 
   const [mutateThreads, setMutateThreads] = useState<(() => void) | null>(null);
   const [interruptCount, setInterruptCount] = useState(0);
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
+  const [chatInstanceKey, setChatInstanceKey] = useState(0);
   const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
   const [ensuringResourceId, setEnsuringResourceId] = useState<string | null>(
     null
@@ -142,6 +144,9 @@ function HomePageInner({
   const workspacePanelRef = useRef<ImperativePanelHandle>(null);
   const [viewerPanelCompact, setViewerPanelCompact] = useState(false);
   const viewerPanelRef = useRef<ImperativePanelHandle>(null);
+  const previousObservedThreadIdRef = useRef<string | null>(threadId ?? null);
+  const intentionalThreadChangeRef = useRef<string | null>(null);
+  const generatedThreadIdRef = useRef<string | null>(null);
 
   const fetchAssistant = useCallback(async () => {
     setAssistant(await remoteAgent.resolveAssistant());
@@ -150,6 +155,52 @@ function HomePageInner({
   useEffect(() => {
     fetchAssistant();
   }, [fetchAssistant]);
+
+  const resetForegroundChat = useCallback(() => {
+    setChatInstanceKey((key) => key + 1);
+  }, []);
+
+  const handleThreadSelect = useCallback(
+    async (id: string) => {
+      if (id === threadId) return;
+      intentionalThreadChangeRef.current = id;
+      await setThreadId(id);
+      resetForegroundChat();
+    },
+    [resetForegroundChat, setThreadId, threadId]
+  );
+
+  const handleNewThread = useCallback(async () => {
+    intentionalThreadChangeRef.current = NEW_THREAD_MARKER;
+    await setThreadId(null);
+    resetForegroundChat();
+  }, [resetForegroundChat, setThreadId]);
+
+  const handleGeneratedThreadId = useCallback((id: string) => {
+    generatedThreadIdRef.current = id;
+  }, []);
+
+  useEffect(() => {
+    const previousThreadId = previousObservedThreadIdRef.current;
+    const nextThreadId = threadId ?? null;
+    if (previousThreadId === nextThreadId) return;
+
+    previousObservedThreadIdRef.current = nextThreadId;
+
+    const intentionalThreadId = intentionalThreadChangeRef.current;
+    const expectedIntentionalThreadId = nextThreadId ?? NEW_THREAD_MARKER;
+    if (intentionalThreadId === expectedIntentionalThreadId) {
+      intentionalThreadChangeRef.current = null;
+      return;
+    }
+
+    if (generatedThreadIdRef.current === nextThreadId) {
+      generatedThreadIdRef.current = null;
+      return;
+    }
+
+    resetForegroundChat();
+  }, [resetForegroundChat, threadId]);
 
   const handleFileSelect = useCallback(
     async (entry: WorkspaceEntry) => {
@@ -675,10 +726,8 @@ function HomePageInner({
               key={activeWorkspace?.id || activeResource.id}
               selectedFilePath={selectedFilePath}
               onFileSelect={handleFileSelect}
-              onThreadSelect={async (id) => {
-                await setThreadId(id);
-              }}
-              onNewThread={() => setThreadId(null)}
+              onThreadSelect={handleThreadSelect}
+              onNewThread={handleNewThread}
               onMutateReady={(fn) => setMutateThreads(() => fn)}
               onInterruptCountChange={setInterruptCount}
               resourceId={activeResource.id}
@@ -704,10 +753,11 @@ function HomePageInner({
             <ChatProvider
               key={`${activeResource.id}:${activeAssistantId}:${
                 activeWorkspace?.id || "workspace"
-              }`}
+              }:${chatInstanceKey}`}
               activeAssistant={assistant}
               streamConfig={config.stream}
               onHistoryRevalidate={handleRunActivity}
+              onGeneratedThreadId={handleGeneratedThreadId}
               resourceId={activeResource.id}
               resourceLabel={activeResource.label}
               runtimeUrl={activeResource.runtimeUrl}

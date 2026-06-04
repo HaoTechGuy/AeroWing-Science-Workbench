@@ -11,6 +11,7 @@ interface ChatProviderProps {
   activeAssistant: Assistant | null;
   streamConfig: StreamConfig;
   onHistoryRevalidate?: () => void;
+  onGeneratedThreadId?: (threadId: string) => void;
   thread?: UseStreamThread<StateType>;
   resourceId?: string;
   resourceLabel?: string;
@@ -25,6 +26,7 @@ export function ChatProvider({
   activeAssistant,
   streamConfig,
   onHistoryRevalidate,
+  onGeneratedThreadId,
   thread,
   resourceId,
   resourceLabel,
@@ -37,6 +39,7 @@ export function ChatProvider({
     activeAssistant,
     streamConfig,
     onHistoryRevalidate,
+    onGeneratedThreadId,
     thread,
     resourceId,
     resourceLabel,
