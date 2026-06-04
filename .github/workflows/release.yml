@@ -1,7 +1,5 @@
 name: Release
 
-run-name: "${{ github.event_name == 'workflow_dispatch' && format('Test release {0} {1} #{2}', github.ref_name, inputs.base_version, github.run_number) || format('Release {0}', github.ref_name) }}"
-
 on:
   push:
     tags:
