@@ -15,7 +15,7 @@ The goal is to let different developers publish test releases from different bra
 - Official releases publish to `InternScience/InternAgents` and require `secrets.INTERNAGENTS_RELEASE_TOKEN`.
 - Local test releases are triggered manually with `workflow_dispatch`.
 - Local test releases publish to the current repository, normally `qzzqzzb/InternAgents`.
-- Local test releases use the built-in `GITHUB_TOKEN`.
+- Local test releases require `secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN`.
 - Local test releases are marked as GitHub prereleases, so they do not replace the repository's latest stable release.
 
 The workflow generates test tags automatically:
@@ -32,7 +32,7 @@ v0.1.5-test.zhf-local-release-for-test.20260603.192500
 
 The timestamp is UTC in `yyyyMMdd.HHmmss` format. Branch separators and unsafe characters are normalized to hyphens.
 
-GitHub Actions run names are separate from release tags. The run name includes the branch, base version, and run number for quick scanning, while the final GitHub Release tag and title include the branch timestamp.
+The workflow intentionally does not define a custom GitHub Actions `run-name`; GitHub uses the default workflow run display. The final GitHub Release tag and title include the branch timestamp and are the source of truth for test release identity.
 
 ## Before Running
 
@@ -40,6 +40,7 @@ GitHub Actions run names are separate from release tags. The run name includes t
 2. Confirm `.github/workflows/release.yml` on the default branch includes `workflow_dispatch`. If this workflow support is still only in a PR branch, merge that support first before relying on manual dispatch.
 3. Confirm the branch includes the code that should be packaged.
 4. Choose a `base_version`, usually the next version being tested, such as `0.1.5`.
+5. Confirm repository secret `INTERNAGENTS_LOCAL_RELEASE_TOKEN` exists and can write Contents to `qzzqzzb/InternAgents`.
 
 ## Trigger From GitHub UI
 
@@ -81,6 +82,7 @@ The workflow should publish a prerelease in `qzzqzzb/InternAgents` with:
 - macOS Intel DMG
 - Windows x64 NSIS installer
 - Windows x64 ZIP
+- remote backend CLI tarball: `internagents-backend-cli.tar.gz`
 
 The release notes include:
 
@@ -88,6 +90,7 @@ The release notes include:
 - desktop version used for packaging
 - source branch and commit
 - exact `INTERNAGENTS_UPDATE_API_URL` for testing app updates against that prerelease
+- exact `INTERNAGENTS_REMOTE_BACKEND_UPDATE_API_URL` for testing remote backend CLI release sync against that prerelease
 
 ## Testing App Updates Against A Test Release
 
@@ -109,18 +112,22 @@ INTERNAGENTS_REMOTE_BACKEND_UPDATE_API_URL=https://api.github.com/repos/qzzqzzb/
 
 Restart the app/backend after changing `.env` so the update endpoint reads the new value.
 
+The same generated release API URL can be used for desktop update checks and remote backend release sync for the selected test build.
+
 ## Safety Rules
 
 - Do not push or overwrite official `v*.*.*` tags for test-only builds.
 - Do not change `INTERNAGENTS_OFFICIAL_RELEASE_REPO` when testing local releases.
 - Do not use `INTERNAGENTS_RELEASE_TOKEN` for local test releases.
+- Do not fall back to `GITHUB_TOKEN` for local release publishing; the workflow expects `INTERNAGENTS_LOCAL_RELEASE_TOKEN`.
 - Keep local test releases as prereleases unless the developer explicitly asks for a stable release flow change.
 - Prefer creating a fresh test release per run; branch-and-timestamp tags are designed to make that cheap and collision-free.
+- Do not reintroduce a custom workflow `run-name` unless it has been validated with GitHub Actions expression rules.
 
 ## Troubleshooting
 
 - If the workflow is not shown in the GitHub UI, check that the workflow file with `workflow_dispatch` has been merged to the default branch.
 - If the run fails before build jobs start, inspect the `Prepare release metadata` job first.
-- If release publishing fails with permission errors during a test release, check the workflow has `contents: write` permission for the `release` job and that repository Actions permissions allow `GITHUB_TOKEN` writes.
+- If release publishing fails with permission errors during a test release, confirm `INTERNAGENTS_LOCAL_RELEASE_TOKEN` is set as an Actions secret, is scoped to `qzzqzzb/InternAgents`, and has repository Contents read/write permission. Also confirm the `release` job has `contents: write`.
 - If the app does not see a test release, use `INTERNAGENTS_UPDATE_API_URL` with the exact generated tag URL.
 - If an official tag run tries to publish to the development repository, stop and inspect metadata outputs before rerunning.
