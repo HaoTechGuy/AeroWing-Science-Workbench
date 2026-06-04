@@ -11,6 +11,7 @@ import {
 import {
   Check,
   CloudDownload,
+  ExternalLink,
   FolderCog,
   FolderPlus,
   Loader2,
@@ -311,6 +312,15 @@ export const SkillsConfigCard = forwardRef<
             <h2 className="text-base font-semibold">技能</h2>
             <div className="mt-1 text-sm text-muted-foreground">
               选择本地可加载技能，也可以添加本地路径或云端来源；通过页面顶部按钮统一应用。
+              <a
+                href="https://scphub.intern-ai.org.cn/"
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 inline-flex items-center gap-1 font-medium text-[#2F6868] underline-offset-4 hover:underline dark:text-teal-300"
+              >
+                SCPHub 提供了 200+ 高质量科学领域技能
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
             </div>
           </div>
         </div>
