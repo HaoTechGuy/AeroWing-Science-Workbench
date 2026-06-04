@@ -142,11 +142,11 @@ jobs:
       - name: Require private source checkout token
         if: steps.release.outputs.source_repository != github.repository
         env:
-          INTERNAGENTS_SOURCE_TOKEN: ${{ secrets.INTERNAGENTS_SOURCE_TOKEN }}
+          INTERNAGENTS_SOURCE_TOKEN: ${{ secrets.INTERNAGENTS_SOURCE_TOKEN || secrets.INTERNAGENTS_RELEASE_TOKEN }}
           SOURCE_LABEL: ${{ steps.release.outputs.source_label }}
         run: |
           if [ -z "$INTERNAGENTS_SOURCE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_SOURCE_TOKEN in ${GITHUB_REPOSITORY} to checkout ${SOURCE_LABEL:-the source repository}."
+            echo "::error::Set INTERNAGENTS_SOURCE_TOKEN or INTERNAGENTS_RELEASE_TOKEN in ${GITHUB_REPOSITORY} to checkout ${SOURCE_LABEL:-the source repository}."
             exit 1
           fi
 
@@ -169,7 +169,7 @@ jobs:
         with:
           repository: ${{ needs.metadata.outputs.source_repository }}
           ref: ${{ needs.metadata.outputs.source_ref }}
-          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN }}
+          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN || secrets.INTERNAGENTS_RELEASE_TOKEN }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -289,7 +289,7 @@ jobs:
         with:
           repository: ${{ needs.metadata.outputs.source_repository }}
           ref: ${{ needs.metadata.outputs.source_ref }}
-          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN }}
+          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN || secrets.INTERNAGENTS_RELEASE_TOKEN }}
           persist-credentials: false
 
       - name: Setup Node.js

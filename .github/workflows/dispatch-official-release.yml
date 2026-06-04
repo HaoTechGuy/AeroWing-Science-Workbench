@@ -21,16 +21,16 @@ jobs:
     steps:
       - name: Require official workflow token
         env:
-          INTERNAGENTS_OFFICIAL_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_OFFICIAL_RELEASE_TOKEN }}
+          INTERNAGENTS_OFFICIAL_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_OFFICIAL_RELEASE_TOKEN || secrets.INTERNAGENTS_RELEASE_TOKEN }}
         run: |
           if [ -z "$INTERNAGENTS_OFFICIAL_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_OFFICIAL_RELEASE_TOKEN in ${GITHUB_REPOSITORY} with Actions write access to InternScience/InternAgents."
+            echo "::error::Set INTERNAGENTS_OFFICIAL_RELEASE_TOKEN or INTERNAGENTS_RELEASE_TOKEN in ${GITHUB_REPOSITORY} with Actions write access to InternScience/InternAgents."
             exit 1
           fi
 
       - name: Dispatch official release
         env:
-          GH_TOKEN: ${{ secrets.INTERNAGENTS_OFFICIAL_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.INTERNAGENTS_OFFICIAL_RELEASE_TOKEN || secrets.INTERNAGENTS_RELEASE_TOKEN }}
           SOURCE_REPOSITORY: ${{ github.repository }}
           SOURCE_REF: ${{ github.ref_name }}
           RELEASE_TAG: ${{ github.ref_name }}
