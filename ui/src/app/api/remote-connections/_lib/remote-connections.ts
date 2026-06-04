@@ -229,6 +229,20 @@ function releaseApiUrlForTag(repo: string, tagName: string): string {
   )}`;
 }
 
+function releaseHtmlUrlForTag(repo: string, tagName: string): string {
+  return `https://github.com/${repo}/releases/tag/${encodeURIComponent(tagName)}`;
+}
+
+function publicReleaseAssetDownloadUrl(
+  repo: string,
+  tagName: string,
+  assetName: string
+): string {
+  return `https://github.com/${repo}/releases/download/${encodeURIComponent(
+    tagName
+  )}/${encodeURIComponent(assetName)}`;
+}
+
 function repoSlugFromReleaseUrl(value: string): string | undefined {
   try {
     const parsed = new URL(value);
@@ -253,6 +267,7 @@ function githubHeaders(extra: Record<string, string> = {}): Record<string, strin
     ...extra,
   };
   const token =
+    updateEnvValue("INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN") ||
     updateEnvValue("INTERNAGENTS_UPDATE_GITHUB_TOKEN") ||
     updateEnvValue("GH_TOKEN") ||
     updateEnvValue("GITHUB_TOKEN");
@@ -948,9 +963,70 @@ async function githubResponseError(response: Response) {
   } catch {
     message = await response.text().catch(() => "");
   }
+  const rateLimited =
+    response.status === 403 &&
+    (response.headers.get("x-ratelimit-remaining") === "0" ||
+      /rate limit/i.test(message));
+  if (rateLimited) {
+    const reset = response.headers.get("x-ratelimit-reset");
+    const resetAt = reset ? new Date(Number(reset) * 1000) : undefined;
+    const resetMessage =
+      resetAt && !Number.isNaN(resetAt.getTime())
+        ? `，限制将在 ${resetAt.toLocaleString()} 后重置`
+        : "";
+    return [
+      "GitHub Release 读取失败：HTTP 403（GitHub API 访问频率限制）。",
+      resetMessage,
+      "将尝试使用公开 Release 下载地址回退；如果目标仓库不是公开仓库，请在 .env 中设置 INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN。",
+    ].join("");
+  }
   return `GitHub Release 读取失败：HTTP ${response.status}${
     message ? `：${message}` : ""
   }`;
+}
+
+async function fetchPublicBackendReleaseForTag(
+  repo: string,
+  tagName: string,
+  signal: AbortSignal
+): Promise<BackendReleaseInfo> {
+  const downloadUrl = publicReleaseAssetDownloadUrl(
+    repo,
+    tagName,
+    BACKEND_CLI_ARCHIVE_NAME
+  );
+  const response = await fetch(downloadUrl, {
+    method: "HEAD",
+    redirect: "manual",
+    cache: "no-store",
+    headers: {
+      "User-Agent": "InternAgents-Remote-Backend-Updater",
+    },
+    signal,
+  });
+
+  if (
+    !(
+      (response.status >= 200 && response.status < 400) ||
+      response.status === 405
+    )
+  ) {
+    throw new Error(
+      `公开 Release 下载地址不可用：HTTP ${response.status} ${downloadUrl}`
+    );
+  }
+
+  const size = Number(response.headers.get("content-length") || "");
+  return {
+    tagName,
+    htmlUrl: releaseHtmlUrlForTag(repo, tagName),
+    sourceRepo: repo,
+    asset: {
+      name: BACKEND_CLI_ARCHIVE_NAME,
+      downloadUrl,
+      size: Number.isFinite(size) && size > 0 ? size : undefined,
+    },
+  };
 }
 
 async function fetchBackendReleaseForLocalVersion(
@@ -976,7 +1052,26 @@ async function fetchBackendReleaseForLocalVersion(
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(await githubResponseError(response));
+      const apiError = await githubResponseError(response);
+      if (response.status === 403 || response.status === 404) {
+        pushLog(log, `${apiError} 尝试公开 Release 下载地址。`, onLog);
+        try {
+          return await fetchPublicBackendReleaseForTag(
+            sourceRepo,
+            tagName,
+            controller.signal
+          );
+        } catch (fallbackError) {
+          const fallbackMessage =
+            fallbackError instanceof Error
+              ? fallbackError.message
+              : "公开 Release 下载地址回退失败。";
+          throw new Error(`${apiError} 公开 Release 回退也失败：${fallbackMessage}`, {
+            cause: fallbackError,
+          });
+        }
+      }
+      throw new Error(apiError);
     }
     const payload = (await response.json()) as Record<string, unknown>;
     const releaseTag =
@@ -993,16 +1088,32 @@ async function fetchBackendReleaseForLocalVersion(
       releaseTag
     );
     if (!asset) {
-      throw new Error(
-        `Release ${sourceRepo}@${releaseTag} 中没有 ${BACKEND_CLI_ARCHIVE_NAME} 后端 CLI 资产。`
-      );
+      try {
+        pushLog(
+          log,
+          `Release API 未列出 ${BACKEND_CLI_ARCHIVE_NAME}，尝试公开下载地址。`,
+          onLog
+        );
+        return await fetchPublicBackendReleaseForTag(
+          sourceRepo,
+          releaseTag,
+          controller.signal
+        );
+      } catch (fallbackError) {
+        const fallbackMessage =
+          fallbackError instanceof Error
+            ? fallbackError.message
+            : "公开 Release 下载地址回退失败。";
+        throw new Error(
+          `Release ${sourceRepo}@${releaseTag} 中没有 ${BACKEND_CLI_ARCHIVE_NAME} 后端 CLI 资产。公开 Release 回退也失败：${fallbackMessage}`,
+          { cause: fallbackError }
+        );
+      }
     }
     const htmlUrl =
       typeof payload.html_url === "string" && payload.html_url.trim()
         ? payload.html_url.trim()
-        : `https://github.com/${sourceRepo}/releases/tag/${encodeURIComponent(
-            releaseTag
-          )}`;
+        : releaseHtmlUrlForTag(sourceRepo, releaseTag);
     return {
       tagName: releaseTag,
       htmlUrl,
