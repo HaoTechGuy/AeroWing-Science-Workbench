@@ -268,7 +268,7 @@ function readAsDataUrl(file: File): Promise<string> {
 async function uploadPdfAttachment(
   file: File,
   context: AttachmentUploadContext
-): Promise<Partial<ChatAttachment> & { extractionError?: string }> {
+): Promise<Partial<ChatAttachment>> {
   const form = new FormData();
   form.set("file", file);
   if (context.resourceId) {
@@ -286,7 +286,7 @@ async function uploadPdfAttachment(
     body: form,
   });
   const payload = (await parsePdfUploadResponse(response)) as {
-    attachment?: Partial<ChatAttachment> & { extractionError?: string };
+    attachment?: Partial<ChatAttachment>;
     error?: string;
   };
   if (!response.ok || !payload.attachment) {
@@ -349,16 +349,10 @@ async function prepareAttachment(
 
     try {
       const uploaded = await uploadPdfAttachment(file, context);
-      const extractionNote = uploaded.extractionError
-        ? `PDF 已上传到 ${
-            uploaded.workspacePath || "workspace"
-          }，但文本提取失败：${uploaded.extractionError}`
-        : undefined;
       return {
         ...baseAttachment,
         ...uploaded,
         kind: "pdf",
-        text: uploaded.text || extractionNote || "",
       };
     } catch (error) {
       return {
@@ -1030,6 +1024,59 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     });
   }, [processedMessages, showRuntimeDetails]);
 
+  const shouldShowThinkingPlaceholder = useMemo(() => {
+    if (runStatus !== "running" || interrupt || error) {
+      return false;
+    }
+
+    const lastHumanIndex = visibleMessages.findLastIndex(
+      (data) => data.message.type === "human"
+    );
+    if (lastHumanIndex === -1) {
+      return false;
+    }
+
+    return true;
+  }, [error, interrupt, runStatus, visibleMessages]);
+
+  const thinkingPlaceholderMessage = useMemo(
+    () =>
+      ({
+        id: "__internagents-thinking-placeholder__",
+        type: "ai",
+        content: "正在思考中...",
+      } as Message),
+    []
+  );
+
+  const displayMessages = useMemo(() => {
+    const displayableMessages = visibleMessages.filter((data) => {
+      if (data.message.type !== "ai") {
+        return true;
+      }
+      return (
+        extractStringFromMessageContent(data.message).trim() !== "" ||
+        data.toolCalls.length > 0
+      );
+    });
+
+    if (!shouldShowThinkingPlaceholder) {
+      return displayableMessages;
+    }
+
+    return [
+      ...displayableMessages,
+      {
+        message: thinkingPlaceholderMessage,
+        toolCalls: [] as ToolCall[],
+      },
+    ];
+  }, [
+    shouldShowThinkingPlaceholder,
+    thinkingPlaceholderMessage,
+    visibleMessages,
+  ]);
+
   const completedMessageId = useMemo(() => {
     if (
       showRuntimeDetails ||
@@ -1255,13 +1302,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   </div>
                 </div>
               )}
-              {visibleMessages.map((data, index) => {
+              {displayMessages.map((data, index) => {
                 const messageUi = ui?.filter(
                   (u: any) => u.metadata?.message_id === data.message.id
                 );
-                const isLastMessage = index === visibleMessages.length - 1;
+                const isLastMessage = index === displayMessages.length - 1;
                 const prevVisibleMessage =
-                  index > 0 ? visibleMessages[index - 1].message : null;
+                  index > 0 ? displayMessages[index - 1].message : null;
                 return (
                   <ChatMessage
                     key={data.message.id}

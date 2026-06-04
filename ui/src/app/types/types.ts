@@ -48,8 +48,12 @@ export interface ChatAttachment {
   dataUrl?: string;
   text?: string;
   workspacePath?: string;
+  extractedWorkspacePath?: string;
+  extractedTextSize?: number;
   pageCount?: number;
+  extractedPageCount?: number;
   truncated?: boolean;
+  extractionError?: string;
   error?: string;
 }
 

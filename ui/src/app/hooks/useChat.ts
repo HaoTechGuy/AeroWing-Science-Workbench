@@ -212,6 +212,15 @@ function sanitizeThreadState(
   };
 }
 
+function hasUsableCheckpoint(
+  checkpoint?: Checkpoint | null
+): checkpoint is Checkpoint & { checkpoint_id: string } {
+  return (
+    typeof checkpoint?.checkpoint_id === "string" &&
+    checkpoint.checkpoint_id.length > 0
+  );
+}
+
 function mergeStateValues(
   state: ThreadState<StateType>,
   values: unknown
@@ -454,6 +463,10 @@ function formatAttachmentSize(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatAttachmentAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
 function attachmentMetadata(attachments: ChatAttachment[]) {
   return attachments.map((attachment) => ({
     id: attachment.id,
@@ -462,8 +475,12 @@ function attachmentMetadata(attachments: ChatAttachment[]) {
     size: attachment.size,
     kind: attachment.kind,
     workspacePath: attachment.workspacePath,
+    extractedWorkspacePath: attachment.extractedWorkspacePath,
+    extractedTextSize: attachment.extractedTextSize,
     pageCount: attachment.pageCount,
+    extractedPageCount: attachment.extractedPageCount,
     truncated: attachment.truncated,
+    extractionError: attachment.extractionError,
     error: attachment.error,
   }));
 }
@@ -510,13 +527,38 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
 
     if (attachment.kind === "pdf") {
       const pathHint = attachment.workspacePath
-        ? ` path="${attachment.workspacePath}"`
+        ? ` path="${formatAttachmentAttribute(attachment.workspacePath)}"`
+        : "";
+      const extractedPathHint = attachment.extractedWorkspacePath
+        ? ` extracted_path="${formatAttachmentAttribute(
+            attachment.extractedWorkspacePath
+          )}"`
         : "";
       const pagesHint = attachment.pageCount
         ? ` pages="${attachment.pageCount}"`
         : "";
+      const extractedPagesHint = attachment.extractedPageCount
+        ? ` extracted_pages="${attachment.extractedPageCount}"`
+        : "";
+      const extractionError = attachment.extractionError?.trim();
       const extractedText = attachment.text?.trim();
-      const body = extractedText
+      const body = attachment.extractedWorkspacePath
+        ? [
+            `[PDF uploaded and processed locally. Use the extracted text file at ${attachment.extractedWorkspacePath} first for reading, summarization, and question answering.`,
+            attachment.workspacePath
+              ? `The original PDF is available at ${attachment.workspacePath}.`
+              : "",
+            attachment.truncated
+              ? "The extracted text is truncated; use the original PDF only when additional pages, layout, figures, or tables are needed."
+              : "Use the original PDF only when layout, figures, or tables are needed.",
+            extractionError
+              ? `Local extraction reported: ${extractionError}`
+              : "",
+            "]",
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : extractedText
         ? attachment.truncated
           ? `${extractedText}\n\n[PDF text truncated before sending. The original PDF is available at ${
               attachment.workspacePath || "the workspace path above"
@@ -524,15 +566,21 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
           : extractedText
         : `[PDF uploaded. The original file is available at ${
             attachment.workspacePath || "the workspace path above"
-          }. No extractable text was found in the uploaded PDF.]`;
+          }. ${
+            extractionError
+              ? `Local text extraction failed: ${extractionError}`
+              : "No extractable text was found in the uploaded PDF."
+          }]`;
       blocks.push({
         type: "text",
         text: [
-          `<attachment name="${attachment.name}" mime_type="${
+          `<attachment name="${formatAttachmentAttribute(
+            attachment.name
+          )}" mime_type="${formatAttachmentAttribute(
             attachment.mimeType || "application/pdf"
-          }" size="${formatAttachmentSize(
+          )}" size="${formatAttachmentSize(
             attachment.size
-          )}"${pathHint}${pagesHint}>`,
+          )}"${pathHint}${extractedPathHint}${pagesHint}${extractedPagesHint}>`,
           body,
           "</attachment>",
         ].join("\n"),
@@ -723,6 +771,10 @@ export function useChat({
     }),
     [streamSubmitOptions]
   );
+  const invalidImplicitCheckpointOptions = useMemo(() => {
+    const headCheckpoint = threadSnapshot?.data?.[0]?.checkpoint;
+    return hasUsableCheckpoint(headCheckpoint) ? {} : { checkpoint: null };
+  }, [threadSnapshot?.data]);
 
   const handleStreamCreated = useCallback(
     (run?: { run_id?: string; thread_id?: string }) => {
@@ -875,6 +927,7 @@ export function useChat({
         },
         withStreamSubmitOptions({
           metadata: workspaceMetadata,
+          ...invalidImplicitCheckpointOptions,
           ...(newThreadId ? { threadId: newThreadId } : {}),
           optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
@@ -895,6 +948,7 @@ export function useChat({
       buildRunConfig,
       onHistoryRevalidate,
       workspaceMetadata,
+      invalidImplicitCheckpointOptions,
       threadId,
     ]
   );
@@ -908,7 +962,7 @@ export function useChat({
     ) => {
       clearStreamEvents();
       markRunStarting();
-      if (checkpoint) {
+      if (hasUsableCheckpoint(checkpoint)) {
         stream.submit(
           undefined,
           withStreamSubmitOptions({
@@ -926,6 +980,7 @@ export function useChat({
         stream.submit(
           { messages },
           withStreamSubmitOptions({
+            ...invalidImplicitCheckpointOptions,
             config: buildRunConfig(),
             interruptBefore: ["tools"],
           })
@@ -938,6 +993,7 @@ export function useChat({
       markRunStarting,
       withStreamSubmitOptions,
       buildRunConfig,
+      invalidImplicitCheckpointOptions,
     ]
   );
 
@@ -1079,6 +1135,7 @@ export function useChat({
       stream.submit(
         undefined,
         withStreamSubmitOptions({
+          ...invalidImplicitCheckpointOptions,
           config: {
             ...buildRunConfig(),
             recursion_limit: 100,
@@ -1098,6 +1155,7 @@ export function useChat({
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
+      invalidImplicitCheckpointOptions,
     ]
   );
 
@@ -1114,6 +1172,7 @@ export function useChat({
       stream.submit(
         null,
         withStreamSubmitOptions({
+          ...invalidImplicitCheckpointOptions,
           command: { resume: value },
           config: buildRunConfig(),
         })
@@ -1128,6 +1187,7 @@ export function useChat({
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
+      invalidImplicitCheckpointOptions,
     ]
   );
 

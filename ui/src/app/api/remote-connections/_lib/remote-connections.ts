@@ -48,7 +48,6 @@ const BACKEND_CLI_PACKAGE_ENTRIES = [
   "ssh_backend.py",
   "dynamic_local_backend.py",
   "kb_sync_middleware.py",
-  "mineru_middleware.py",
   "goal_middleware.py",
   "goal_state.py",
   "goal_tools.py",
