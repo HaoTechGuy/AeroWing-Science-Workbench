@@ -120,6 +120,13 @@ function formatChatError(error: unknown): string | null {
       ? error
       : JSON.stringify(error);
 
+  if (isMalformedRemoteRuntimeError(message)) {
+    return (
+      "远程 Agent runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应，" +
+      "请查看 backend 和 runtime 日志获取真实失败原因。"
+    );
+  }
+
   const remoteRuntimeMessage = extractRemoteRuntimeErrorMessage(message);
   if (remoteRuntimeMessage) {
     return `远程 Agent runtime 执行失败：${remoteRuntimeMessage}`;
@@ -136,6 +143,13 @@ function formatChatError(error: unknown): string | null {
   return message || "运行失败，请重试。";
 }
 
+function isMalformedRemoteRuntimeError(message: string): boolean {
+  return (
+    /Response validation failed/i.test(message) &&
+    /body\.error\.code/i.test(message)
+  );
+}
+
 function extractRemoteRuntimeErrorMessage(message: string): string | null {
   if (!/RemoteException/i.test(message)) {
     return null;
@@ -146,15 +160,27 @@ function extractRemoteRuntimeErrorMessage(message: string): string | null {
     normalized.match(/['"]message['"]\s*:\s*['"]([^'"]+)['"]/)?.[1]?.trim() ??
     null;
 
-  if (/Insufficient credits/i.test(extracted ?? normalized)) {
+  const normalizedExtracted = extracted?.replace(
+    /^远程 Agent runtime 执行失败[:：]\s*/,
+    ""
+  );
+
+  if (isMalformedRemoteRuntimeError(normalizedExtracted ?? normalized)) {
+    return (
+      "远端 runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应，" +
+      "请查看 backend 和 runtime 日志获取真实失败原因。"
+    );
+  }
+
+  if (/Insufficient credits/i.test(normalizedExtracted ?? normalized)) {
     return "集思额度不足，请提额后重试。";
   }
 
-  if (/User not found|Unauthorized|401/i.test(extracted ?? normalized)) {
+  if (/User not found|Unauthorized|401/i.test(normalizedExtracted ?? normalized)) {
     return "集思 key 无效或未授权，请在配置页重新绑定邮箱。";
   }
 
-  return extracted;
+  return normalizedExtracted ?? null;
 }
 
 function formatGoalElapsed(seconds: number): string {
