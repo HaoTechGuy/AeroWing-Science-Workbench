@@ -8,8 +8,20 @@ on:
     inputs:
       base_version:
         description: "Base desktop version for test releases, for example 0.1.5"
-        required: true
+        required: false
         default: "0.1.5"
+      source_repository:
+        description: "Optional source repository for an official release build, for example ShaoZhang0115/InternAgents"
+        required: false
+        default: ""
+      source_ref:
+        description: "Optional source branch, tag, or commit SHA for an official release build"
+        required: false
+        default: ""
+      release_tag:
+        description: "Optional official release tag, for example v0.1.8. When set, this dispatch publishes a stable release."
+        required: false
+        default: ""
       release_notes:
         description: "Optional extra notes for the test release"
         required: false
@@ -28,6 +40,8 @@ jobs:
       is_test_release: ${{ steps.release.outputs.is_test_release }}
       release_repo: ${{ steps.release.outputs.release_repo }}
       release_tag: ${{ steps.release.outputs.release_tag }}
+      source_repository: ${{ steps.release.outputs.source_repository }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
       source_label: ${{ steps.release.outputs.source_label }}
       extra_notes: ${{ steps.release.outputs.extra_notes }}
 
@@ -36,11 +50,37 @@ jobs:
         id: release
         env:
           BASE_VERSION: ${{ inputs.base_version }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
           EXTRA_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
 
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${RELEASE_TAG_INPUT:-}" ]; then
+            tag="${RELEASE_TAG_INPUT}"
+            if ! [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+              echo "::error::release_tag must look like vX.Y.Z, got: $tag"
+              exit 1
+            fi
+            desktop_version="${BASH_REMATCH[1]}"
+
+            source_repository="${SOURCE_REPOSITORY:-}"
+            source_ref="${SOURCE_REF:-}"
+            if [ -z "$source_repository" ] || [ -z "$source_ref" ]; then
+              echo "::error::source_repository and source_ref are required when release_tag is set."
+              exit 1
+            fi
+            if ! [[ "$source_repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+              echo "::error::source_repository must look like owner/repo, got: $source_repository"
+              exit 1
+            fi
+
+            release_tag="$tag"
+            release_repo="${GITHUB_REPOSITORY}"
+            is_test_release="false"
+            source_label="${source_repository}@${source_ref}"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             base_version="${BASE_VERSION:-0.1.5}"
             if ! [[ "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::base_version must look like X.Y.Z, got: $base_version"
@@ -59,6 +99,8 @@ jobs:
             release_tag="v${desktop_version}"
             release_repo="${GITHUB_REPOSITORY}"
             is_test_release="true"
+            source_repository="${GITHUB_REPOSITORY}"
+            source_ref="${GITHUB_REF_NAME}"
             source_label="${GITHUB_REF_NAME}@${GITHUB_SHA}"
           else
             tag="${GITHUB_REF_NAME}"
@@ -71,6 +113,8 @@ jobs:
             release_tag="$tag"
             release_repo="${GITHUB_REPOSITORY}"
             is_test_release="false"
+            source_repository="${GITHUB_REPOSITORY}"
+            source_ref="$tag"
             source_label="$tag"
           fi
 
@@ -79,6 +123,8 @@ jobs:
             echo "is_test_release=$is_test_release"
             echo "release_repo=$release_repo"
             echo "release_tag=$release_tag"
+            echo "source_repository=$source_repository"
+            echo "source_ref=$source_ref"
             echo "source_label=$source_label"
             {
               echo "extra_notes<<EOF"
@@ -90,6 +136,19 @@ jobs:
           printf 'Release repo: %s\n' "$release_repo"
           printf 'Release tag: %s\n' "$release_tag"
           printf 'Desktop version: %s\n' "$desktop_version"
+          printf 'Source repository: %s\n' "$source_repository"
+          printf 'Source ref: %s\n' "$source_ref"
+
+      - name: Require private source checkout token
+        if: steps.release.outputs.source_repository != github.repository
+        env:
+          INTERNAGENTS_SOURCE_TOKEN: ${{ secrets.INTERNAGENTS_SOURCE_TOKEN }}
+          SOURCE_LABEL: ${{ steps.release.outputs.source_label }}
+        run: |
+          if [ -z "$INTERNAGENTS_SOURCE_TOKEN" ]; then
+            echo "::error::Set INTERNAGENTS_SOURCE_TOKEN in ${GITHUB_REPOSITORY} to checkout ${SOURCE_LABEL:-the source repository}."
+            exit 1
+          fi
 
   build:
     name: Build macOS DMG (${{ matrix.arch }})
@@ -107,6 +166,11 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -222,6 +286,11 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN }}
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
