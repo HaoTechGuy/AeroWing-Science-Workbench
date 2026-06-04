@@ -384,7 +384,7 @@ function AboutPageContent() {
                 className="h-9 shrink-0 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
               >
                 <a
-                  href="https://github.com/InternScience/InternAgents"
+                  href="https://internscience.github.io/InternAgents/user-manual/"
                   target="_blank"
                   rel="noreferrer"
                 >
