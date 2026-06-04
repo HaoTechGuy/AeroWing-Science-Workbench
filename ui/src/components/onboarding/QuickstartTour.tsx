@@ -31,7 +31,8 @@ type TourEventDetail = {
 const QUICKSTART_COMPLETED_KEY = "internagents.quickstart.completed.v1";
 const QUICKSTART_STEP_KEY = "internagents.quickstart.step.v1";
 const QUICKSTART_ONBOARDING_ENDPOINT = "/api/onboarding/quickstart";
-const WORKBENCH_HREF = "/?assistantId=agent";
+const QUICKSTART_START_PARAM = "quickstart";
+const WORKBENCH_HREF = "/?assistantId=agent_local";
 const WORKBENCH_PARAM_KEYS = ["resourceId", "assistantId", "workspaceId"];
 
 type RuntimeWindow = Window & {
@@ -67,9 +68,9 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     id: "workspace",
     route: "/",
     href: WORKBENCH_HREF,
-    target: '[data-tour="workspace-panel"]',
+    target: "#workspace-files",
     title: "项目工作区",
-    body: "左侧展示当前项目文件。你可以浏览代码、文本、图片和 PDF；智能体的文件读取和命令也围绕这个工作区展开。",
+    body: "这里是智能体的项目工作区，展示当前项目文件，也是智能体读取文件、写入结果和执行任务时使用的目录。",
   },
   {
     id: "chat",
@@ -216,6 +217,31 @@ function isConfigSetupRoute() {
   }
 }
 
+function isQuickstartStartRoute() {
+  try {
+    return (
+      new URLSearchParams(window.location.search).get(QUICKSTART_START_PARAM) ===
+      "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function clearQuickstartStartRoute() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete(QUICKSTART_START_PARAM);
+    window.history.replaceState(
+      null,
+      "",
+      `${url.pathname}${url.search}${url.hash}`
+    );
+  } catch {
+    // Keep the tour running even if the URL cannot be cleaned up.
+  }
+}
+
 function getWorkbenchHref() {
   if (typeof window === "undefined") {
     return WORKBENCH_HREF;
@@ -231,7 +257,7 @@ function getWorkbenchHref() {
       }
     }
     if (!nextParams.get("assistantId")) {
-      nextParams.set("assistantId", "agent");
+      nextParams.set("assistantId", "agent_local");
     }
     return `/?${nextParams.toString()}`;
   } catch {
@@ -285,6 +311,15 @@ export function QuickstartTour() {
     setStepIndex(nextIndex);
     setActive(true);
   }, []);
+
+  useEffect(() => {
+    if (!isQuickstartStartRoute() || isConfigSetupRoute()) {
+      return;
+    }
+
+    clearQuickstartStartRoute();
+    startTour({ auto: true, force: true, restart: true });
+  }, [pathname, startTour]);
 
   useEffect(() => {
     if (

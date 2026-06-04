@@ -51,6 +51,17 @@ type RunLifecycle = {
 };
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4_000;
+const THREAD_SNAPSHOT_CACHE_MAX_ENTRIES = 40;
+
+type ThreadSnapshotCacheEntry = {
+  data?: ThreadState<StateType>[];
+  updatedAt: number;
+  pending?: Promise<ThreadState<StateType>[]>;
+  requestId?: number;
+};
+
+const threadSnapshotCache = new Map<string, ThreadSnapshotCacheEntry>();
+let threadSnapshotRequestSequence = 0;
 
 export type StateType = {
   messages: Message[];
@@ -249,6 +260,143 @@ function sanitizeThreadState(
         }
       : null,
   };
+}
+
+function cloneStateValues(values: StateType): StateType {
+  const cloned = {
+    ...(values && typeof values === "object" ? values : {}),
+  } as StateType;
+  if (Array.isArray(cloned.messages)) {
+    cloned.messages = [...cloned.messages];
+  }
+  return cloned;
+}
+
+function cloneThreadState(
+  state: ThreadState<StateType>
+): ThreadState<StateType> {
+  return sanitizeThreadState({
+    ...state,
+    values: cloneStateValues(state.values),
+    next: [...(state.next ?? [])],
+    tasks: [...(state.tasks ?? [])],
+    metadata:
+      state.metadata && typeof state.metadata === "object"
+        ? { ...(state.metadata as Record<string, unknown>) }
+        : {},
+    checkpoint: {
+      ...state.checkpoint,
+      checkpoint_map: state.checkpoint.checkpoint_map
+        ? { ...state.checkpoint.checkpoint_map }
+        : {},
+    },
+    parent_checkpoint: state.parent_checkpoint
+      ? {
+          ...state.parent_checkpoint,
+          checkpoint_map: state.parent_checkpoint.checkpoint_map
+            ? { ...state.parent_checkpoint.checkpoint_map }
+            : {},
+        }
+      : null,
+  });
+}
+
+function cloneThreadStates(
+  states: ThreadState<StateType>[]
+): ThreadState<StateType>[] {
+  return states.map(cloneThreadState);
+}
+
+function threadSnapshotCacheKey(
+  cacheScope: string,
+  threadId: string
+): string {
+  return `${cacheScope}::${threadId}`;
+}
+
+function getCachedThreadSnapshot(
+  cacheKey: string
+): ThreadState<StateType>[] | undefined {
+  const entry = threadSnapshotCache.get(cacheKey);
+  if (!entry?.data) {
+    return undefined;
+  }
+
+  threadSnapshotCache.delete(cacheKey);
+  threadSnapshotCache.set(cacheKey, entry);
+  return cloneThreadStates(entry.data);
+}
+
+function setCachedThreadSnapshot(
+  cacheKey: string,
+  data: ThreadState<StateType>[],
+  requestId?: number
+): ThreadState<StateType>[] {
+  const cloned = cloneThreadStates(data);
+  const existing = threadSnapshotCache.get(cacheKey);
+  if (requestId !== undefined && existing?.requestId !== requestId) {
+    return getCachedThreadSnapshot(cacheKey) ?? cloneThreadStates(cloned);
+  }
+
+  threadSnapshotCache.set(cacheKey, {
+    ...existing,
+    data: cloned,
+    updatedAt: Date.now(),
+    pending: undefined,
+    requestId,
+  });
+
+  while (threadSnapshotCache.size > THREAD_SNAPSHOT_CACHE_MAX_ENTRIES) {
+    const oldestKey = threadSnapshotCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    threadSnapshotCache.delete(oldestKey);
+  }
+
+  return cloneThreadStates(cloned);
+}
+
+function setPendingThreadSnapshot(
+  cacheKey: string,
+  pending: Promise<ThreadState<StateType>[]>,
+  requestId: number
+) {
+  const existing = threadSnapshotCache.get(cacheKey);
+  threadSnapshotCache.set(cacheKey, {
+    ...existing,
+    updatedAt: existing?.updatedAt ?? 0,
+    pending,
+    requestId,
+  });
+}
+
+function clearPendingThreadSnapshot(
+  cacheKey: string,
+  pending: Promise<ThreadState<StateType>[]>
+) {
+  const existing = threadSnapshotCache.get(cacheKey);
+  if (existing?.pending !== pending) {
+    return;
+  }
+  if (!existing.data) {
+    threadSnapshotCache.delete(cacheKey);
+    return;
+  }
+  threadSnapshotCache.set(cacheKey, {
+    ...existing,
+    pending: undefined,
+  });
+}
+
+function isActiveThreadSnapshotRequest(
+  cacheKey: string,
+  requestId?: number
+): boolean {
+  return (
+    requestId === undefined ||
+    threadSnapshotCache.get(cacheKey)?.requestId === requestId
+  );
 }
 
 function hasUsableCheckpoint(
@@ -461,23 +609,36 @@ function useThreadSnapshot({
   runtimeClient,
   threadId,
   externalThread,
+  cacheScope,
 }: {
   client: ReturnType<typeof useRemoteAgent>["client"];
   runtimeClient: Client<StateType> | null;
   threadId: string | null;
   externalThread?: UseStreamThread<StateType>;
+  cacheScope: string;
 }): UseStreamThread<StateType> | undefined {
   const requestIdRef = useRef(0);
   const [snapshot, setSnapshot] = useState<{
+    cacheKey: string | null;
     threadId: string | null;
     data: ThreadState<StateType>[] | null | undefined;
     error: unknown;
     isLoading: boolean;
-  }>({
-    threadId: null,
-    data: undefined,
-    error: undefined,
-    isLoading: false,
+  }>(() => {
+    const initialCacheKey = threadId
+      ? threadSnapshotCacheKey(cacheScope, threadId)
+      : null;
+    const cachedData = initialCacheKey
+      ? getCachedThreadSnapshot(initialCacheKey)
+      : undefined;
+
+    return {
+      cacheKey: initialCacheKey,
+      threadId,
+      data: cachedData,
+      error: undefined,
+      isLoading: Boolean(threadId && !cachedData),
+    };
   });
 
   const mutate = useCallback(
@@ -487,6 +648,7 @@ function useThreadSnapshot({
 
       if (!targetThreadId) {
         const empty = {
+          cacheKey: null,
           threadId: null,
           data: undefined,
           error: undefined,
@@ -496,48 +658,91 @@ function useThreadSnapshot({
         return empty.data;
       }
 
+      const cacheKey = threadSnapshotCacheKey(cacheScope, targetThreadId);
+      const cachedData = getCachedThreadSnapshot(cacheKey);
+
       setSnapshot((current) => ({
         ...current,
+        cacheKey,
         threadId: targetThreadId,
-        data: current.threadId === targetThreadId ? current.data : undefined,
+        data:
+          cachedData ??
+          (current.cacheKey === cacheKey ? current.data : undefined),
         error: undefined,
         isLoading: true,
       }));
 
+      let pending: Promise<ThreadState<StateType>[]> | undefined;
+      let cacheRequestId: number | undefined;
       try {
-        const data = await loadThreadSnapshot({
-          client,
-          runtimeClient,
-          threadId: targetThreadId,
-        });
-        if (requestIdRef.current === requestId) {
-          setSnapshot({
+        const existingEntry = threadSnapshotCache.get(cacheKey);
+        const existingPending = existingEntry?.data
+          ? undefined
+          : existingEntry?.pending;
+        if (existingPending) {
+          pending = existingPending;
+          cacheRequestId = existingEntry?.requestId;
+        } else {
+          pending = loadThreadSnapshot({
+            client,
+            runtimeClient,
             threadId: targetThreadId,
-            data,
+          });
+          cacheRequestId = ++threadSnapshotRequestSequence;
+          setPendingThreadSnapshot(cacheKey, pending, cacheRequestId);
+        }
+
+        const data = await pending;
+        if (!isActiveThreadSnapshotRequest(cacheKey, cacheRequestId)) {
+          return getCachedThreadSnapshot(cacheKey) ?? cloneThreadStates(data);
+        }
+
+        const cachedResult = setCachedThreadSnapshot(
+          cacheKey,
+          data,
+          cacheRequestId
+        );
+        if (
+          requestIdRef.current === requestId &&
+          isActiveThreadSnapshotRequest(cacheKey, cacheRequestId)
+        ) {
+          setSnapshot({
+            cacheKey,
+            threadId: targetThreadId,
+            data: cachedResult,
             error: undefined,
             isLoading: false,
           });
         }
-        return data;
+        return cloneThreadStates(cachedResult);
       } catch (error) {
         if (requestIdRef.current === requestId) {
           setSnapshot((current) => ({
             ...current,
+            cacheKey,
+            data:
+              current.cacheKey === cacheKey
+                ? current.data
+                : getCachedThreadSnapshot(cacheKey),
             error,
             isLoading: false,
           }));
         }
         throw error;
+      } finally {
+        if (pending) {
+          clearPendingThreadSnapshot(cacheKey, pending);
+        }
       }
     },
-    [client, runtimeClient, threadId]
+    [cacheScope, client, runtimeClient, threadId]
   );
 
   useEffect(() => {
     if (externalThread) {
       return;
     }
-    void mutate(threadId ?? undefined);
+    void mutate(threadId ?? undefined).catch(() => undefined);
   }, [externalThread, mutate, threadId]);
 
   return useMemo(() => {
@@ -784,6 +989,7 @@ export function useChat({
   const [runLifecycle, setRunLifecycle] = useState<RunLifecycle>({
     status: "idle",
   });
+  const [visibleError, setVisibleError] = useState<unknown>();
   const previousThreadIdRef = useRef<string | null>(threadId ?? null);
   const pendingNewThreadTitleRef = useRef<string | null>(null);
   const pendingNewThreadTitleThreadIdRef = useRef<string | null>(null);
@@ -801,7 +1007,19 @@ export function useChat({
   );
   const streamEventLayer = useStreamEventLayer(remoteAgent, threadId ?? null);
   const { clearStreamEvents } = streamEventLayer;
+  const threadSnapshotCacheScope = useMemo(
+    () =>
+      [
+        remoteAgent.url,
+        remoteAgent.graphName,
+        runtimeUrl || "",
+        resourceId || "",
+        workspaceId || "",
+      ].join("|"),
+    [remoteAgent.graphName, remoteAgent.url, resourceId, runtimeUrl, workspaceId]
+  );
   const markRunStarting = useCallback(() => {
+    setVisibleError(undefined);
     setRunLifecycle({
       status: "running",
       updatedAt: Date.now(),
@@ -812,6 +1030,7 @@ export function useChat({
     runtimeClient,
     threadId: threadId ?? null,
     externalThread: thread,
+    cacheScope: threadSnapshotCacheScope,
   });
   const threadMetadata = useMemo(() => {
     const metadata = threadSnapshot?.data?.[0]?.metadata;
@@ -917,6 +1136,7 @@ export function useChat({
       state: ThreadState<StateType>,
       run?: { run_id?: string; thread_id?: string }
     ) => {
+      setVisibleError(undefined);
       setRunLifecycle({
         status: stateHasInterrupts(state) ? "interrupted" : "completed",
         updatedAt: Date.now(),
@@ -929,7 +1149,8 @@ export function useChat({
   );
 
   const handleStreamError = useCallback(
-    (_error: unknown, run?: { run_id?: string; thread_id?: string }) => {
+    (error: unknown, run?: { run_id?: string; thread_id?: string }) => {
+      setVisibleError(error);
       setRunLifecycle({
         status: "error",
         updatedAt: Date.now(),
@@ -942,6 +1163,7 @@ export function useChat({
   );
 
   const handleStreamStop = useCallback(() => {
+    setVisibleError(undefined);
     setRunLifecycle((current) => ({
       ...current,
       status: "stopped",
@@ -1033,6 +1255,7 @@ export function useChat({
     previousStreamScopeKey.current = streamScopeKey;
     if (!stream.isLoading) {
       clearStreamEvents();
+      setVisibleError(undefined);
       setRunLifecycle({ status: "idle" });
     }
   }, [streamScopeKey, stream.isLoading, clearStreamEvents]);
@@ -1431,7 +1654,7 @@ export function useChat({
   const activeInterrupt = isThreadScopedStateLoading
     ? undefined
     : stream.interrupt ?? streamEventLayer.interrupt;
-  const runStatus: RunLifecycleStatus = stream.error
+  const runStatus: RunLifecycleStatus = visibleError
     ? "error"
     : activeInterrupt
     ? "interrupted"
@@ -1454,7 +1677,7 @@ export function useChat({
     updateThreadTitle,
     setFiles,
     messages: scopedMessages,
-    error: stream.error,
+    error: visibleError,
     isLoading: stream.isLoading,
     isThreadLoading: isThreadScopedStateLoading,
     interrupt: activeInterrupt,

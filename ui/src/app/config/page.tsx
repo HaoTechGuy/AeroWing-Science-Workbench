@@ -137,6 +137,8 @@ const DEFAULT_CONFIG: ConfigResponse = {
   missing: [],
 };
 
+const QUICKSTART_START_PARAM = "quickstart";
+
 const MODEL_PROVIDER_OPTIONS: Array<{
   id: ModelProvider;
   title: string;
@@ -283,11 +285,24 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
-async function waitForHomeUrl(url: string) {
+async function waitForWorkbenchReady(url: string) {
+  const configUrl = new URL("/api/config", url).toString();
+
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      const response = await fetch(url, { cache: "no-store" });
-      if (response.ok) {
+      const [homeResponse, configResponse] = await Promise.all([
+        fetch(url, { cache: "no-store" }),
+        fetch(configUrl, { cache: "no-store" }),
+      ]);
+      const configPayload = (await configResponse
+        .json()
+        .catch(() => null)) as { needsOnboarding?: boolean } | null;
+
+      if (
+        homeResponse.ok &&
+        configResponse.ok &&
+        configPayload?.needsOnboarding !== true
+      ) {
         return true;
       }
     } catch {
@@ -415,6 +430,12 @@ function ConfigPageContent() {
     () => workbenchHrefFromSearchParams(searchParams),
     [searchParams]
   );
+
+  function buildQuickstartWorkbenchUrl() {
+    const homeUrl = new URL(workbenchHref, window.location.origin);
+    homeUrl.searchParams.set(QUICKSTART_START_PARAM, "1");
+    return homeUrl;
+  }
 
   async function loadConfig() {
     setLoading(true);
@@ -573,8 +594,8 @@ function ConfigPageContent() {
       skillsConfigRef.current?.markApplied();
       toast.success(restart.message || "配置已应用");
       if (redirectHome) {
-        const homeUrl = new URL("/?assistantId=agent_local", window.location.origin);
-        await waitForHomeUrl(homeUrl.toString());
+        const homeUrl = buildQuickstartWorkbenchUrl();
+        await waitForWorkbenchReady(homeUrl.toString());
         window.location.replace(homeUrl.toString());
       }
       return true;
@@ -681,8 +702,8 @@ function ConfigPageContent() {
       await restartBackendNow({ manual: false, redirectHome: true });
       return;
     }
-    const homeUrl = new URL("/?assistantId=agent_local", window.location.origin);
-    await waitForHomeUrl(homeUrl.toString());
+    const homeUrl = buildQuickstartWorkbenchUrl();
+    await waitForWorkbenchReady(homeUrl.toString());
     window.location.replace(homeUrl.toString());
   }
 
