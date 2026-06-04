@@ -6,6 +6,8 @@ import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const FALLBACK_AUTO_SHOWN_VERSION = "desktop-initial";
+
 interface OnboardingState {
   quickstart?: {
     lastAutoShownVersion?: string;
@@ -18,6 +20,10 @@ function isDesktopMode() {
 
 function getAppVersion() {
   return process.env.INTERNAGENTS_APP_VERSION?.trim() || "";
+}
+
+function getAutoShownVersion() {
+  return getAppVersion() || FALLBACK_AUTO_SHOWN_VERSION;
 }
 
 function getOnboardingStatePath() {
@@ -46,6 +52,7 @@ async function writeOnboardingState(state: OnboardingState) {
 function buildResponse(state: OnboardingState) {
   const desktopMode = isDesktopMode();
   const appVersion = getAppVersion();
+  const autoShownVersion = getAutoShownVersion();
   const lastAutoShownVersion =
     state.quickstart?.lastAutoShownVersion?.trim() || "";
 
@@ -54,7 +61,7 @@ function buildResponse(state: OnboardingState) {
     appVersion,
     lastAutoShownVersion,
     shouldAutoStart:
-      desktopMode && Boolean(appVersion) && lastAutoShownVersion !== appVersion,
+      desktopMode && lastAutoShownVersion !== autoShownVersion,
   });
 }
 
@@ -77,14 +84,14 @@ export async function GET() {
 export async function PUT() {
   try {
     const state = await readOnboardingState();
-    const appVersion = getAppVersion();
+    const autoShownVersion = getAutoShownVersion();
 
-    if (isDesktopMode() && appVersion) {
+    if (isDesktopMode()) {
       const nextState: OnboardingState = {
         ...state,
         quickstart: {
           ...state.quickstart,
-          lastAutoShownVersion: appVersion,
+          lastAutoShownVersion: autoShownVersion,
         },
       };
       await writeOnboardingState(nextState);
