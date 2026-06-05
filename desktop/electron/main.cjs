@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, nativeTheme } = require("electron");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
@@ -102,7 +102,7 @@ async function createSplashWindow() {
     minimizable: false,
     fullscreenable: false,
     title: "InternAgents",
-    backgroundColor: "#10131a",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#10131a" : "#f7fbff",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
