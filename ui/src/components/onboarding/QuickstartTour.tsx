@@ -405,6 +405,7 @@ export function QuickstartTour() {
   const endTour = useCallback(() => {
     writeCompleted(true);
     removeStoredStep();
+    void markAutoShown();
     setActive(false);
   }, []);
 
@@ -423,7 +424,11 @@ export function QuickstartTour() {
         if (status.desktopMode) {
           setAutoStartGate("desktop");
           if (status.shouldAutoStart) {
-            startTour({ auto: true, force: true });
+            if (readCompleted()) {
+              void markAutoShown();
+            } else {
+              startTour({ auto: true, force: true });
+            }
           }
           return;
         }
