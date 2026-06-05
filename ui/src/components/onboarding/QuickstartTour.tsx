@@ -576,7 +576,7 @@ export function QuickstartTour() {
       {!spotlightStyle && <div className="absolute inset-0 bg-black/45" />}
       {spotlightStyle && (
         <div
-          className="pointer-events-none fixed rounded-lg border-2 border-white bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.45),0_10px_40px_rgba(0,0,0,0.28)] ring-4 ring-[#2F6868]/60"
+          className="pointer-events-none fixed rounded-lg border-2 border-white bg-transparent shadow-[0_0_0_9999px_rgba(0,0,0,0.45),0_10px_40px_rgba(0,0,0,0.28)] ring-4 ring-[#2F6868]/60 dark:ring-[hsl(var(--primary)/0.6)]"
           style={spotlightStyle}
         />
       )}
@@ -627,7 +627,7 @@ export function QuickstartTour() {
 
         <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-[#2F6868] transition-all"
+            className="h-full rounded-full bg-[#2F6868] transition-all dark:bg-[hsl(var(--primary))]"
             style={{
               width: `${((stepIndex + 1) / totalSteps) * 100}%`,
             }}
@@ -660,7 +660,7 @@ export function QuickstartTour() {
               type="button"
               size="sm"
               onClick={goNext}
-              className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+              className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
             >
               {isLastStep ? (
                 <>

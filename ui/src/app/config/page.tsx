@@ -855,7 +855,7 @@ function ConfigPageContent() {
                     ? "保存当前配置和技能选择，并在后台空闲时自动应用。"
                     : "后台空闲时自动重启并加载当前配置和技能。"
                 }
-                className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+                className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
               >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -903,12 +903,12 @@ function ConfigPageContent() {
           </div>
         )}
         {error && (
-          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-[#ff6d8d]/35 dark:bg-[#ff6d8d]/10 dark:text-[#ffc7d4]">
             {error}
           </div>
         )}
         {config.workspaceError && !loading && !onboardingMode && (
-          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-[#f5b85b]/35 dark:bg-[#f5b85b]/10 dark:text-[#ffe0aa]">
             {config.workspaceError}
           </div>
         )}
@@ -932,14 +932,14 @@ function ConfigPageContent() {
                 模型、授权模式和技能需要重启后端后生效；工作区和界面风格会立即生效。
               </span>
               {hasPendingRestart && !hasAnyChanges && (
-                <span className="text-amber-700">有配置等待应用。</span>
+                <span className="text-amber-700 dark:text-[#f5b85b]">有配置等待应用。</span>
               )}
               {restartResult && (
                 <span
                   className={cn(
                     restartResult.status === "restarted"
-                      ? "text-green-700"
-                      : "text-red-700"
+                      ? "text-green-700 dark:text-[#38d0a7]"
+                      : "text-red-700 dark:text-[#ff6d8d]"
                   )}
                 >
                   {restartResult.message}
@@ -949,10 +949,10 @@ function ConfigPageContent() {
                 <span
                   className={cn(
                     backendStatus.status === "idle"
-                      ? "text-green-700"
+                      ? "text-green-700 dark:text-[#38d0a7]"
                       : backendStatus.status === "busy"
-                      ? "text-amber-700"
-                      : "text-red-700"
+                      ? "text-amber-700 dark:text-[#f5b85b]"
+                      : "text-red-700 dark:text-[#ff6d8d]"
                   )}
                 >
                   {backendStatus.message}
@@ -970,7 +970,7 @@ function ConfigPageContent() {
           >
             {!onboardingMode && (
               <div className="mb-5 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
                   <Cpu className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
@@ -1006,18 +1006,18 @@ function ConfigPageContent() {
                           type="button"
                           onClick={() => updateModelProvider(option.id)}
                           className={cn(
-                            "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent",
+                            "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent dark:hover:border-[hsl(var(--primary)/0.5)]",
                             active
-                              ? "border-primary ring-2 ring-primary/20"
+                              ? "border-primary ring-2 ring-primary/20 dark:border-[hsl(var(--primary))] dark:ring-[hsl(var(--primary)/0.2)]"
                               : "border-border"
                           )}
                         >
                           <div className="mb-3 flex items-center justify-between gap-2">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
                               <ProviderIcon className="h-4 w-4" />
                             </div>
                             {option.badge && (
-                              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
                                 {option.badge}
                               </span>
                             )}
@@ -1061,7 +1061,7 @@ function ConfigPageContent() {
                           className={cn(
                             "rounded-full px-2 py-1 text-xs font-medium",
                             config.gatewayApiKeySet
-                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
                               : "bg-muted text-muted-foreground"
                           )}
                         >
@@ -1148,7 +1148,7 @@ function ConfigPageContent() {
                             </div>
                           </div>
                           {selectedJisiModel ? (
-                            <span className="rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
+                            <span className="rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
                               当前：{selectedJisiModel.title}
                             </span>
                           ) : (
@@ -1166,7 +1166,7 @@ function ConfigPageContent() {
                         )}
 
                         {gatewayModelsError && !gatewayModelsLoading && (
-                          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-[#f5b85b]/35 dark:bg-[#f5b85b]/10 dark:text-[#ffe0aa]">
                             {gatewayModelsError} 请稍后重试。
                           </div>
                         )}
@@ -1188,18 +1188,18 @@ function ConfigPageContent() {
                                     }))
                                   }
                                   className={cn(
-                                    "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent",
+                                    "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent dark:hover:border-[hsl(var(--primary)/0.5)]",
                                     active
-                                      ? "border-primary ring-2 ring-primary/20"
+                                      ? "border-primary ring-2 ring-primary/20 dark:border-[hsl(var(--primary))] dark:ring-[hsl(var(--primary)/0.2)]"
                                       : "border-border"
                                   )}
                                 >
                                   <div className="mb-3 flex items-center justify-between gap-2">
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
                                       <Cpu className="h-4 w-4" />
                                     </div>
                                     {option.isDefault && (
-                                      <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                                      <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
                                         默认
                                       </span>
                                     )}
@@ -1254,7 +1254,7 @@ function ConfigPageContent() {
                           className={cn(
                             "rounded-full px-2 py-1 text-xs font-medium",
                             config.openrouterApiKeySet
-                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-teal-950/50 dark:text-teal-200"
+                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
                               : "bg-muted text-muted-foreground"
                           )}
                         >
@@ -1301,7 +1301,7 @@ function ConfigPageContent() {
             <Button
               type="submit"
               disabled={!canFinishOnboarding}
-              className="h-10 w-full bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+              className="h-10 w-full bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
             >
               {saving || restarting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1319,7 +1319,7 @@ function ConfigPageContent() {
                 data-tour="config-workspace"
               >
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
                     <FolderOpen className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -1362,7 +1362,7 @@ function ConfigPageContent() {
                 data-tour="config-authorization"
               >
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
                     <ShieldCheck className="h-5 w-5" />
                   </div>
                   <div>
@@ -1387,18 +1387,18 @@ function ConfigPageContent() {
                           }))
                         }
                         className={cn(
-                          "flex min-h-44 flex-col rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent",
+                          "flex min-h-44 flex-col rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent dark:hover:border-[hsl(var(--primary)/0.5)]",
                           active
-                            ? "border-primary ring-2 ring-primary/20"
+                            ? "border-primary ring-2 ring-primary/20 dark:border-[hsl(var(--primary))] dark:ring-[hsl(var(--primary)/0.2)]"
                             : "border-border"
                         )}
                       >
                         <div className="mb-4 flex items-center justify-between gap-2">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
                             <Shield className="h-4 w-4" />
                           </div>
                           {option.badge && (
-                            <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+                            <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
                               {option.badge}
                             </span>
                           )}
@@ -1425,7 +1425,7 @@ function ConfigPageContent() {
 
               <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
                     {themeMode === "dark" ? (
                       <Moon className="h-5 w-5" />
                     ) : (
@@ -1449,13 +1449,13 @@ function ConfigPageContent() {
                         type="button"
                         onClick={() => updateTheme(option.id)}
                         className={cn(
-                          "flex items-start gap-3 rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent",
+                          "flex items-start gap-3 rounded-lg border bg-background p-4 text-left transition hover:border-primary/50 hover:bg-accent dark:hover:border-[hsl(var(--primary)/0.5)]",
                           active
-                            ? "border-primary ring-2 ring-primary/20"
+                            ? "border-primary ring-2 ring-primary/20 dark:border-[hsl(var(--primary))] dark:ring-[hsl(var(--primary)/0.2)]"
                             : "border-border"
                         )}
                       >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-teal-300">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
                           {option.id === "dark" ? (
                             <Moon className="h-4 w-4" />
                           ) : (

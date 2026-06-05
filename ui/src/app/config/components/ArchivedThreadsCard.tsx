@@ -34,7 +34,7 @@ function ArchivedThreadsFrame({ children }: { children: ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
       <div className="mb-4 flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
           <Archive className="h-5 w-5" />
         </div>
         <div className="min-w-0">
@@ -84,7 +84,7 @@ function ArchivedThreadsCardContent() {
   return (
     <ArchivedThreadsFrame>
       {threads.error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-[#ff6d8d]/35 dark:bg-[#ff6d8d]/10 dark:text-[#ffc7d4]">
           {threads.error.message}
         </div>
       )}
@@ -139,7 +139,7 @@ function ArchivedThreadsCardContent() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-[#2F6868]"
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-[#2F6868] dark:hover:text-[hsl(var(--primary))]"
                 aria-label={`打开会话 ${thread.title}`}
               >
                 <Link href={`/?assistantId=agent&threadId=${thread.id}`}>

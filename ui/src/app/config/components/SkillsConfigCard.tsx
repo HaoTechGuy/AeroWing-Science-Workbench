@@ -305,7 +305,7 @@ export const SkillsConfigCard = forwardRef<
     >
       <div className="mb-4 flex items-start gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
             <Sparkles className="h-5 w-5" />
           </div>
           <div className="min-w-0">
@@ -316,7 +316,7 @@ export const SkillsConfigCard = forwardRef<
                 href="https://scphub.intern-ai.org.cn/"
                 target="_blank"
                 rel="noreferrer"
-                className="ml-1 inline-flex items-center gap-1 font-medium text-[#2F6868] underline-offset-4 hover:underline dark:text-teal-300"
+                className="ml-1 inline-flex items-center gap-1 font-medium text-[#2F6868] underline-offset-4 hover:underline dark:text-[hsl(var(--primary))]"
               >
                 SCPHub 提供了 200+ 高质量科学领域技能
                 <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
@@ -327,7 +327,7 @@ export const SkillsConfigCard = forwardRef<
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-[#ff6d8d]/35 dark:bg-[#ff6d8d]/10 dark:text-[#ffc7d4]">
           {error}
         </div>
       )}
@@ -337,7 +337,7 @@ export const SkillsConfigCard = forwardRef<
           已选择 {selectedCount} 个技能。建议选择 20 个以内；新选择的技能需要应用后生效。
         </span>
         {requiresRestart && !hasChanges && (
-          <span className="text-amber-700">有技能配置等待应用。</span>
+          <span className="text-amber-700 dark:text-[#f5b85b]">有技能配置等待应用。</span>
         )}
       </div>
 
@@ -362,15 +362,15 @@ export const SkillsConfigCard = forwardRef<
                   className={cn(
                     "flex min-h-32 flex-col justify-between rounded-lg border bg-background p-3 transition-colors",
                     checked
-                      ? "border-[#2F6868] bg-[#F1F7F6] ring-2 ring-[#2F6868]/10 dark:bg-teal-950/20"
-                      : "border-border hover:border-[#2F6868]/40"
+                      ? "border-[#2F6868] bg-[#F1F7F6] ring-2 ring-[#2F6868]/10 dark:border-[hsl(var(--primary))] dark:bg-[hsl(var(--primary)/0.1)] dark:ring-[hsl(var(--primary)/0.2)]"
+                      : "border-border hover:border-[#2F6868]/40 dark:hover:border-[hsl(var(--primary)/0.45)]"
                   )}
                 >
                   <div>
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card">
                         {checked ? (
-                          <Check className="h-4 w-4 text-[#2F6868]" />
+                          <Check className="h-4 w-4 text-[#2F6868] dark:text-[hsl(var(--primary))]" />
                         ) : (
                           <Sparkles className="h-4 w-4 text-muted-foreground" />
                         )}
@@ -400,7 +400,7 @@ export const SkillsConfigCard = forwardRef<
 
         <div className="border-t border-border pt-4">
           <div className="mb-3 flex items-center gap-2">
-            <FolderPlus className="h-4 w-4 text-[#2F6868] dark:text-teal-300" />
+            <FolderPlus className="h-4 w-4 text-[#2F6868] dark:text-[hsl(var(--primary))]" />
             <h3 className="text-sm font-semibold">添加技能</h3>
           </div>
           <div className="space-y-3">
