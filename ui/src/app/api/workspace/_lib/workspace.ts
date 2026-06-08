@@ -1,9 +1,16 @@
 import { execFile, spawn } from "child_process";
 import crypto from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "fs";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
+import { Readable } from "stream";
 import { promisify } from "util";
 import type {
   WorkspaceEntry,
@@ -176,6 +183,27 @@ interface WorkspaceFileData {
   content?: string;
   tooLarge?: boolean;
   dataBase64?: string;
+}
+
+interface WorkspaceByteRange {
+  start: number;
+  end: number;
+}
+
+export interface WorkspaceRawFileStreamData extends WorkspaceFileData {
+  stream: ReadableStream<Uint8Array>;
+  contentLength: number;
+  range?: WorkspaceByteRange;
+}
+
+export class WorkspaceRangeNotSatisfiableError extends Error {
+  readonly size: number;
+
+  constructor(size: number) {
+    super("Requested range is not satisfiable.");
+    this.name = "WorkspaceRangeNotSatisfiableError";
+    this.size = size;
+  }
 }
 
 const DEFAULT_RESOURCES_FILE = "internagent.resources.json";
@@ -1211,6 +1239,95 @@ export async function readWorkspaceFileData(
     payload.tooLarge = true;
   }
   return payload;
+}
+
+function parseWorkspaceRange(
+  rangeHeader: string | null,
+  size: number
+): WorkspaceByteRange | undefined {
+  if (!rangeHeader) {
+    return undefined;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  if (!match || size <= 0) {
+    throw new WorkspaceRangeNotSatisfiableError(size);
+  }
+
+  const [, rawStart, rawEnd] = match;
+  if (!rawStart && !rawEnd) {
+    throw new WorkspaceRangeNotSatisfiableError(size);
+  }
+
+  let start: number;
+  let end: number;
+
+  if (!rawStart) {
+    const suffixLength = Number(rawEnd);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+      throw new WorkspaceRangeNotSatisfiableError(size);
+    }
+    start = Math.max(size - suffixLength, 0);
+    end = size - 1;
+  } else {
+    start = Number(rawStart);
+    end = rawEnd ? Number(rawEnd) : size - 1;
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      end < start ||
+      start >= size
+    ) {
+      throw new WorkspaceRangeNotSatisfiableError(size);
+    }
+    end = Math.min(end, size - 1);
+  }
+
+  return { start, end };
+}
+
+export async function streamLocalWorkspaceRawFile(
+  relativePath: string,
+  resourceId?: string | null,
+  workspaceId?: string | null,
+  rangeHeader?: string | null
+): Promise<WorkspaceRawFileStreamData> {
+  const resource = getWorkspaceResource(resourceId);
+  if ((resource.backend || "local_shell") !== "local_shell") {
+    throw new Error(
+      "Raw file streaming is only available for local workspace files."
+    );
+  }
+
+  const resolved = await resolveWorkspacePath(
+    relativePath,
+    resourceId,
+    workspaceId
+  );
+  const stats = await fs.stat(resolved.absolutePath);
+  if (!stats.isFile()) {
+    throw new Error("Selected workspace path is not a file.");
+  }
+
+  const range = parseWorkspaceRange(rangeHeader || null, stats.size);
+  const stream = Readable.toWeb(
+    createReadStream(
+      resolved.absolutePath,
+      range ? { start: range.start, end: range.end } : undefined
+    )
+  ) as ReadableStream<Uint8Array>;
+
+  return {
+    path: resolved.relativePath,
+    name: path.basename(resolved.relativePath),
+    size: stats.size,
+    modifiedAt: stats.mtime.toISOString(),
+    isFile: true,
+    stream,
+    contentLength: range ? range.end - range.start + 1 : stats.size,
+    range,
+  };
 }
 
 export async function readWorkspaceRawFile(
