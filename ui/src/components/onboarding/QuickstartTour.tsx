@@ -282,6 +282,7 @@ function safeWorkbenchHref(value: string | null) {
     ) {
       return null;
     }
+    parsed.searchParams.delete(QUICKSTART_START_PARAM);
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return null;
@@ -385,8 +386,11 @@ export function QuickstartTour() {
     }
 
     clearQuickstartStartRoute();
+    if (active) {
+      return;
+    }
     startTour({ auto: true, force: true, restart: true });
-  }, [pathname, startTour]);
+  }, [active, pathname, startTour]);
 
   useEffect(() => {
     if (

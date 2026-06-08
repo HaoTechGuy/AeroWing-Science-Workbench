@@ -9,6 +9,7 @@ const WORKBENCH_QUERY_KEYS = [
   "threadId",
   "file",
 ] as const;
+const ONE_SHOT_WORKBENCH_QUERY_KEYS = ["quickstart"] as const;
 
 function safeWorkbenchHref(value: string | null): string | null {
   if (!value) {
@@ -22,6 +23,9 @@ function safeWorkbenchHref(value: string | null): string | null {
       parsed.pathname !== "/"
     ) {
       return null;
+    }
+    for (const key of ONE_SHOT_WORKBENCH_QUERY_KEYS) {
+      parsed.searchParams.delete(key);
     }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
