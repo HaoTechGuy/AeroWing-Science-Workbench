@@ -2,8 +2,11 @@ import { promises as fs } from "fs";
 import { execFile } from "child_process";
 import path from "path";
 import { promisify } from "util";
-import yaml from "js-yaml";
 import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
+import {
+  normalizeSkillMarkdown,
+  parseSkillFrontmatter,
+} from "@/app/api/skills/_lib/skill-frontmatter";
 import type {
   ImportSkillsResponse,
   SkillImportType,
@@ -28,11 +31,6 @@ interface SkillSettings {
   activePath: string;
   selected: string[];
   label: string;
-}
-
-interface Frontmatter {
-  name?: unknown;
-  description?: unknown;
 }
 
 const DEFAULT_SKILL_SETTINGS: SkillSettings = {
@@ -125,25 +123,6 @@ function resolveLocalSource(root: string, source: string): string {
   }
 
   return path.resolve(root, trimmed);
-}
-
-function parseSkillFrontmatter(markdown: string): Frontmatter {
-  if (!markdown.startsWith("---")) {
-    return {};
-  }
-
-  const end = markdown.indexOf("\n---", 3);
-  if (end === -1) {
-    return {};
-  }
-
-  const rawYaml = markdown.slice(3, end).trim();
-  const parsed = yaml.load(rawYaml);
-  if (!parsed || typeof parsed !== "object") {
-    return {};
-  }
-
-  return parsed as Frontmatter;
 }
 
 async function readAgentConfig(root: string): Promise<AgentConfig> {
@@ -276,6 +255,10 @@ async function copySkillIntoImportedCatalog(
     sourceResolved === importedRoot ||
     sourceResolved.startsWith(`${importedRoot}${path.sep}`)
   ) {
+    const skillFile = path.join(sourceResolved, "SKILL.md");
+    if (await pathExists(skillFile)) {
+      await normalizeSkillFile(skillFile);
+    }
     return toWorkspacePath(root, sourceResolved);
   }
 
@@ -287,7 +270,16 @@ async function copySkillIntoImportedCatalog(
     dereference: true,
     recursive: true,
   });
+  await normalizeSkillFile(path.join(destination, "SKILL.md"));
   return toWorkspacePath(root, destination);
+}
+
+async function normalizeSkillFile(skillFile: string): Promise<void> {
+  const markdown = await fs.readFile(skillFile, "utf8");
+  const normalized = normalizeSkillMarkdown(markdown);
+  if (normalized !== markdown) {
+    await fs.writeFile(skillFile, normalized, "utf8");
+  }
 }
 
 async function addImportedCatalogToConfig(root: string): Promise<void> {
@@ -446,7 +438,11 @@ async function importRawSkill(root: string, rawUrl: string): Promise<string[]> {
     path.basename(url.pathname, path.extname(url.pathname));
   const destination = await nextAvailableDirectory(importedRoot, parentName);
   await fs.mkdir(destination, { recursive: true });
-  await fs.writeFile(path.join(destination, "SKILL.md"), markdown, "utf8");
+  await fs.writeFile(
+    path.join(destination, "SKILL.md"),
+    normalizeSkillMarkdown(markdown),
+    "utf8"
+  );
 
   return [toWorkspacePath(root, destination)];
 }
@@ -551,6 +547,7 @@ async function syncActiveSkills(
 ): Promise<void> {
   const activeAbsolute = resolveWorkspaceChild(root, settings.activePath);
   const internagentsRoot = resolveWorkspaceChild(root, ".internagents");
+  const importedRoot = resolveWorkspaceChild(root, IMPORTED_SKILLS_PATH);
 
   if (
     activeAbsolute !== internagentsRoot &&
@@ -573,6 +570,14 @@ async function syncActiveSkills(
     }
 
     const source = resolveWorkspaceChild(root, skill.relativePath);
+    const sourceResolved = path.resolve(source);
+    if (
+      sourceResolved === importedRoot ||
+      sourceResolved.startsWith(`${importedRoot}${path.sep}`)
+    ) {
+      await normalizeSkillFile(path.join(source, "SKILL.md"));
+    }
+
     let linkName = skill.folderName;
     let suffix = 2;
     while (usedNames.has(linkName)) {
