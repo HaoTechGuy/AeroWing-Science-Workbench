@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test:think-tags": "node --test --experimental-strip-types tests/think-tags.test.mts",
+    "test:local-folder-picker": "node --test --experimental-strip-types tests/local-folder-picker.test.mts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

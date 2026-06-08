@@ -58,21 +58,32 @@ async function chooseFolderOnLinux(title: string): Promise<string> {
   return stdout.trim();
 }
 
+export function decodeWindowsFolderPickerOutput(stdout: string): string {
+  const encodedPath = stdout.trim();
+  return encodedPath
+    ? Buffer.from(encodedPath, "base64").toString("utf8")
+    : "";
+}
+
 async function chooseFolderOnWindows(description: string): Promise<string> {
   const script = [
+    "$ErrorActionPreference = 'Stop'",
     "Add-Type -AssemblyName System.Windows.Forms",
     "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
     `$dialog.Description = ${JSON.stringify(description)}`,
     "$dialog.ShowNewFolderButton = $false",
-    "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dialog.SelectedPath }",
-  ].join("; ");
+    "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {",
+    "  $bytes = [System.Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)",
+    "  [Convert]::ToBase64String($bytes)",
+    "}",
+  ].join("\n");
 
   const { stdout } = await execFileAsync(
     "powershell.exe",
-    ["-NoProfile", "-Command", script],
+    ["-NoProfile", "-STA", "-Command", script],
     { timeout: PICKER_TIMEOUT_MS }
   );
-  return stdout.trim();
+  return decodeWindowsFolderPickerOutput(stdout);
 }
 
 export async function chooseLocalFolder(prompt: string): Promise<string> {
