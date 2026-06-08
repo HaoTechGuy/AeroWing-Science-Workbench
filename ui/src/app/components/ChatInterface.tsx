@@ -46,7 +46,10 @@ import type {
   GoalState,
 } from "@/app/types/types";
 import { Assistant, Message } from "@langchain/langgraph-sdk";
-import { extractStringFromMessageContent } from "@/app/utils/utils";
+import {
+  extractStringFromMessageContent,
+  extractVisibleStringFromMessageContent,
+} from "@/app/utils/utils";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
@@ -1089,7 +1092,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       if (data.message.type !== "ai") {
         return true;
       }
-      return extractStringFromMessageContent(data.message).trim() !== "";
+      return (
+        extractVisibleStringFromMessageContent(data.message).trim() !== ""
+      );
     });
   }, [processedMessages, showRuntimeDetails]);
 
@@ -1124,7 +1129,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         return true;
       }
       return (
-        extractStringFromMessageContent(data.message).trim() !== "" ||
+        extractVisibleStringFromMessageContent(data.message).trim() !== "" ||
         data.toolCalls.length > 0
       );
     });
@@ -1167,7 +1172,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
   const completedMessageCopyText = useMemo(() => {
     return completedAiMessage
-      ? extractStringFromMessageContent(completedAiMessage).trim()
+      ? extractVisibleStringFromMessageContent(completedAiMessage).trim()
       : "";
   }, [completedAiMessage]);
 

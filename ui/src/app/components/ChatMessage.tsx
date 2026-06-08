@@ -16,7 +16,6 @@ import { Message } from "@langchain/langgraph-sdk";
 import {
   extractImageUrlsFromMessageContent,
   extractSubAgentContent,
-  extractStringFromMessageContent,
   extractVisibleStringFromMessageContent,
 } from "@/app/utils/utils";
 import { cn } from "@/lib/utils";
@@ -50,9 +49,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     runtimeMuted,
   }) => {
     const isUser = message.type === "human";
-    const messageContent = isUser
-      ? extractVisibleStringFromMessageContent(message)
-      : extractStringFromMessageContent(message);
+    const messageContent = extractVisibleStringFromMessageContent(message);
     const imageUrls = useMemo(
       () => (isUser ? extractImageUrlsFromMessageContent(message) : []),
       [isUser, message]

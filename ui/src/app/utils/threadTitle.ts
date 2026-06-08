@@ -1,5 +1,6 @@
 import type { Message } from "@langchain/langgraph-sdk";
 import type { GoalState } from "@/app/types/types";
+import { stripThinkTagsForDisplay } from "@/app/utils/utils";
 
 export const THREAD_TITLE_METADATA_KEY = "internagents_title";
 export const THREAD_TITLE_UPDATED_AT_METADATA_KEY =
@@ -69,6 +70,8 @@ export function inferThreadDescription(
   messages: Array<Message | Record<string, any>>
 ): string {
   const firstAiMessage = messages.find((message) => message?.type === "ai");
-  const content = contentToText(firstAiMessage?.content).trim();
+  const content = stripThinkTagsForDisplay(
+    contentToText(firstAiMessage?.content)
+  ).trim();
   return content ? content.slice(0, 100) : "";
 }

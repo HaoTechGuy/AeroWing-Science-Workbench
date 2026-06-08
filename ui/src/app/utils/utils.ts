@@ -1,4 +1,4 @@
-import { Message } from "@langchain/langgraph-sdk";
+import type { Message } from "@langchain/langgraph-sdk";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -30,33 +30,99 @@ export function extractStringFromMessageContent(message: Message): string {
     : "";
 }
 
+function isThinkTagStart(text: string, index: number): boolean {
+  if (!text.startsWith("<think", index)) {
+    return false;
+  }
+
+  const nextChar = text[index + "<think".length];
+  return (
+    nextChar === undefined ||
+    nextChar === ">" ||
+    nextChar === "/" ||
+    /\s/.test(nextChar)
+  );
+}
+
+export function stripThinkTagsForDisplay(text: string): string {
+  const lowerText = text.toLowerCase();
+  let cursor = 0;
+  let output = "";
+  let firstThinkStart = -1;
+  let removedAnyThinkBlock = false;
+
+  while (cursor < text.length) {
+    const candidateStart = lowerText.indexOf("<think", cursor);
+    if (candidateStart === -1) {
+      output += text.slice(cursor);
+      break;
+    }
+
+    if (!isThinkTagStart(lowerText, candidateStart)) {
+      output += text.slice(cursor, candidateStart + 1);
+      cursor = candidateStart + 1;
+      continue;
+    }
+
+    const openingEnd = lowerText.indexOf(">", candidateStart);
+    output += text.slice(cursor, candidateStart);
+
+    if (firstThinkStart === -1) {
+      firstThinkStart = candidateStart;
+    }
+    removedAnyThinkBlock = true;
+
+    if (openingEnd === -1) {
+      cursor = text.length;
+      break;
+    }
+
+    const closingStart = lowerText.indexOf("</think>", openingEnd + 1);
+    if (closingStart === -1) {
+      cursor = text.length;
+      break;
+    }
+
+    cursor = closingStart + "</think>".length;
+  }
+
+  if (firstThinkStart !== -1 && text.slice(0, firstThinkStart).trim() === "") {
+    output = output.trimStart();
+  }
+
+  return removedAnyThinkBlock ? output : text;
+}
+
 export function extractVisibleStringFromMessageContent(message: Message): string {
-  if (typeof message.content === "string") {
-    return message.content;
-  }
+  const content =
+    typeof message.content === "string"
+      ? message.content
+      : Array.isArray(message.content)
+      ? message.content
+          .filter(
+            (c: unknown) =>
+              (typeof c === "object" &&
+                c !== null &&
+                "type" in c &&
+                (c as { type: string }).type === "text") ||
+              typeof c === "string"
+          )
+          .map((c: unknown) =>
+            typeof c === "string"
+              ? c
+              : typeof c === "object" && c !== null && "text" in c
+              ? (c as { text?: string }).text || ""
+              : ""
+          )
+          .filter(
+            (text) =>
+              message.type !== "human" ||
+              !text.trimStart().startsWith("<attachment ")
+          )
+          .join("")
+      : "";
 
-  if (!Array.isArray(message.content)) {
-    return "";
-  }
-
-  return message.content
-    .filter(
-      (c: unknown) =>
-        (typeof c === "object" &&
-          c !== null &&
-          "type" in c &&
-          (c as { type: string }).type === "text") ||
-        typeof c === "string"
-    )
-    .map((c: unknown) =>
-      typeof c === "string"
-        ? c
-        : typeof c === "object" && c !== null && "text" in c
-        ? (c as { text?: string }).text || ""
-        : ""
-    )
-    .filter((text) => !text.trimStart().startsWith("<attachment "))
-    .join("");
+  return message.type === "ai" ? stripThinkTagsForDisplay(content) : content;
 }
 
 export function extractImageUrlsFromMessageContent(message: Message): string[] {
