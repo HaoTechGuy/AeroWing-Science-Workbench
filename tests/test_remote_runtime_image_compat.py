@@ -1,10 +1,13 @@
 import unittest
+from types import SimpleNamespace
 
-from langchain.agents.middleware.types import ModelRequest
+from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import HumanMessage, ToolMessage
 
+import agent
 from agent import (
     GOAL_CONTINUATION_TURNS_KEY,
+    GatewayTraceMiddleware,
     ImageContentCompatibilityMiddleware,
     _goal_blocked_after_remote_runtime_error,
     _remote_runtime_exception_message,
@@ -218,6 +221,46 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
         )
 
         self.assertIsNone(update)
+
+    def test_gateway_trace_middleware_adds_thread_headers(self) -> None:
+        original_config = agent._current_runnable_config
+        agent._current_runnable_config = lambda: {
+            "configurable": {"thread_id": "thread-config"},
+            "metadata": {"conversation_id": "conversation-meta"},
+        }
+        request = ModelRequest(
+            model=object(),
+            messages=[],
+            runtime=SimpleNamespace(
+                execution_info=SimpleNamespace(
+                    thread_id="thread-runtime",
+                    run_id="run-runtime",
+                )
+            ),
+            model_settings={
+                "temperature": 0.1,
+                "http_headers": {"x-existing": "ok"},
+            },
+        )
+        seen: dict[str, object] = {}
+
+        def handler(next_request: ModelRequest) -> ModelResponse:
+            seen.update(next_request.model_settings)
+            return ModelResponse(result=[])
+
+        try:
+            GatewayTraceMiddleware().wrap_model_call(request, handler)
+        finally:
+            agent._current_runnable_config = original_config
+
+        self.assertEqual(seen["temperature"], 0.1)
+        headers = seen["http_headers"]
+        self.assertIsInstance(headers, dict)
+        self.assertEqual(headers["x-existing"], "ok")
+        self.assertEqual(headers["x-internagents-session-id"], "thread-runtime")
+        self.assertEqual(headers["x-langgraph-thread-id"], "thread-runtime")
+        self.assertEqual(headers["x-internagents-conversation-id"], "conversation-meta")
+        self.assertEqual(headers["x-internagents-request-id"], "run-runtime")
 
     def test_model_request_middleware_normalizes_tool_image_blocks(self) -> None:
         request = ModelRequest(

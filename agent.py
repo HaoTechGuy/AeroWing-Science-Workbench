@@ -22,6 +22,7 @@ from langchain_core.messages import (
     messages_to_dict,
 )
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_config
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
@@ -263,6 +264,87 @@ def _supports_reasoning_output(model_spec: str) -> bool:
         or name in REASONING_OUTPUT_MODEL_ALIASES
         for name in profile_names
     )
+
+
+def _trace_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).replace("\r", " ").replace("\n", " ").replace("\t", " ").strip()
+    return text[:512] if text else None
+
+
+def _dict_value(mapping: Any, *keys: str) -> str | None:
+    if not isinstance(mapping, dict):
+        return None
+    for key in keys:
+        value = _trace_value(mapping.get(key))
+        if value:
+            return value
+    return None
+
+
+def _current_runnable_config() -> RunnableConfig:
+    try:
+        return get_config()
+    except RuntimeError:
+        return {}
+
+
+def _execution_info_value(request: ModelRequest, key: str) -> str | None:
+    runtime = getattr(request, "runtime", None)
+    execution_info = getattr(runtime, "execution_info", None)
+    return _trace_value(getattr(execution_info, key, None))
+
+
+def _gateway_trace_headers(request: ModelRequest) -> dict[str, str]:
+    config = _current_runnable_config()
+    configurable = config.get("configurable") if isinstance(config, dict) else None
+    metadata = config.get("metadata") if isinstance(config, dict) else None
+
+    thread_id = (
+        _execution_info_value(request, "thread_id")
+        or _dict_value(configurable, "thread_id", "threadId")
+        or _dict_value(metadata, "thread_id", "threadId", "internagents_thread_id")
+    )
+    run_id = (
+        _execution_info_value(request, "run_id")
+        or _dict_value(configurable, "run_id", "runId")
+        or _dict_value(metadata, "run_id", "runId", "internagents_run_id")
+    )
+    conversation_id = (
+        _dict_value(
+            metadata,
+            "conversation_id",
+            "conversationId",
+            "internagents_conversation_id",
+            "internagents_thread_id",
+        )
+        or thread_id
+    )
+
+    headers: dict[str, str] = {}
+    if thread_id:
+        headers["x-internagents-session-id"] = thread_id
+        headers["x-langgraph-thread-id"] = thread_id
+    if conversation_id:
+        headers["x-internagents-conversation-id"] = conversation_id
+    if run_id:
+        headers["x-internagents-request-id"] = run_id
+    return headers
+
+
+def _merge_model_http_headers(
+    model_settings: dict[str, Any],
+    headers: dict[str, str],
+) -> dict[str, Any]:
+    if not headers:
+        return model_settings
+    next_settings = dict(model_settings)
+    existing = next_settings.get("http_headers")
+    merged_headers = dict(existing) if isinstance(existing, dict) else {}
+    merged_headers.update(headers)
+    next_settings["http_headers"] = merged_headers
+    return next_settings
 
 
 def _create_agent_model() -> str | Any:
@@ -818,6 +900,36 @@ class ImageContentCompatibilityMiddleware(AgentMiddleware):
         return await handler(self._normalize_request(request))
 
 
+class GatewayTraceMiddleware(AgentMiddleware):
+    """Adds InternAgents thread/run identifiers to gateway model requests."""
+
+    @property
+    def name(self) -> str:
+        return "GatewayTraceMiddleware"
+
+    def _trace_request(self, request: ModelRequest) -> ModelRequest:
+        headers = _gateway_trace_headers(request)
+        if not headers:
+            return request
+        return request.override(
+            model_settings=_merge_model_http_headers(request.model_settings, headers)
+        )
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        return handler(self._trace_request(request))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        return await handler(self._trace_request(request))
+
+
 def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.remote_url:
         remote = RemoteGraph(
@@ -877,6 +989,8 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
+    if _uses_gateway_provider():
+        middleware.append(GatewayTraceMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
@@ -940,6 +1054,8 @@ def create_runtime_agent():  # noqa: ANN201
     if runtime_resource is not None and runtime_resource.kb_path:
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
+    if _uses_gateway_provider():
+        middleware.append(GatewayTraceMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
