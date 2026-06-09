@@ -46,6 +46,7 @@ from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from ssh_backend import SshShellBackend
+from web_search_tools import web_search_tools
 
 
 def _load_environment() -> None:
@@ -553,6 +554,10 @@ def _skill_read_only_roots(
     return deduped
 
 
+def _agent_tools(agent_config: dict[str, Any]) -> list[Any]:
+    return [*goal_tools(), *web_search_tools(agent_config)]
+
+
 def _create_backend_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.backend == "local_shell":
         return LocalShellBackend(
@@ -994,7 +999,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
-        tools=goal_tools(),
+        tools=_agent_tools(agent_config),
         backend=backend,
         skills=_resolve_skills(agent_config),
         system_prompt=goal_system_prompt(_resource_system_prompt(base_prompt, resource)),
@@ -1059,7 +1064,7 @@ def create_runtime_agent():  # noqa: ANN201
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
-        tools=goal_tools(),
+        tools=_agent_tools(agent_config),
         backend=backend,
         skills=skills,
         system_prompt=goal_system_prompt(system_prompt),
