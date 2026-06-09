@@ -61,6 +61,7 @@ from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
 
 from dynamic_local_backend import DynamicLocalShellBackendFactory
+from date_middleware import RuntimeDateContextMiddleware
 from goal_middleware import GoalContextMiddleware, goal_system_prompt
 from goal_state import normalize_goal_state, update_goal_status
 from goal_tools import goal_tools
@@ -1259,6 +1260,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware.append(ImageContentCompatibilityMiddleware())
     if _uses_gateway_provider():
         middleware.append(GatewayTraceMiddleware())
+    middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
@@ -1327,6 +1329,7 @@ def create_runtime_agent():  # noqa: ANN201
     middleware.append(ImageContentCompatibilityMiddleware())
     if _uses_gateway_provider():
         middleware.append(GatewayTraceMiddleware())
+    middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
