@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, nativeTheme } = require("electron");
+const { app, BrowserWindow, dialog, nativeTheme, shell } = require("electron");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const crypto = require("node:crypto");
@@ -650,6 +650,50 @@ async function restartBackend(uiPort) {
   }
 }
 
+function isHttpUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function hasSameOrigin(url, origin) {
+  try {
+    return new URL(url).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url) {
+  shell.openExternal(url).catch(() => {
+    // External link failures should not disrupt the app window.
+  });
+}
+
+function configureExternalLinks(window, appOrigin) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isHttpUrl(url) && !hasSameOrigin(url, appOrigin)) {
+      openExternalUrl(url);
+      return { action: "deny" };
+    }
+    if (hasSameOrigin(url, appOrigin)) {
+      window.loadURL(url).catch(() => undefined);
+    }
+    return { action: "deny" };
+  });
+
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!isHttpUrl(url) || hasSameOrigin(url, appOrigin)) {
+      return;
+    }
+    event.preventDefault();
+    openExternalUrl(url);
+  });
+}
+
 async function createWindow(startUrl) {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -664,6 +708,7 @@ async function createWindow(startUrl) {
       sandbox: true,
     },
   });
+  configureExternalLinks(mainWindow, new URL(startUrl).origin);
 
   mainWindow.once("ready-to-show", () => {
     if (!mainWindow) {

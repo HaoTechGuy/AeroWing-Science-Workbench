@@ -27,5 +27,11 @@
   "model_selection_mode": "manual",
   "manual_model": "deepseek-v4-flash",
   "model_provider": "gateway",
-  "gateway_model": "deepseek-v4-flash"
+  "gateway_model": "deepseek-v4-flash",
+  "web_search": {
+    "enabled": true,
+    "provider": "duckduckgo",
+    "max_results": 5,
+    "timeout_seconds": 10
+  }
 }

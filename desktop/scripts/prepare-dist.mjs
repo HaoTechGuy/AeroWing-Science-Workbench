@@ -48,6 +48,7 @@ const runtimeEntries = [
   "goal_state.py",
   "goal_tools.py",
   "internagents_backend_cli.py",
+  "web_search_tools.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.json",
