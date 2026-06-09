@@ -414,7 +414,7 @@ function ConfigPageContent() {
   const hasPendingRestart = requiresRestart || skillsState.requiresRestart;
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
-  const onboardingMode = onboardingRequested || config.needsOnboarding;
+  const onboardingMode = onboardingRequested;
   const canFinishOnboarding =
     !actionBusy &&
     (config.modelProvider === "gateway"
