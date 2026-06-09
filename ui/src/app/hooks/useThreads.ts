@@ -41,6 +41,19 @@ async function resolveThreadValues(
     return thread.values;
   }
 
+  const pendingRunPreview = await loadPendingRunInputPreview(
+    client,
+    thread.thread_id
+  );
+  if (pendingRunPreview) {
+    return {
+      ...(thread.values && typeof thread.values === "object"
+        ? thread.values
+        : {}),
+      ...pendingRunValues(pendingRunPreview),
+    };
+  }
+
   if (runtimeClient) {
     try {
       const runtimeState = await runtimeClient.threads.getState(
@@ -75,19 +88,6 @@ async function resolveThreadValues(
     } catch {
       // Keep the original thread record if runtime history cannot be read.
     }
-  }
-
-  const pendingRunPreview = await loadPendingRunInputPreview(
-    client,
-    thread.thread_id
-  );
-  if (pendingRunPreview) {
-    return {
-      ...(thread.values && typeof thread.values === "object"
-        ? thread.values
-        : {}),
-      ...pendingRunValues(pendingRunPreview),
-    };
   }
 
   return thread.values;

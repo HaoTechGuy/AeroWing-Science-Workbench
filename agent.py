@@ -32,6 +32,27 @@ BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
     sys.path.insert(0, str(BUNDLED_DEEPAGENTS))
 
+IMAGE_INPUT_OMITTED_TEXT = (
+    "[Image attachment omitted because the current model endpoint does not support "
+    "image input.]"
+)
+IMAGE_INPUT_UNSUPPORTED_NOTICE_TEXT = (
+    "[Image attachment omitted because the current model endpoint does not support "
+    "image input. Tell the user that this model cannot understand images, and "
+    "continue with any text-only parts of the request.]"
+)
+IMAGE_INPUT_UNSUPPORTED_RETRY_NOTICE_TEXT = (
+    "[The previous model call failed because the current model endpoint does not "
+    "support image input. Tell the user that this model cannot understand images, "
+    "then continue with any text-only parts of the request.]"
+)
+IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS = (
+    "no endpoints found that support image input",
+    "does not support image input",
+    "unsupported image input",
+)
+_IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS: set[str] = set()
+
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
 from deepagents.profiles.provider import apply_provider_profile
@@ -691,6 +712,139 @@ def _normalize_remote_message(message: Any) -> Any:
     return _normalize_remote_content_block(message)
 
 
+def _content_has_image_input(content: Any) -> bool:
+    if isinstance(content, list):
+        return any(_content_has_image_input(item) for item in content)
+    if not isinstance(content, dict):
+        return False
+    block_type = content.get("type")
+    if block_type == "image_url" or (block_type == "image" and content.get("base64")):
+        return True
+    return any(_content_has_image_input(value) for value in content.values())
+
+
+def _message_has_image_input(message: Any) -> bool:
+    if isinstance(message, BaseMessage):
+        return _content_has_image_input(message.content)
+    if isinstance(message, dict):
+        return _content_has_image_input(message.get("content"))
+    return _content_has_image_input(message)
+
+
+def _omit_image_inputs_from_content(
+    content: Any,
+    *,
+    replacement_text: str = IMAGE_INPUT_OMITTED_TEXT,
+) -> Any:
+    if isinstance(content, list):
+        return [
+            _omit_image_inputs_from_content(item, replacement_text=replacement_text)
+            for item in content
+        ]
+
+    if not isinstance(content, dict):
+        return content
+
+    block_type = content.get("type")
+    if block_type == "image_url" or (block_type == "image" and content.get("base64")):
+        return {"type": "text", "text": replacement_text}
+
+    sanitized = dict(content)
+    for key, value in content.items():
+        sanitized[key] = _omit_image_inputs_from_content(
+            value,
+            replacement_text=replacement_text,
+        )
+    return sanitized
+
+
+def _omit_image_inputs_from_message(
+    message: Any,
+    *,
+    replacement_text: str = IMAGE_INPUT_OMITTED_TEXT,
+) -> Any:
+    if isinstance(message, BaseMessage):
+        message_dict = messages_to_dict([message])[0]
+        sanitized_dict = _omit_image_inputs_from_content(
+            message_dict,
+            replacement_text=replacement_text,
+        )
+        return messages_from_dict([sanitized_dict])[0]
+
+    return _omit_image_inputs_from_content(
+        message,
+        replacement_text=replacement_text,
+    )
+
+
+def _append_text_to_message_content(content: Any, text: str) -> Any:
+    if isinstance(content, list):
+        return [*content, {"type": "text", "text": text}]
+    if isinstance(content, str):
+        return f"{content}\n\n{text}" if content else text
+    return [content, {"type": "text", "text": text}]
+
+
+def _append_text_to_message(message: Any, text: str) -> Any:
+    if isinstance(message, BaseMessage):
+        message_dict = messages_to_dict([message])[0]
+        data = message_dict.get("data")
+        if isinstance(data, dict):
+            data["content"] = _append_text_to_message_content(
+                data.get("content"),
+                text,
+            )
+        return messages_from_dict([message_dict])[0]
+
+    if isinstance(message, dict):
+        next_message = dict(message)
+        next_message["content"] = _append_text_to_message_content(
+            next_message.get("content"),
+            text,
+        )
+        return next_message
+
+    return message
+
+
+def _error_text_candidates(error: BaseException) -> list[str]:
+    candidates: list[str] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, str):
+            candidates.append(value)
+            return
+        if isinstance(value, dict):
+            for nested in value.values():
+                collect(nested)
+            return
+        if isinstance(value, (list, tuple)):
+            for nested in value:
+                collect(nested)
+
+    collect(getattr(error, "body", None))
+    collect(getattr(error, "args", ()))
+    candidates.append(str(error))
+    return [candidate for candidate in candidates if candidate]
+
+
+def _is_unsupported_image_input_error(error: BaseException) -> bool:
+    candidates = _error_text_candidates(error)
+    if any(
+        pattern in candidate.lower()
+        for candidate in candidates
+        for pattern in IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS
+    ):
+        return True
+
+    return any(
+        "response validation failed" in candidate.lower()
+        and "body.error.code" in candidate.lower()
+        and "invalid_request_error" in candidate.lower()
+        for candidate in candidates
+    )
+
+
 def _normalize_state_for_remote_runtime(state: InternAgentState) -> dict[str, Any]:
     payload = {
         key: value
@@ -888,6 +1042,17 @@ class ImageContentCompatibilityMiddleware(AgentMiddleware):
     def name(self) -> str:
         return "ImageContentCompatibilityMiddleware"
 
+    def _model_key(self, request: ModelRequest) -> str:
+        if isinstance(request.model, str) and request.model.strip():
+            return request.model.strip()
+        return MODEL
+
+    def _has_image_inputs(self, request: ModelRequest) -> bool:
+        return any(_message_has_image_input(message) for message in request.messages) or (
+            request.system_message is not None
+            and _message_has_image_input(request.system_message)
+        )
+
     def _normalize_request(self, request: ModelRequest) -> ModelRequest:
         messages = [_normalize_remote_message(message) for message in request.messages]
         system_message = (
@@ -897,19 +1062,110 @@ class ImageContentCompatibilityMiddleware(AgentMiddleware):
         )
         return request.override(messages=messages, system_message=system_message)
 
+    def _without_image_inputs(
+        self,
+        request: ModelRequest,
+        *,
+        announce_latest: bool,
+        force_latest_notice: bool = False,
+    ) -> ModelRequest:
+        messages = list(request.messages)
+        latest_index = (
+            len(messages) - 1
+            if announce_latest and messages and _message_has_image_input(messages[-1])
+            else None
+        )
+        sanitized_messages = [
+            _omit_image_inputs_from_message(
+                message,
+                replacement_text=(
+                    IMAGE_INPUT_UNSUPPORTED_NOTICE_TEXT
+                    if index == latest_index
+                    else IMAGE_INPUT_OMITTED_TEXT
+                ),
+            )
+            for index, message in enumerate(messages)
+        ]
+        if (
+            force_latest_notice
+            and sanitized_messages
+            and latest_index is None
+        ):
+            sanitized_messages[-1] = _append_text_to_message(
+                sanitized_messages[-1],
+                IMAGE_INPUT_UNSUPPORTED_RETRY_NOTICE_TEXT,
+            )
+        system_message = (
+            _omit_image_inputs_from_message(request.system_message)
+            if request.system_message is not None
+            else None
+        )
+        return request.override(
+            messages=sanitized_messages,
+            system_message=system_message,
+        )
+
     def wrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
-        return handler(self._normalize_request(request))
+        normalized = self._normalize_request(request)
+        model_key = self._model_key(normalized)
+        if model_key in _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS and self._has_image_inputs(
+            normalized
+        ):
+            return handler(
+                self._without_image_inputs(normalized, announce_latest=True)
+            )
+
+        try:
+            return handler(normalized)
+        except Exception as exc:
+            if not (
+                self._has_image_inputs(normalized)
+                and _is_unsupported_image_input_error(exc)
+            ):
+                raise
+            _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS.add(model_key)
+            return handler(
+                self._without_image_inputs(
+                    normalized,
+                    announce_latest=True,
+                    force_latest_notice=True,
+                )
+            )
 
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
-        return await handler(self._normalize_request(request))
+        normalized = self._normalize_request(request)
+        model_key = self._model_key(normalized)
+        if model_key in _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS and self._has_image_inputs(
+            normalized
+        ):
+            return await handler(
+                self._without_image_inputs(normalized, announce_latest=True)
+            )
+
+        try:
+            return await handler(normalized)
+        except Exception as exc:
+            if not (
+                self._has_image_inputs(normalized)
+                and _is_unsupported_image_input_error(exc)
+            ):
+                raise
+            _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS.add(model_key)
+            return await handler(
+                self._without_image_inputs(
+                    normalized,
+                    announce_latest=True,
+                    force_latest_notice=True,
+                )
+            )
 
 
 class GatewayTraceMiddleware(AgentMiddleware):
