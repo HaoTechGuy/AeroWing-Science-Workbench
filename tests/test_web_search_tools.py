@@ -6,6 +6,7 @@ import web_search_tools
 from web_search_tools import (
     WebSearchSettings,
     duckduckgo_search,
+    web_search_reference_prompt,
     web_search_settings,
     web_search_tools as build_web_search_tools,
 )
@@ -74,6 +75,10 @@ class WebSearchToolsTest(unittest.TestCase):
             build_web_search_tools({"web_search": {"enabled": False}}),
             [],
         )
+        self.assertEqual(
+            web_search_reference_prompt({"web_search": {"enabled": False}}),
+            "",
+        )
 
     def test_web_search_tool_returns_formatted_results(self) -> None:
         with patch.object(web_search_tools, "_fetch_url", return_value=DUCKDUCKGO_HTML):
@@ -83,8 +88,11 @@ class WebSearchToolsTest(unittest.TestCase):
             result = search_tool.invoke({"query": "internagents"})
 
         self.assertIn("Found 1 web search result", result)
+        self.assertIn("include the relevant source URL", result)
+        self.assertIn("Do not list source names without URLs", result)
         self.assertIn("Example & Result", result)
-        self.assertIn("https://example.com/a", result)
+        self.assertIn("URL [1]: https://example.com/a", result)
+        self.assertIn("Citation [1]: [Example & Result](https://example.com/a)", result)
         self.assertNotIn("Second Result", result)
 
     def test_unsupported_provider_returns_config_error(self) -> None:

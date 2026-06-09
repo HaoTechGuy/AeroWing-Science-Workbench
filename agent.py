@@ -46,7 +46,7 @@ from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from ssh_backend import SshShellBackend
-from web_search_tools import web_search_tools
+from web_search_tools import web_search_reference_prompt, web_search_tools
 
 
 def _load_environment() -> None:
@@ -558,6 +558,13 @@ def _agent_tools(agent_config: dict[str, Any]) -> list[Any]:
     return [*goal_tools(), *web_search_tools(agent_config)]
 
 
+def _agent_system_prompt(base_prompt: str, agent_config: dict[str, Any]) -> str:
+    reference_prompt = web_search_reference_prompt(agent_config)
+    if reference_prompt:
+        base_prompt = f"{base_prompt}\n\n{reference_prompt}"
+    return goal_system_prompt(base_prompt)
+
+
 def _create_backend_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.backend == "local_shell":
         return LocalShellBackend(
@@ -1002,7 +1009,10 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
         tools=_agent_tools(agent_config),
         backend=backend,
         skills=_resolve_skills(agent_config),
-        system_prompt=goal_system_prompt(_resource_system_prompt(base_prompt, resource)),
+        system_prompt=_agent_system_prompt(
+            _resource_system_prompt(base_prompt, resource),
+            agent_config,
+        ),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
     )
@@ -1067,7 +1077,7 @@ def create_runtime_agent():  # noqa: ANN201
         tools=_agent_tools(agent_config),
         backend=backend,
         skills=skills,
-        system_prompt=goal_system_prompt(system_prompt),
+        system_prompt=_agent_system_prompt(system_prompt, agent_config),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
     )

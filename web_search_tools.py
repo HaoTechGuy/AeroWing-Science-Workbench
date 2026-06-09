@@ -19,6 +19,14 @@ DEFAULT_MAX_RESULTS = 5
 DEFAULT_TIMEOUT_SECONDS = 10
 MAX_RESULTS_LIMIT = 10
 DUCKDUCKGO_HTML_URL = "https://duckduckgo.com/html/"
+WEB_SEARCH_REFERENCE_INSTRUCTIONS = (
+    "When you use information from web_search results, include the relevant source "
+    "URL in the final answer body near the claim it supports. Prefer inline links "
+    "or a short References section, but every referenced source must include the "
+    "actual URL as a Markdown link like [title](url) or as a plain URL. Do not list "
+    "source names without URLs, and do not summarize search-derived facts without "
+    "exposing at least one source URL."
+)
 
 
 @dataclass(frozen=True)
@@ -197,18 +205,27 @@ def duckduckgo_search(
 def format_search_results(query: str, results: list[WebSearchResult]) -> str:
     if not results:
         return f"No web search results found for: {query}"
-    lines = [f"Found {len(results)} web search result(s) for: {query}"]
+    lines = [
+        f"Found {len(results)} web search result(s) for: {query}",
+        WEB_SEARCH_REFERENCE_INSTRUCTIONS,
+    ]
     for index, result in enumerate(results, start=1):
         lines.extend(
             [
                 "",
-                f"{index}. {result.title}",
-                f"URL: {result.url}",
+                f"Source [{index}]: {result.title}",
+                f"URL [{index}]: {result.url}",
+                f"Citation [{index}]: [{result.title}]({result.url})",
             ]
         )
         if result.snippet:
-            lines.append(f"Snippet: {result.snippet}")
+            lines.append(f"Snippet [{index}]: {result.snippet}")
     return "\n".join(lines)
+
+
+def web_search_reference_prompt(config: dict[str, Any] | None = None) -> str:
+    settings = web_search_settings(config)
+    return WEB_SEARCH_REFERENCE_INSTRUCTIONS if settings.enabled else ""
 
 
 def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
@@ -219,6 +236,9 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
     @tool("web_search")
     def web_search(query: str, max_results: int = settings.max_results) -> str:
         """Search the web for current information and return titles, URLs, and snippets.
+
+        When using search-derived facts in the final answer, include the relevant
+        source URL inline near the supported claim or in a short References section.
 
         Args:
             query: Search query to execute.
