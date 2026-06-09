@@ -5,6 +5,7 @@ from unittest.mock import patch
 import web_search_tools
 from web_search_tools import (
     WebSearchSettings,
+    bing_search,
     duckduckgo_search,
     web_search_reference_prompt,
     web_search_settings,
@@ -25,6 +26,23 @@ DUCKDUCKGO_HTML = """
 </html>
 """
 
+BING_HTML = """
+<html>
+  <body>
+    <ol id="b_results">
+      <li class="b_algo">
+        <h2><a href="https://example.com/bing-a">Bing &amp; Result</a></h2>
+        <div class="b_caption"><p>First Bing snippet.</p></div>
+      </li>
+      <li class="b_algo">
+        <h2><a href="https://example.org/bing-b">Second Bing Result</a></h2>
+        <div class="b_caption"><p>Second Bing snippet.</p></div>
+      </li>
+    </ol>
+  </body>
+</html>
+"""
+
 
 class WebSearchToolsTest(unittest.TestCase):
     def test_duckduckgo_html_results_are_parsed(self) -> None:
@@ -40,6 +58,20 @@ class WebSearchToolsTest(unittest.TestCase):
         self.assertEqual(results[0].url, "https://example.com/a")
         self.assertEqual(results[0].snippet, "First snippet with spaces.")
         self.assertEqual(results[1].url, "https://example.org/b")
+
+    def test_bing_html_results_are_parsed(self) -> None:
+        with patch.object(web_search_tools, "_fetch_url", return_value=BING_HTML):
+            results = bing_search(
+                "internagents",
+                max_results=2,
+                timeout_seconds=3,
+            )
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].title, "Bing & Result")
+        self.assertEqual(results[0].url, "https://example.com/bing-a")
+        self.assertEqual(results[0].snippet, "First Bing snippet.")
+        self.assertEqual(results[1].url, "https://example.org/bing-b")
 
     def test_settings_use_config_and_environment_overrides(self) -> None:
         config = {
@@ -94,6 +126,39 @@ class WebSearchToolsTest(unittest.TestCase):
         self.assertIn("URL [1]: https://example.com/a", result)
         self.assertIn("Citation [1]: [Example & Result](https://example.com/a)", result)
         self.assertNotIn("Second Result", result)
+
+    def test_web_search_tool_falls_back_to_bing_when_duckduckgo_has_no_results(
+        self,
+    ) -> None:
+        with patch.object(
+            web_search_tools,
+            "_fetch_url",
+            side_effect=["<html></html>", BING_HTML],
+        ):
+            search_tool = build_web_search_tools(
+                {"web_search": {"provider": "duckduckgo", "max_results": 1}}
+            )[0]
+            result = search_tool.invoke({"query": "internagents"})
+
+        self.assertIn("Found 1 web search result", result)
+        self.assertIn("Bing & Result", result)
+        self.assertIn("URL [1]: https://example.com/bing-a", result)
+
+    def test_web_search_tool_falls_back_to_bing_when_duckduckgo_fails(
+        self,
+    ) -> None:
+        with patch.object(
+            web_search_tools,
+            "_fetch_url",
+            side_effect=[OSError("ddg blocked"), BING_HTML],
+        ):
+            search_tool = build_web_search_tools(
+                {"web_search": {"provider": "duckduckgo", "max_results": 1}}
+            )[0]
+            result = search_tool.invoke({"query": "internagents"})
+
+        self.assertIn("Found 1 web search result", result)
+        self.assertIn("Bing & Result", result)
 
     def test_unsupported_provider_returns_config_error(self) -> None:
         search_tool = build_web_search_tools(

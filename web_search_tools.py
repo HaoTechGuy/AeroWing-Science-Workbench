@@ -19,6 +19,7 @@ DEFAULT_MAX_RESULTS = 5
 DEFAULT_TIMEOUT_SECONDS = 10
 MAX_RESULTS_LIMIT = 10
 DUCKDUCKGO_HTML_URL = "https://duckduckgo.com/html/"
+BING_SEARCH_URL = "https://www.bing.com/search"
 WEB_SEARCH_REFERENCE_INSTRUCTIONS = (
     "When you use information from web_search results, include the relevant source "
     "URL in the final answer body near the claim it supports. Prefer inline links "
@@ -97,6 +98,83 @@ class DuckDuckGoHtmlParser(HTMLParser):
         self._current_title = []
         self._current_snippet = []
         self._current_url = ""
+
+
+class BingHtmlParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.results: list[WebSearchResult] = []
+        self._current_title: list[str] = []
+        self._current_snippet: list[str] = []
+        self._current_url = ""
+        self._in_result = False
+        self._in_h2 = False
+        self._capture_title = False
+        self._capture_snippet = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr_map = {key: value or "" for key, value in attrs}
+        classes = set(attr_map.get("class", "").split())
+        if tag == "li" and "b_algo" in classes:
+            self._flush_result()
+            self._in_result = True
+            self._current_title = []
+            self._current_snippet = []
+            self._current_url = ""
+            return
+        if not self._in_result:
+            return
+        if tag == "h2":
+            self._in_h2 = True
+            return
+        if tag == "a" and self._in_h2 and not self._current_url:
+            href = attr_map.get("href", "")
+            if href.startswith(("http://", "https://")):
+                self._current_url = html.unescape(href)
+                self._capture_title = True
+            return
+        if tag == "p" and not self._current_snippet:
+            self._capture_snippet = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self._in_result:
+            return
+        if tag == "a" and self._capture_title:
+            self._capture_title = False
+        if tag == "h2":
+            self._in_h2 = False
+        if tag == "p" and self._capture_snippet:
+            self._capture_snippet = False
+        if tag == "li":
+            self._flush_result()
+
+    def handle_data(self, data: str) -> None:
+        if self._capture_title:
+            self._current_title.append(data)
+        elif self._capture_snippet:
+            self._current_snippet.append(data)
+
+    def close(self) -> None:
+        super().close()
+        self._flush_result()
+
+    def _flush_result(self) -> None:
+        title = _clean_text(" ".join(self._current_title))
+        if title and self._current_url:
+            self.results.append(
+                WebSearchResult(
+                    title=title,
+                    url=self._current_url,
+                    snippet=_clean_text(" ".join(self._current_snippet)),
+                )
+            )
+        self._current_title = []
+        self._current_snippet = []
+        self._current_url = ""
+        self._in_result = False
+        self._in_h2 = False
+        self._capture_title = False
+        self._capture_snippet = False
 
 
 def _env_value(name: str) -> str | None:
@@ -202,6 +280,19 @@ def duckduckgo_search(
     return parser.results[:max_results]
 
 
+def bing_search(
+    query: str,
+    *,
+    max_results: int,
+    timeout_seconds: int,
+) -> list[WebSearchResult]:
+    params = urllib.parse.urlencode({"q": query})
+    parser = BingHtmlParser()
+    parser.feed(_fetch_url(f"{BING_SEARCH_URL}?{params}", timeout_seconds))
+    parser.close()
+    return parser.results[:max_results]
+
+
 def format_search_results(query: str, results: list[WebSearchResult]) -> str:
     if not results:
         return f"No web search results found for: {query}"
@@ -253,6 +344,7 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
             max(1, _positive_int(max_results, settings.max_results)),
         )
         if settings.provider in {"duckduckgo", "ddg"}:
+            duckduckgo_error: Exception | None = None
             try:
                 results = duckduckgo_search(
                     normalized_query,
@@ -260,14 +352,40 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
                     timeout_seconds=settings.timeout_seconds,
                 )
             except Exception as exc:
-                return f"Web search failed with DuckDuckGo: {exc}"
+                duckduckgo_error = exc
+                results = []
+            if not results:
+                try:
+                    results = bing_search(
+                        normalized_query,
+                        max_results=requested_results,
+                        timeout_seconds=settings.timeout_seconds,
+                    )
+                except Exception as exc:
+                    if duckduckgo_error is not None:
+                        return (
+                            "Web search failed with DuckDuckGo and Bing. "
+                            f"DuckDuckGo: {duckduckgo_error}; Bing: {exc}"
+                        )
+                    return f"Web search failed with Bing fallback: {exc}"
+            return format_search_results(normalized_query, results)
+
+        if settings.provider == "bing":
+            try:
+                results = bing_search(
+                    normalized_query,
+                    max_results=requested_results,
+                    timeout_seconds=settings.timeout_seconds,
+                )
+            except Exception as exc:
+                return f"Web search failed with Bing: {exc}"
             return format_search_results(normalized_query, results)
 
         return json.dumps(
             {
                 "error": "unsupported_web_search_provider",
                 "provider": settings.provider,
-                "supported_providers": ["duckduckgo"],
+                "supported_providers": ["duckduckgo", "bing"],
             },
             ensure_ascii=False,
         )
