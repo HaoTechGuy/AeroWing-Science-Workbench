@@ -532,6 +532,20 @@ async function loadThreadSnapshot({
     primaryError ??= error;
   }
 
+  if (!primaryState && isThreadNotFoundError(primaryError)) {
+    return [emptyThreadState(threadId)];
+  }
+
+  const pendingRunPreview = await loadPendingRunInputPreview(client, threadId);
+  if (pendingRunPreview) {
+    const pendingState = pendingRunToState(threadId, pendingRunPreview);
+    return [
+      primaryState
+        ? mergeStateSnapshot(primaryState, pendingState)
+        : pendingState,
+    ];
+  }
+
   if (runtimeClient) {
     try {
       const runtimeState = sanitizeThreadState(
@@ -585,21 +599,8 @@ async function loadThreadSnapshot({
     }
   }
 
-  const pendingRunPreview = await loadPendingRunInputPreview(client, threadId);
-  if (pendingRunPreview) {
-    const pendingState = pendingRunToState(threadId, pendingRunPreview);
-    return [
-      primaryState
-        ? mergeStateSnapshot(primaryState, pendingState)
-        : pendingState,
-    ];
-  }
-
   if (primaryState) {
     return [sanitizeThreadState(primaryState)];
-  }
-  if (isThreadNotFoundError(primaryError)) {
-    return [emptyThreadState(threadId)];
   }
   throw primaryError;
 }

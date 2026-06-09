@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 import agent
 from agent import (
@@ -21,6 +21,9 @@ from agent import (
 
 
 class RemoteRuntimeImageCompatTest(unittest.TestCase):
+    def setUp(self) -> None:
+        agent._IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS.clear()
+
     def test_tool_message_image_block_becomes_image_url(self) -> None:
         message = ToolMessage(
             content=[
@@ -290,6 +293,116 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
                 }
             ],
         )
+
+    def test_model_request_middleware_retries_without_images_when_endpoint_rejects_image_input(
+        self,
+    ) -> None:
+        request = ModelRequest(
+            model="openrouter:deepseek-v4-flash",
+            messages=[
+                HumanMessage(
+                    content=[
+                        {"type": "text", "text": "Describe this image."},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abcd"},
+                        },
+                    ]
+                )
+            ],
+        )
+        seen_requests: list[ModelRequest] = []
+
+        def handler(next_request: ModelRequest) -> ModelResponse:
+            seen_requests.append(next_request)
+            if len(seen_requests) == 1:
+                raise RuntimeError("No endpoints found that support image input")
+            return ModelResponse(result=[AIMessage(content="Image input is unsupported.")])
+
+        response = ImageContentCompatibilityMiddleware().wrap_model_call(
+            request,
+            handler,
+        )
+
+        self.assertEqual(len(seen_requests), 2)
+        self.assertTrue(agent._message_has_image_input(seen_requests[0].messages[0]))
+        self.assertFalse(agent._message_has_image_input(seen_requests[1].messages[0]))
+        self.assertIn(
+            "current model endpoint does not support image input",
+            str(seen_requests[1].messages[0].content),
+        )
+        self.assertEqual(response.result[0].content, "Image input is unsupported.")
+
+    def test_model_request_middleware_retries_openrouter_validation_wrapped_image_error(
+        self,
+    ) -> None:
+        request = ModelRequest(
+            model="openrouter:deepseek-v4-flash",
+            messages=[
+                HumanMessage(
+                    content=[
+                        {"type": "text", "text": "Describe this image."},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abcd"},
+                        },
+                    ]
+                )
+            ],
+        )
+        seen_requests: list[ModelRequest] = []
+
+        def handler(next_request: ModelRequest) -> ModelResponse:
+            seen_requests.append(next_request)
+            if len(seen_requests) == 1:
+                raise RuntimeError(
+                    "Response validation failed: 1 validation error for Unmarshaller\n"
+                    "body.error.code\n"
+                    "  Input should be a valid integer, unable to parse string as an "
+                    "integer [type=int_parsing, input_value='invalid_request_error', "
+                    "input_type=str]"
+                )
+            return ModelResponse(result=[AIMessage(content="Image input is unsupported.")])
+
+        response = ImageContentCompatibilityMiddleware().wrap_model_call(
+            request,
+            handler,
+        )
+
+        self.assertEqual(len(seen_requests), 2)
+        self.assertFalse(agent._message_has_image_input(seen_requests[1].messages[0]))
+        self.assertEqual(response.result[0].content, "Image input is unsupported.")
+
+    def test_model_request_middleware_omits_images_after_model_is_marked_unsupported(
+        self,
+    ) -> None:
+        agent._IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS.add("openrouter:deepseek-v4-flash")
+        request = ModelRequest(
+            model="openrouter:deepseek-v4-flash",
+            messages=[
+                HumanMessage(
+                    content=[
+                        {"type": "text", "text": "Old message."},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abcd"},
+                        },
+                    ]
+                ),
+                HumanMessage(content="hello"),
+            ],
+        )
+        seen_requests: list[ModelRequest] = []
+
+        def handler(next_request: ModelRequest) -> ModelResponse:
+            seen_requests.append(next_request)
+            return ModelResponse(result=[AIMessage(content="hello")])
+
+        ImageContentCompatibilityMiddleware().wrap_model_call(request, handler)
+
+        self.assertEqual(len(seen_requests), 1)
+        self.assertFalse(agent._message_has_image_input(seen_requests[0].messages[0]))
+        self.assertEqual(seen_requests[0].messages[1].content, "hello")
 
 
 if __name__ == "__main__":
