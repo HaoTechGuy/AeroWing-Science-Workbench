@@ -68,7 +68,11 @@ from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from ssh_backend import SshShellBackend
-from web_search_tools import web_search_reference_prompt, web_search_tools
+from web_search_tools import (
+    WebSearchBudgetMiddleware,
+    web_search_reference_prompt,
+    web_search_tools,
+)
 
 
 def _load_environment() -> None:
@@ -1258,6 +1262,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
+    middleware.append(WebSearchBudgetMiddleware())
     if _uses_gateway_provider():
         middleware.append(GatewayTraceMiddleware())
     middleware.append(RuntimeDateContextMiddleware())
@@ -1327,6 +1332,7 @@ def create_runtime_agent():  # noqa: ANN201
     if runtime_resource is not None and runtime_resource.kb_path:
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
+    middleware.append(WebSearchBudgetMiddleware())
     if _uses_gateway_provider():
         middleware.append(GatewayTraceMiddleware())
     middleware.append(RuntimeDateContextMiddleware())
