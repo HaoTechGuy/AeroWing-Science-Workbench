@@ -18,7 +18,8 @@
       ".internagents/imported-skills/molclaw-mol2mol-sampling",
       ".internagents/imported-skills/molclaw-admet",
       ".internagents/imported-skills/molclaw-drug-likeness",
-      ".internagents/imported-skills/molclaw-protein-sequence-retrieve"
+      ".internagents/imported-skills/molclaw-protein-sequence-retrieve",
+      "skills/skill-creator"
     ],
     "label": "InternAgents"
   },
