@@ -545,6 +545,28 @@ button {
   background-color: #9ca3af;
 }
 
+.scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.18);
+  border-radius: 9999px;
+}
+
+.scrollbar-subtle:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.32);
+}
+
 /* Global diff highlighting styles */
 .word-added {
   background-color: rgba(46, 160, 67, 0.4);

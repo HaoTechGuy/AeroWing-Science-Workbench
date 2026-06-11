@@ -9,6 +9,7 @@ import React, {
   FormEvent,
   Fragment,
 } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,6 +20,7 @@ import {
 import {
   Square,
   ArrowUp,
+  AtSign,
   ChevronDown,
   ChevronUp,
   CheckCircle,
@@ -31,6 +33,7 @@ import {
   Loader2,
   Paperclip,
   Pencil,
+  Sparkles,
   Target,
   X,
 } from "lucide-react";
@@ -59,6 +62,7 @@ import {
   parseWorkspaceFileDragPayload,
   type WorkspaceFileDragPayload,
 } from "@/app/utils/workspaceDrag";
+import type { SkillEntry, SkillsConfigResponse } from "@/app/skills/types";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
@@ -68,6 +72,9 @@ const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
 const MAX_PDF_ATTACHMENT_SIZE = 16 * 1024 * 1024;
 const SUPPORTED_ATTACHMENT_HINT = "支持图片、PDF 和文本文件。";
+const MAX_MENTION_OPTIONS = 10;
+const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
+const CHAT_COMPOSER_HASH = "#chat-composer";
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -103,6 +110,44 @@ interface AttachmentUploadContext {
   resourceId?: string;
   workspaceId?: string;
   threadId?: string | null;
+}
+
+interface MentionContext {
+  start: number;
+  query: string;
+}
+
+interface MentionMenuPosition {
+  bottom: number;
+  left: number;
+  width: number;
+}
+
+function getMentionContext(value: string, cursor: number): MentionContext | null {
+  const beforeCursor = value.slice(0, cursor);
+  const atIndex = beforeCursor.lastIndexOf("@");
+
+  if (atIndex === -1) {
+    return null;
+  }
+
+  const query = beforeCursor.slice(atIndex + 1);
+  if (/\s/.test(query)) {
+    return null;
+  }
+
+  return { start: atIndex, query };
+}
+
+function skillMatchesQuery(skill: SkillEntry, query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return [skill.name, skill.description, skill.key, skill.relativePath].some(
+    (value) => value.toLowerCase().includes(normalizedQuery)
+  );
 }
 
 function formatAttachmentSize(size: number): string {
@@ -635,18 +680,89 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     null
   );
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLFormElement | null>(null);
+  const mentionMenuRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatDragDepthRef = useRef(0);
 
   const [input, setInput] = useState("");
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionContext, setMentionContext] = useState<MentionContext | null>(
+    null
+  );
+  const [mentionSkills, setMentionSkills] = useState<SkillEntry[]>([]);
+  const [mentionSkillsLoaded, setMentionSkillsLoaded] = useState(false);
+  const [mentionSkillsLoading, setMentionSkillsLoading] = useState(false);
+  const [mentionSkillsError, setMentionSkillsError] = useState<string | null>(
+    null
+  );
+  const [mentionMenuPosition, setMentionMenuPosition] =
+    useState<MentionMenuPosition | null>(null);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isChatDropActive, setIsChatDropActive] = useState(false);
   const [isPreparingDroppedAttachment, setIsPreparingDroppedAttachment] =
     useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+
+  const updateMentionMenuPosition = useCallback(() => {
+    const composer = composerRef.current;
+    if (!composer) {
+      return;
+    }
+
+    const rect = composer.getBoundingClientRect();
+    const width = Math.min(288, Math.max(220, rect.width - 32));
+    const left = Math.min(
+      Math.max(rect.left + 16, 8),
+      window.innerWidth - width - 8
+    );
+
+    setMentionMenuPosition({
+      bottom: Math.max(8, window.innerHeight - rect.top + 8),
+      left,
+      width,
+    });
+  }, []);
+
+  const openMentionMenu = useCallback((context: MentionContext) => {
+    setMentionContext(context);
+    setMentionMenuOpen(true);
+    setActiveMentionIndex(0);
+    window.requestAnimationFrame(updateMentionMenuPosition);
+  }, [updateMentionMenuPosition]);
+
+  const closeMentionMenu = useCallback(() => {
+    setMentionMenuOpen(false);
+    setMentionContext(null);
+    setMentionMenuPosition(null);
+    setActiveMentionIndex(0);
+  }, []);
+
+  const insertMentionTrigger = useCallback(() => {
+    const textarea = textareaRef.current;
+    const cursorStart = textarea?.selectionStart ?? input.length;
+    const cursorEnd = textarea?.selectionEnd ?? cursorStart;
+    const prefix = input.slice(0, cursorStart);
+    const suffix = input.slice(cursorEnd);
+    const needsLeadingSpace =
+      prefix.length > 0 && !/\s$/.test(prefix) && !prefix.endsWith("@");
+    const inserted = `${needsLeadingSpace ? " " : ""}@`;
+    const nextInput = `${prefix}${inserted}${suffix}`;
+    const nextMentionStart = prefix.length + (needsLeadingSpace ? 1 : 0);
+    const nextCursor = prefix.length + inserted.length;
+
+    setInput(nextInput);
+    openMentionMenu({ start: nextMentionStart, query: "" });
+
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [input, openMentionMenu]);
   const [isSavingTitle, setIsSavingTitle] = useState(false);
   const [showIntermediateResults, setShowIntermediateResults] =
     useState(false);
@@ -681,6 +797,147 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     (attachment) => !attachment.error
   );
   const errorMessage = formatChatError(error);
+  const mentionQuery = mentionContext?.query ?? "";
+  const sortedMentionSkills = useMemo(
+    () =>
+      [...mentionSkills].sort((left, right) => {
+        if (left.enabled !== right.enabled) {
+          return left.enabled ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name, "zh-CN");
+      }),
+    [mentionSkills]
+  );
+  const filteredMentionSkills = useMemo(
+    () =>
+      sortedMentionSkills
+        .filter((skill) => skillMatchesQuery(skill, mentionQuery))
+        .slice(0, MAX_MENTION_OPTIONS),
+    [mentionQuery, sortedMentionSkills]
+  );
+
+  const loadMentionSkills = useCallback(async () => {
+    if (mentionSkillsLoaded || mentionSkillsLoading) {
+      return;
+    }
+
+    setMentionSkillsLoading(true);
+    setMentionSkillsError(null);
+    try {
+      const response = await fetch("/api/skills", { cache: "no-store" });
+      const payload = (await response.json()) as Partial<SkillsConfigResponse> & {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "能力插件列表加载失败");
+      }
+
+      setMentionSkills(Array.isArray(payload.skills) ? payload.skills : []);
+      setMentionSkillsLoaded(true);
+    } catch (loadError) {
+      setMentionSkillsError(
+        loadError instanceof Error ? loadError.message : "能力插件列表加载失败"
+      );
+    } finally {
+      setMentionSkillsLoading(false);
+    }
+  }, [mentionSkillsLoaded, mentionSkillsLoading]);
+
+  useEffect(() => {
+    if (mentionMenuOpen) {
+      void loadMentionSkills();
+    }
+  }, [loadMentionSkills, mentionMenuOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    const draft = currentUrl.searchParams.get(COMPOSER_DRAFT_QUERY_KEY);
+    const shouldFocusComposer =
+      currentUrl.hash === CHAT_COMPOSER_HASH || draft !== null;
+
+    if (!shouldFocusComposer) {
+      return;
+    }
+
+    if (draft !== null) {
+      setInput(draft);
+      closeMentionMenu();
+      currentUrl.searchParams.delete(COMPOSER_DRAFT_QUERY_KEY);
+      window.history.replaceState(
+        null,
+        "",
+        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`
+      );
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      if (draft !== null) {
+        textareaRef.current?.setSelectionRange(draft.length, draft.length);
+      }
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [closeMentionMenu]);
+
+  useEffect(() => {
+    setActiveMentionIndex(0);
+  }, [mentionQuery]);
+
+  useEffect(() => {
+    if (activeMentionIndex >= filteredMentionSkills.length) {
+      setActiveMentionIndex(Math.max(0, filteredMentionSkills.length - 1));
+    }
+  }, [activeMentionIndex, filteredMentionSkills.length]);
+
+  useEffect(() => {
+    if (!mentionMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      const clickedComposer = composerRef.current?.contains(target);
+      const clickedMentionMenu = mentionMenuRef.current?.contains(target);
+      if (
+        composerRef.current &&
+        !clickedComposer &&
+        !clickedMentionMenu
+      ) {
+        closeMentionMenu();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [closeMentionMenu, mentionMenuOpen]);
+
+  useEffect(() => {
+    if (!mentionMenuOpen) {
+      return;
+    }
+
+    updateMentionMenuPosition();
+    window.addEventListener("resize", updateMentionMenuPosition);
+    window.addEventListener("scroll", updateMentionMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMentionMenuPosition);
+      window.removeEventListener("scroll", updateMentionMenuPosition, true);
+    };
+  }, [mentionMenuOpen, updateMentionMenuPosition]);
 
   useEffect(() => {
     if (!isEditingTitle) {
@@ -729,6 +986,44 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     }
   }, [titleDraft, updateThreadTitle]);
 
+  const handleInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const nextInput = event.currentTarget.value;
+      const cursor = event.currentTarget.selectionStart ?? nextInput.length;
+      const nextMentionContext = getMentionContext(nextInput, cursor);
+
+      setInput(nextInput);
+      if (nextMentionContext) {
+        openMentionMenu(nextMentionContext);
+      } else {
+        closeMentionMenu();
+      }
+    },
+    [closeMentionMenu, openMentionMenu]
+  );
+
+  const selectMentionSkill = useCallback(
+    (skill: SkillEntry) => {
+      const textarea = textareaRef.current;
+      const cursorEnd = textarea?.selectionEnd ?? input.length;
+      const start = mentionContext?.start ?? cursorEnd;
+      const mentionText = `@${skill.name} `;
+      const nextInput = `${input.slice(0, start)}${mentionText}${input.slice(
+        cursorEnd
+      )}`;
+      const nextCursor = start + mentionText.length;
+
+      setInput(nextInput);
+      closeMentionMenu();
+
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+      });
+    },
+    [closeMentionMenu, input, mentionContext]
+  );
+
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       if (e) {
@@ -748,8 +1043,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       sendMessage(messageText, sendableAttachments);
       setInput("");
       setAttachments([]);
+      closeMentionMenu();
     },
-    [attachments, input, isLoading, sendMessage, setInput, submitDisabled]
+    [
+      attachments,
+      closeMentionMenu,
+      input,
+      isLoading,
+      sendMessage,
+      setInput,
+      submitDisabled,
+    ]
   );
 
   const handleAttachmentFiles = useCallback(
@@ -901,12 +1205,62 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (submitDisabled) return;
+      if (mentionMenuOpen) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setActiveMentionIndex((current) =>
+            filteredMentionSkills.length === 0
+              ? 0
+              : (current + 1) % filteredMentionSkills.length
+          );
+          return;
+        }
+
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveMentionIndex((current) =>
+            filteredMentionSkills.length === 0
+              ? 0
+              : (current - 1 + filteredMentionSkills.length) %
+                filteredMentionSkills.length
+          );
+          return;
+        }
+
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeMentionMenu();
+          return;
+        }
+
+        if (
+          (e.key === "Enter" || e.key === "Tab") &&
+          filteredMentionSkills.length > 0
+        ) {
+          e.preventDefault();
+          selectMentionSkill(
+            filteredMentionSkills[
+              Math.min(activeMentionIndex, filteredMentionSkills.length - 1)
+            ]
+          );
+          return;
+        }
+      }
+
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [handleSubmit, submitDisabled]
+    [
+      activeMentionIndex,
+      closeMentionMenu,
+      filteredMentionSkills,
+      handleSubmit,
+      mentionMenuOpen,
+      selectMentionSkill,
+      submitDisabled,
+    ]
   );
 
   const interruptValues = useMemo(() => {
@@ -1360,7 +1714,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         ref={scrollRef}
       >
         <div
-          className="mx-auto w-full max-w-[1024px] px-6 pb-6 pt-4"
+          className="mx-auto w-full max-w-[1180px] px-6 pb-6 pt-4"
           ref={contentRef}
         >
           {isThreadLoading ? (
@@ -1526,7 +1880,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
         <div
           className={cn(
             "mx-4 mb-5 mt-3 flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-lg shadow-black/[0.04]",
-            "mx-auto w-[calc(100%-32px)] max-w-[1024px] transition-colors duration-200 ease-in-out"
+            "mx-auto w-[calc(100%-32px)] max-w-[1180px] transition-colors duration-200 ease-in-out"
           )}
           data-tour="chat-input"
         >
@@ -1801,6 +2155,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
             </div>
           )}
           <form
+            id="chat-composer"
+            ref={composerRef}
             onSubmit={handleSubmit}
             className="relative flex flex-col"
           >
@@ -1847,6 +2203,87 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                 event.currentTarget.value = "";
               }}
             />
+            {mentionMenuOpen &&
+              mentionMenuPosition &&
+              typeof document !== "undefined" &&
+              createPortal(
+                <div
+                  ref={mentionMenuRef}
+                  style={{
+                    bottom: mentionMenuPosition.bottom,
+                    left: mentionMenuPosition.left,
+                    width: mentionMenuPosition.width,
+                  }}
+                  className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg shadow-black/10"
+                  role="listbox"
+                  aria-label="选择技能"
+                >
+                  <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-foreground">
+                        选择技能
+                      </div>
+                    </div>
+                    {mentionSkillsLoading && (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
+                  {mentionSkillsError ? (
+                    <div className="px-3 py-4 text-sm text-red-600">
+                      {mentionSkillsError}
+                    </div>
+                  ) : mentionSkillsLoading && mentionSkills.length === 0 ? (
+                    <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      正在加载技能...
+                    </div>
+                  ) : filteredMentionSkills.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-muted-foreground">
+                      没有匹配的技能
+                    </div>
+                  ) : (
+                    <div className="scrollbar-subtle max-h-56 overflow-y-auto p-1">
+                      {filteredMentionSkills.map((skill, index) => {
+                        const active = index === activeMentionIndex;
+                        return (
+                          <button
+                            key={skill.key}
+                            type="button"
+                            role="option"
+                            aria-selected={active}
+                            onMouseEnter={() => setActiveMentionIndex(index)}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              selectMentionSkill(skill);
+                            }}
+                            className={cn(
+                              "flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                              active
+                                ? "bg-accent text-accent-foreground"
+                                : "text-popover-foreground hover:bg-accent/70"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
+                                skill.enabled
+                                  ? "border-primary/25 bg-primary/10 text-primary"
+                                  : "border-border bg-background text-muted-foreground"
+                              )}
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                              {skill.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>,
+                document.body
+              )}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 border-b border-border px-[18px] py-2">
                 {attachments.map((attachment) => (
@@ -1890,7 +2327,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder={isLoading ? "正在运行..." : "你希望我做些什么？"}
               className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
@@ -1942,6 +2379,29 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     className="whitespace-nowrap"
                   >
                     添加附件(文本或PDF)
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-primary"
+                      onClick={insertMentionTrigger}
+                      disabled={isLoading}
+                      aria-label="提及能力或专家"
+                    >
+                      <AtSign className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="center"
+                    sideOffset={6}
+                    className="whitespace-nowrap"
+                  >
+                    提及能力或专家
                   </TooltipContent>
                 </Tooltip>
               </div>
