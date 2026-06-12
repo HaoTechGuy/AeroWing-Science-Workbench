@@ -15,6 +15,7 @@ import {
   Loader2,
   Plus,
   Settings,
+  Sparkles,
   UploadCloud,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
@@ -589,6 +590,10 @@ function HomePageInner({
     () => pageHrefWithWorkbenchReturn("/config", searchParams),
     [searchParams]
   );
+  const skillsHref = useMemo(
+    () => pageHrefWithWorkbenchReturn("/skills", searchParams),
+    [searchParams]
+  );
   const aboutHref = useMemo(
     () => pageHrefWithWorkbenchReturn("/about", searchParams),
     [searchParams]
@@ -726,6 +731,20 @@ function HomePageInner({
             className="h-8 border-border bg-card"
           >
             <Link
+              href={skillsHref}
+              data-tour="nav-capabilities"
+            >
+              <Sparkles className="h-4 w-4" />
+              能力插件
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-8 border-border bg-card"
+          >
+            <Link
               href={configHref}
               data-tour="nav-config"
             >
@@ -759,13 +778,13 @@ function HomePageInner({
             ref={workspacePanelRef}
             id="workspace"
             order={1}
-            defaultSize={workspacePanelCompact ? 4 : 24}
-            minSize={workspacePanelCompact ? 4 : 18}
-            maxSize={workspacePanelCompact ? 6 : undefined}
+            defaultSize={workspacePanelCompact ? 4 : 18}
+            minSize={workspacePanelCompact ? 4 : 13}
+            maxSize={workspacePanelCompact ? 6 : 20}
             className={
               workspacePanelCompact
                 ? "relative min-w-[44px] max-w-[56px] border-r border-border bg-sidebar"
-                : "relative min-w-[300px] border-r border-border bg-sidebar"
+                : "relative min-w-[260px] border-r border-border bg-sidebar"
             }
             data-tour="workspace-panel"
           >
@@ -794,8 +813,8 @@ function HomePageInner({
             id="chat"
             className="relative flex min-w-[420px] flex-col bg-card/70"
             order={2}
-            defaultSize={45}
-            minSize={32}
+            defaultSize={51}
+            minSize={34}
           >
             <ChatProvider
               key={`${activeResource.id}:${activeAssistantId}:${
