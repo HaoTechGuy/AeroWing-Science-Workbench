@@ -1,46 +1,136 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Check,
+  CloudDownload,
+  FolderPlus,
   Loader2,
   Plus,
   Search,
-  X,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
 import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
+import {
+  SCIENCE_SKILL_CATEGORIES,
+  SCIENCE_SKILL_SOURCE,
+  SCIENCE_SKILLS,
+  type ScienceSkillSnapshot,
+} from "@/app/skills/science-skill-catalog";
+import {
+  filterAndRankBySearch,
+  prepareSearchQuery,
+  type SearchDocument,
+} from "@/app/skills/skill-search";
 import type {
   BackendRestartResult,
   BackendStatusResult,
+  ImportSkillsResponse,
   SkillEntry,
+  SkillImportType,
   SkillsConfigResponse,
 } from "@/app/skills/types";
 
-const INSTALLED_PREVIEW_COUNT = 4;
 const CHAT_COMPOSER_HASH = "chat-composer";
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const SKILL_CREATOR_DRAFT =
   "@skill-creator 请帮我创建一个能够实现「......」的skill";
+const ALL_SCIENCE_CATEGORY_ID = "all";
+const DEFAULT_SCIENCE_CATEGORY_ID =
+  SCIENCE_SKILL_CATEGORIES[0]?.id ?? ALL_SCIENCE_CATEGORY_ID;
+const FEATURED_SKILL_FOLDERS = [
+  "skill-creator",
+  "patent-disclosure-skill",
+  "baoyu-compress-image",
+  "baoyu-xhs-images",
+  "docx",
+  "pptx",
+  "xlsx",
+  "pdf",
+];
+
+const SKILL_DISPLAY_TEXT: Record<
+  string,
+  {
+    name: string;
+    description: string;
+  }
+> = {
+  "skill-creator": {
+    name: "技能创建器",
+    description: "创建或更新 InternAgents 技能，把常用流程封装成可复用能力。",
+  },
+  "patent-disclosure-skill": {
+    name: "专利申请",
+    description:
+      "扫描技术资料挖掘专利点，完成查新对比、自检，并生成专利技术交底书。",
+  },
+  "baoyu-compress-image": {
+    name: "图片压缩",
+    description: "压缩和优化图片体积，支持转换为 WebP、PNG、JPEG 等格式。",
+  },
+  "baoyu-xhs-images": {
+    name: "小红书图片生成",
+    description:
+      "把内容拆成适合社交媒体传播的系列图片卡片，支持多种风格、布局和配色。",
+  },
+  docx: {
+    name: "Docx文档处理",
+    description:
+      "创建、读取、编辑和整理 Docx 文档，支持版式、批注、修订和导出检查。",
+  },
+  pptx: {
+    name: "PPT幻灯片处理",
+    description:
+      "创建、读取、编辑和整理演示文稿，支持模板、版式、讲稿备注和幻灯片合并拆分。",
+  },
+  xlsx: {
+    name: "Excel表格处理",
+    description:
+      "读取、清洗、编辑和生成 Excel 表格，支持公式、格式、图表和数据整理。",
+  },
+  pdf: {
+    name: "PDF 处理",
+    description:
+      "读取、合并、拆分、旋转、加水印、生成和填写表单，也可处理文字识别流程。",
+  },
+  "code-review": {
+    name: "代码审查",
+    description: "检查代码改动中的正确性、回归风险、可维护性、测试和安全问题。",
+  },
+  "experiment-analysis": {
+    name: "实验结果分析",
+    description: "分析实验结果、比较指标、生成统计表和关键结论。",
+  },
+  "paper-reading": {
+    name: "论文阅读",
+    description: "阅读论文并提炼研究问题、方法、实验设计和可复用结论。",
+  },
+  "project-design-philosophy": {
+    name: "项目设计哲学",
+    description: "整理项目设计原则、架构取舍、边界约束和实现风格。",
+  },
+};
+const SCIENCE_SKILL_IDS = new Set(SCIENCE_SKILLS.map((skill) => skill.id));
+const SCIENCE_SKILL_NAME_TO_ID = new Map(
+  SCIENCE_SKILLS.map((skill) => [skill.name, skill.id])
+);
+const SCIENCE_CATEGORY_BY_ID = new Map(
+  SCIENCE_SKILL_CATEGORIES.map((category) => [category.id, category])
+);
 
 function emptyResponse(): SkillsConfigResponse {
   return {
@@ -56,15 +146,61 @@ function skillPath(skill: SkillEntry): string {
   return skill.relativePath || skill.folderName || skill.key;
 }
 
-function skillMatchesQuery(skill: SkillEntry, query: string): boolean {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) {
-    return true;
+function displayTextForSkill(skill: SkillEntry) {
+  const translation = SKILL_DISPLAY_TEXT[skill.folderName.toLowerCase()];
+  return {
+    name: translation?.name ?? skill.name,
+    description: translation?.description ?? skill.description,
+  };
+}
+
+function searchDocumentForSkill(skill: SkillEntry): SearchDocument {
+  const display = displayTextForSkill(skill);
+  return {
+    title: display.name,
+    description: display.description,
+    keywords: [
+      skill.name,
+      skill.description,
+      skillPath(skill),
+      skill.folderName,
+      skill.sourcePath,
+    ],
+  };
+}
+
+function searchDocumentForScienceSkill(
+  skill: ScienceSkillSnapshot
+): SearchDocument {
+  const category = SCIENCE_CATEGORY_BY_ID.get(skill.categoryId);
+  return {
+    title: skill.name,
+    description: skill.description,
+    keywords: [
+      skill.id,
+      skill.sourcePath,
+      category?.name ?? "",
+      category?.description ?? "",
+    ],
+  };
+}
+
+function featuredSkillRank(skill: SkillEntry): number {
+  const folderName = skill.folderName.toLowerCase();
+  return FEATURED_SKILL_FOLDERS.findIndex((name) => name === folderName);
+}
+
+function scienceSkillIdForInstalledSkill(skill: SkillEntry): string | null {
+  if (SCIENCE_SKILL_IDS.has(skill.folderName)) {
+    return skill.folderName;
   }
 
-  return [skill.name, skill.description, skillPath(skill)].some((value) =>
-    value.toLowerCase().includes(normalizedQuery)
-  );
+  const normalizedFolder = skill.folderName.replace(/-\d+$/, "");
+  if (SCIENCE_SKILL_IDS.has(normalizedFolder)) {
+    return normalizedFolder;
+  }
+
+  return SCIENCE_SKILL_NAME_TO_ID.get(skill.name) ?? null;
 }
 
 function withChatComposerHash(href: string): string {
@@ -80,12 +216,11 @@ function withComposerDraft(href: string, draft: string): string {
 }
 
 function SkillGlyph({ skill }: { skill: SkillEntry }) {
-  const label = skill.name.trim().charAt(0).toUpperCase() || "S";
+  const display = displayTextForSkill(skill);
+  const label = display.name.trim().charAt(0).toUpperCase() || "S";
 
   return (
-    <span
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold text-primary-foreground shadow-sm shadow-primary/10"
-    >
+    <span className="text-primary-foreground flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold shadow-sm shadow-primary/10">
       {label}
     </span>
   );
@@ -111,110 +246,88 @@ function SkillSkeleton() {
 }
 
 function SkillCard({
-  actionBusy,
-  installing,
-  installed,
-  onInstall,
   onOpenDetails,
-  onUninstall,
   skill,
-  uninstalling,
 }: {
-  actionBusy: boolean;
-  installing: boolean;
-  installed: boolean;
-  onInstall: (skill: SkillEntry) => void;
   onOpenDetails: (skill: SkillEntry) => void;
-  onUninstall: (skill: SkillEntry) => void;
   skill: SkillEntry;
-  uninstalling: boolean;
 }) {
-  const [actionVisible, setActionVisible] = useState(false);
-  const showInstalledAction = installed && (actionVisible || uninstalling);
+  const display = displayTextForSkill(skill);
 
   return (
-    <article
-      onMouseEnter={() => setActionVisible(true)}
-      onMouseLeave={() => setActionVisible(false)}
-      onFocusCapture={() => setActionVisible(true)}
-      onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          setActionVisible(false);
-        }
-      }}
-      className={cn(
-        "flex min-h-[76px] min-w-0 max-w-full items-start overflow-hidden rounded-lg border px-2 py-1 transition-[background-color,border-color,box-shadow]",
-        installed
-          ? "border-primary/20 bg-primary/[0.045] shadow-sm shadow-primary/5 hover:bg-primary/[0.075]"
-          : "border-transparent hover:border-border hover:bg-card/75"
-      )}
-    >
+    <article className="flex min-h-[76px] min-w-0 max-w-full items-start overflow-hidden rounded-lg border border-transparent px-2 py-1 transition-[background-color,border-color] hover:border-border hover:bg-card/75">
       <button
         type="button"
         onClick={() => onOpenDetails(skill)}
         className="flex min-w-0 flex-1 cursor-pointer items-start gap-4 rounded-md px-2 py-3 text-left outline-none transition-[box-shadow] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        aria-label={`查看 ${skill.name} 详情`}
+        aria-label={`查看 ${display.name} 详情`}
       >
         <SkillGlyph skill={skill} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-base font-semibold leading-6">
-            {skill.name}
+            {display.name}
           </div>
           <div className="mt-0.5 line-clamp-2 text-sm leading-6 text-muted-foreground">
-            {skill.description}
+            {display.description}
           </div>
         </div>
       </button>
-      <div className="flex min-h-[66px] w-[104px] shrink-0 items-start justify-end px-1 py-3">
-        {installed ? (
-          <div className="flex min-h-7 items-start justify-end">
-            {showInstalledAction ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => onUninstall(skill)}
-                disabled={actionBusy}
-                className="h-7 min-w-[76px] border-destructive/25 bg-card px-2 text-xs text-destructive transition-[background-color,border-color,color,opacity] hover:bg-destructive/10 hover:text-destructive"
-                aria-label={`取消安装 ${skill.name}`}
-                title={`取消安装 ${skill.name}`}
-              >
-                {uninstalling ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <X className="h-3.5 w-3.5" />
-                )}
-                取消
-              </Button>
-            ) : (
-              <span className="inline-flex h-7 min-w-[76px] items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground shadow-sm shadow-primary/10">
-                <Check className="h-3.5 w-3.5" />
-                已安装
-              </span>
-            )}
+    </article>
+  );
+}
+
+function ScienceSkillCard({
+  actionBusy,
+  installed,
+  installing,
+  onInstall,
+  skill,
+}: {
+  actionBusy: boolean;
+  installed: boolean;
+  installing: boolean;
+  onInstall: (skill: ScienceSkillSnapshot) => void;
+  skill: ScienceSkillSnapshot;
+}) {
+  const label = skill.name.trim().charAt(0).toUpperCase() || "S";
+
+  return (
+    <article className="flex min-h-[120px] min-w-0 max-w-full items-start gap-4 rounded-lg border border-border/70 bg-card/30 px-4 py-4 transition-[background-color,border-color] hover:border-border hover:bg-card/60">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-primary">
+        {label}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold leading-6">
+              {skill.name}
+            </h3>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+              {skill.description}
+            </p>
           </div>
-        ) : (
           <Button
             type="button"
-            variant="outline"
+            variant={installed ? "secondary" : "outline"}
             size="sm"
             onClick={() => onInstall(skill)}
-            disabled={actionBusy}
-            className={cn(
-              "h-8 px-2 opacity-100 transition-opacity sm:opacity-0 sm:focus-visible:opacity-100",
-              (actionVisible || installing) && "sm:opacity-100"
-            )}
-            aria-label={`安装 ${skill.name}`}
-            title={`安装 ${skill.name}`}
+            disabled={actionBusy || installed}
+            className="h-8 shrink-0 px-2"
+            title={installed ? `${skill.name} 已添加` : `安装 ${skill.name}`}
           >
             {installing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
+            ) : installed ? (
+              <Check className="h-4 w-4" />
             ) : (
-              <Plus className="h-4 w-4" />
+              <CloudDownload className="h-4 w-4" />
             )}
-            安装
+            {installed ? "已添加" : "安装"}
           </Button>
-        )}
+        </div>
+        <div className="mt-3 truncate font-mono text-[11px] text-muted-foreground">
+          {skill.sourcePath}
+        </div>
       </div>
     </article>
   );
@@ -223,10 +336,14 @@ function SkillCard({
 export function SkillsMarketplace() {
   const searchParams = useSearchParams();
   const [data, setData] = useState<SkillsConfigResponse>(() => emptyResponse());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [installingKey, setInstallingKey] = useState<string | null>(null);
-  const [uninstallingKey, setUninstallingKey] = useState<string | null>(null);
+  const [importingSkill, setImportingSkill] = useState<SkillImportType | null>(
+    null
+  );
+  const [installingScienceSkillId, setInstallingScienceSkillId] = useState<
+    string | null
+  >(null);
+  const [pickingLocalFolder, setPickingLocalFolder] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [autoRestart, setAutoRestart] = useState(false);
@@ -234,7 +351,11 @@ export function SkillsMarketplace() {
     useState<BackendStatusResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showAllInstalled, setShowAllInstalled] = useState(false);
+  const [localSource, setLocalSource] = useState("");
+  const [cloudSource, setCloudSource] = useState("");
+  const [scienceCategoryId, setScienceCategoryId] = useState(
+    DEFAULT_SCIENCE_CATEGORY_ID
+  );
   const [detailSkill, setDetailSkill] = useState<SkillEntry | null>(null);
 
   const workbenchHref = useMemo(
@@ -251,26 +372,99 @@ export function SkillsMarketplace() {
   );
   const actionBusy =
     loading ||
-    installingKey !== null ||
-    uninstallingKey !== null ||
+    importingSkill !== null ||
+    installingScienceSkillId !== null ||
+    pickingLocalFolder ||
     checkingStatus ||
     restarting;
-  const installedSkills = useMemo(
-    () => data.skills.filter((skill) => selected.has(skill.key)),
-    [data.skills, selected]
+  const preparedSearchQuery = useMemo(
+    () => prepareSearchQuery(searchQuery),
+    [searchQuery]
   );
-  const visibleInstalledSkills = showAllInstalled
-    ? installedSkills
-    : installedSkills.slice(0, INSTALLED_PREVIEW_COUNT);
-  const hiddenInstalledCount = Math.max(
-    0,
-    installedSkills.length - visibleInstalledSkills.length
-  );
-  const filteredSkills = useMemo(
+  const featuredSkills = useMemo(
     () =>
-      data.skills.filter((skill) => skillMatchesQuery(skill, searchQuery)),
-    [data.skills, searchQuery]
+      data.skills
+        .filter((skill) => featuredSkillRank(skill) !== -1)
+        .sort(
+          (left, right) => featuredSkillRank(left) - featuredSkillRank(right)
+        ),
+    [data.skills]
   );
+  const filteredFeaturedSkills = useMemo(
+    () =>
+      filterAndRankBySearch(
+        featuredSkills,
+        preparedSearchQuery,
+        searchDocumentForSkill
+      ),
+    [featuredSkills, preparedSearchQuery]
+  );
+  const detailSkillDisplay = detailSkill
+    ? displayTextForSkill(detailSkill)
+    : null;
+  const selectedSkillKeys = useMemo(
+    () => new Set(data.selected),
+    [data.selected]
+  );
+  const installedScienceSkillIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const skill of data.skills) {
+      if (!selectedSkillKeys.has(skill.key)) {
+        continue;
+      }
+      const scienceSkillId = scienceSkillIdForInstalledSkill(skill);
+      if (scienceSkillId) {
+        ids.add(scienceSkillId);
+      }
+    }
+    return ids;
+  }, [data.skills, selectedSkillKeys]);
+  const activeScienceCategory = useMemo(
+    () =>
+      SCIENCE_SKILL_CATEGORIES.find(
+        (category) => category.id === scienceCategoryId
+      ),
+    [scienceCategoryId]
+  );
+  const filteredScienceSkills = useMemo(() => {
+    const searching = Boolean(preparedSearchQuery.normalized);
+    const categorySkills =
+      searching || scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
+        ? SCIENCE_SKILLS
+        : SCIENCE_SKILLS.filter(
+            (skill) => skill.categoryId === scienceCategoryId
+          );
+
+    return filterAndRankBySearch(
+      categorySkills,
+      preparedSearchQuery,
+      searchDocumentForScienceSkill
+    );
+  }, [preparedSearchQuery, scienceCategoryId]);
+
+  async function saveSelectedSkills(nextSelected: Set<string>) {
+    const response = await fetch("/api/skills", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: nextSelected.size > 0,
+        selected: Array.from(nextSelected),
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "技能安装失败");
+    }
+
+    const nextData = payload as SkillsConfigResponse;
+    setData({
+      ...nextData,
+      requiresRestart: true,
+    });
+    setBackendStatus(null);
+    setAutoRestart(true);
+    return nextData;
+  }
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -283,7 +477,6 @@ export function SkillsMarketplace() {
       }
       const nextData = payload as SkillsConfigResponse;
       setData(nextData);
-      setSelected(new Set(nextData.selected));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "技能加载失败");
     } finally {
@@ -291,19 +484,20 @@ export function SkillsMarketplace() {
     }
   }, []);
 
-  const checkBackendStatus = useCallback(async (): Promise<BackendStatusResult> => {
-    setCheckingStatus(true);
-    try {
-      const response = await fetch("/api/runtime/backend/status", {
-        cache: "no-store",
-      });
-      const status = (await response.json()) as BackendStatusResult;
-      setBackendStatus(status);
-      return status;
-    } finally {
-      setCheckingStatus(false);
-    }
-  }, []);
+  const checkBackendStatus =
+    useCallback(async (): Promise<BackendStatusResult> => {
+      setCheckingStatus(true);
+      try {
+        const response = await fetch("/api/runtime/backend/status", {
+          cache: "no-store",
+        });
+        const status = (await response.json()) as BackendStatusResult;
+        setBackendStatus(status);
+        return status;
+      } finally {
+        setCheckingStatus(false);
+      }
+    }, []);
 
   const restartBackendWhenIdle = useCallback(async () => {
     setRestarting(true);
@@ -338,91 +532,126 @@ export function SkillsMarketplace() {
     }
   }, []);
 
-  async function installSkill(skill: SkillEntry) {
-    if (selected.has(skill.key) || actionBusy) {
+  async function importAndInstallSkill(
+    type: SkillImportType,
+    sourceOverride?: string,
+    options: {
+      clearInput?: boolean;
+      successMessage?: (importedCount: number) => string;
+    } = {}
+  ) {
+    const source =
+      sourceOverride?.trim() ||
+      (type === "local" ? localSource.trim() : cloudSource.trim());
+    if (!source) {
+      toast.error(
+        type === "local" ? "请输入本地技能路径" : "请输入云端技能地址",
+        {
+          position: "top-center",
+        }
+      );
       return;
     }
 
-    const nextSelected = new Set(selected);
-    nextSelected.add(skill.key);
-    setInstallingKey(skill.key);
+    setImportingSkill(type);
     setError(null);
     try {
-      const response = await fetch("/api/skills", {
-        method: "PUT",
+      const response = await fetch("/api/skills/import", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled: nextSelected.size > 0,
-          selected: Array.from(nextSelected),
-        }),
+        body: JSON.stringify({ type, source }),
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "技能安装失败");
+        throw new Error(payload.error || "技能添加失败");
       }
 
-      const nextData = payload as SkillsConfigResponse;
-      setData({
-        ...nextData,
-        requiresRestart: true,
-      });
-      setSelected(new Set(nextData.selected));
-      setBackendStatus(null);
-      setAutoRestart(true);
-      toast.success(`「${skill.name}」已安装，快去试试 ->`, {
-        position: "top-center",
-      });
-    } catch (installError) {
+      const importResult = payload as ImportSkillsResponse;
+      const nextSelected = new Set(importResult.selected);
+      for (const importedKey of importResult.imported) {
+        nextSelected.add(importedKey);
+      }
+      await saveSelectedSkills(nextSelected);
+
+      const shouldClearInput = options.clearInput ?? !sourceOverride;
+      if (type === "local" && shouldClearInput) {
+        setLocalSource("");
+      } else if (type === "cloud" && shouldClearInput) {
+        setCloudSource("");
+      }
+      toast.success(
+        options.successMessage?.(importResult.imported.length) ??
+          `已安装 ${importResult.imported.length} 个技能`,
+        {
+          position: "top-center",
+        }
+      );
+    } catch (importError) {
       const message =
-        installError instanceof Error ? installError.message : "技能安装失败";
+        importError instanceof Error ? importError.message : "技能安装失败";
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
-      setInstallingKey(null);
+      setImportingSkill(null);
     }
   }
 
-  async function uninstallSkill(skill: SkillEntry) {
-    if (!selected.has(skill.key) || actionBusy) {
+  async function pickAndInstallLocalSkill() {
+    const typedSource = localSource.trim();
+    if (typedSource) {
+      await importAndInstallSkill("local", typedSource, { clearInput: true });
       return;
     }
 
-    const nextSelected = new Set(selected);
-    nextSelected.delete(skill.key);
-    setUninstallingKey(skill.key);
+    setPickingLocalFolder(true);
     setError(null);
     try {
-      const response = await fetch("/api/skills", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled: nextSelected.size > 0,
-          selected: Array.from(nextSelected),
-        }),
+      const response = await fetch("/api/skills/local-picker", {
+        method: "POST",
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as {
+        path?: string;
+        cancelled?: boolean;
+        error?: string;
+      };
+
       if (!response.ok) {
-        throw new Error(payload.error || "取消安装失败");
+        throw new Error(payload.error || "无法打开本地文件夹选择器");
+      }
+      if (payload.cancelled) {
+        return;
+      }
+      if (!payload.path) {
+        throw new Error("没有选择本地技能文件夹。");
       }
 
-      const nextData = payload as SkillsConfigResponse;
-      setData({
-        ...nextData,
-        requiresRestart: true,
-      });
-      setSelected(new Set(nextData.selected));
-      setBackendStatus(null);
-      setAutoRestart(true);
-      toast.success(`「${skill.name}」已取消安装`, {
-        position: "top-center",
-      });
-    } catch (uninstallError) {
+      setLocalSource(payload.path);
+      await importAndInstallSkill("local", payload.path, { clearInput: true });
+    } catch (pickError) {
       const message =
-        uninstallError instanceof Error ? uninstallError.message : "取消安装失败";
+        pickError instanceof Error
+          ? pickError.message
+          : "无法打开本地文件夹选择器";
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
-      setUninstallingKey(null);
+      setPickingLocalFolder(false);
+    }
+  }
+
+  async function installScienceSkill(skill: ScienceSkillSnapshot) {
+    if (installedScienceSkillIds.has(skill.id) || actionBusy) {
+      return;
+    }
+
+    setInstallingScienceSkillId(skill.id);
+    try {
+      await importAndInstallSkill("cloud", skill.installUrl, {
+        clearInput: false,
+        successMessage: () => `「${skill.name}」已添加`,
+      });
+    } finally {
+      setInstallingScienceSkillId(null);
     }
   }
 
@@ -517,86 +746,196 @@ export function SkillsMarketplace() {
         )}
 
         <section className="mb-8 border-b border-border pb-8">
+          <div className="mb-4 flex items-center gap-2">
+            <FolderPlus className="h-4 w-4 text-primary" />
+            <h2 className="text-base font-semibold">安装技能</h2>
+          </div>
+          <div className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
+              <Label
+                htmlFor="skills-local-source"
+                className="text-xs text-muted-foreground"
+              >
+                本地目录
+              </Label>
+              <Input
+                id="skills-local-source"
+                value={localSource}
+                onChange={(event) => setLocalSource(event.target.value)}
+                placeholder="/Users/me/skills/paper-reading 或 skills/my-skill"
+                disabled={actionBusy}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void pickAndInstallLocalSkill()}
+                disabled={actionBusy}
+                title={
+                  localSource.trim()
+                    ? "安装输入框中的本地技能路径"
+                    : "打开本地文件夹选择器并安装技能"
+                }
+              >
+                {pickingLocalFolder || importingSkill === "local" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FolderPlus className="h-4 w-4" />
+                )}
+                安装
+              </Button>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
+              <Label
+                htmlFor="skills-cloud-source"
+                className="text-xs text-muted-foreground"
+              >
+                云端地址
+              </Label>
+              <Input
+                id="skills-cloud-source"
+                value={cloudSource}
+                onChange={(event) => setCloudSource(event.target.value)}
+                placeholder="github:owner/repo/path 或 https://github.com/owner/repo"
+                disabled={actionBusy}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void importAndInstallSkill("cloud")}
+                disabled={actionBusy || !cloudSource.trim()}
+              >
+                {importingSkill === "cloud" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CloudDownload className="h-4 w-4" />
+                )}
+                安装
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-8">
           <div className="mb-5 flex items-center gap-2">
-            <h2 className="text-base font-semibold">已安装</h2>
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h2 className="text-base font-semibold">精选通用技能</h2>
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-              {installedSkills.length}
+              {featuredSkills.length}
             </span>
           </div>
 
           {loading ? (
             <SkillSkeleton />
-          ) : installedSkills.length === 0 ? (
+          ) : featuredSkills.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-              还没有安装技能
+              暂时没有精选技能
             </div>
-          ) : (
-            <>
-              <div className="grid w-full max-w-full grid-cols-1 gap-x-8 gap-y-4 overflow-x-hidden md:grid-cols-2">
-                {visibleInstalledSkills.map((skill) => (
-                  <SkillCard
-                    key={skill.key}
-                    actionBusy={actionBusy}
-                    installing={installingKey === skill.key}
-                    installed
-                    onInstall={installSkill}
-                    onOpenDetails={setDetailSkill}
-                    onUninstall={uninstallSkill}
-                    skill={skill}
-                    uninstalling={uninstallingKey === skill.key}
-                  />
-                ))}
-              </div>
-              {(hiddenInstalledCount > 0 || showAllInstalled) && (
-                <div className="mt-6 flex justify-center">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-md"
-                    onClick={() => setShowAllInstalled((current) => !current)}
-                  >
-                    {showAllInstalled
-                      ? "收起"
-                      : `显示更多${hiddenInstalledCount ? ` (${hiddenInstalledCount})` : ""}`}
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        <section className="space-y-5">
-          <h2 className="text-base font-semibold">全部技能</h2>
-
-          {loading ? (
-            <SkillSkeleton />
-          ) : data.skills.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-              暂时没有技能
-            </div>
-          ) : filteredSkills.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-              没有找到匹配的技能
+          ) : filteredFeaturedSkills.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+              没有找到匹配的精选技能
             </div>
           ) : (
             <div className="grid w-full max-w-full grid-cols-1 gap-x-8 gap-y-4 overflow-x-hidden md:grid-cols-2">
-              {filteredSkills.map((skill) => {
-                const installed = selected.has(skill.key);
-                return (
-                  <SkillCard
-                    key={skill.key}
-                    actionBusy={actionBusy}
-                    installing={installingKey === skill.key}
-                    installed={installed}
-                    onInstall={installSkill}
-                    onOpenDetails={setDetailSkill}
-                    onUninstall={uninstallSkill}
-                    skill={skill}
-                    uninstalling={uninstallingKey === skill.key}
-                  />
-                );
-              })}
+              {filteredFeaturedSkills.map((skill) => (
+                <SkillCard
+                  key={skill.key}
+                  onOpenDetails={setDetailSkill}
+                  skill={skill}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8 border-t border-border pt-8">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <h2 className="text-base font-semibold">
+                  InternAgents 精选科学技能
+                </h2>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {SCIENCE_SKILL_SOURCE.total}
+                </span>
+              </div>
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+                快照来自 InternScience/scp，点击安装时会从 GitHub
+                下载对应技能目录。
+              </p>
+            </div>
+            <div className="shrink-0 truncate rounded-md bg-muted/50 px-2 py-1 font-mono text-[11px] text-muted-foreground">
+              {SCIENCE_SKILL_SOURCE.commit.slice(0, 12)}
+            </div>
+          </div>
+
+          <div
+            className="mb-5 flex flex-wrap gap-2"
+            role="tablist"
+            aria-label="科学技能分类"
+          >
+            <Button
+              type="button"
+              variant={
+                scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
+                  ? "default"
+                  : "outline"
+              }
+              size="sm"
+              className="h-8 rounded-full px-3 text-xs"
+              onClick={() => setScienceCategoryId(ALL_SCIENCE_CATEGORY_ID)}
+              role="tab"
+              aria-selected={scienceCategoryId === ALL_SCIENCE_CATEGORY_ID}
+            >
+              全部
+              <span className="ml-1 text-[11px] opacity-75">
+                {SCIENCE_SKILL_SOURCE.total}
+              </span>
+            </Button>
+            {SCIENCE_SKILL_CATEGORIES.map((category) => (
+              <Button
+                key={category.id}
+                type="button"
+                variant={
+                  scienceCategoryId === category.id ? "default" : "outline"
+                }
+                size="sm"
+                className="h-8 rounded-full px-3 text-xs"
+                onClick={() => setScienceCategoryId(category.id)}
+                role="tab"
+                aria-selected={scienceCategoryId === category.id}
+              >
+                {category.name}
+                <span className="ml-1 text-[11px] opacity-75">
+                  {category.count}
+                </span>
+              </Button>
+            ))}
+          </div>
+
+          {!searchQuery.trim() && activeScienceCategory && (
+            <div className="mb-5 rounded-md border border-border/70 bg-card/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+              {activeScienceCategory.description}
+            </div>
+          )}
+
+          {filteredScienceSkills.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+              没有找到匹配的科学技能
+            </div>
+          ) : (
+            <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
+              {filteredScienceSkills.map((skill) => (
+                <ScienceSkillCard
+                  key={skill.id}
+                  actionBusy={actionBusy}
+                  installed={installedScienceSkillIds.has(skill.id)}
+                  installing={installingScienceSkillId === skill.id}
+                  onInstall={installScienceSkill}
+                  skill={skill}
+                />
+              ))}
             </div>
           )}
         </section>
@@ -616,64 +955,23 @@ export function SkillsMarketplace() {
           }
         }}
       >
-        {detailSkill && (
+        {detailSkill && detailSkillDisplay && (
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <div className="flex items-center gap-3 pr-8">
                 <SkillGlyph skill={detailSkill} />
                 <div className="min-w-0">
                   <DialogTitle className="truncate text-base leading-6">
-                    {detailSkill.name}
+                    {detailSkillDisplay.name}
                   </DialogTitle>
-                  <DialogDescription className="mt-1">
-                    {selected.has(detailSkill.key) ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                        <Check className="h-3.5 w-3.5" />
-                        已安装
-                      </span>
-                    ) : (
-                      "未安装"
-                    )}
-                  </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
             <div className="text-sm leading-6">
               <p className="text-muted-foreground">
-                {detailSkill.description || "暂无介绍"}
+                {detailSkillDisplay.description || "暂无介绍"}
               </p>
             </div>
-            <DialogFooter>
-              {selected.has(detailSkill.key) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => uninstallSkill(detailSkill)}
-                  disabled={actionBusy}
-                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  {uninstallingKey === detailSkill.key ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <X className="h-4 w-4" />
-                  )}
-                  取消安装
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  onClick={() => installSkill(detailSkill)}
-                  disabled={actionBusy}
-                >
-                  {installingKey === detailSkill.key ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Plus className="h-4 w-4" />
-                  )}
-                  安装
-                </Button>
-              )}
-            </DialogFooter>
           </DialogContent>
         )}
       </Dialog>
