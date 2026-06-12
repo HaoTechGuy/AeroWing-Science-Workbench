@@ -18,6 +18,9 @@ LANGGRAPH_JOBS_PER_WORKER="${INTERNAGENTS_LANGGRAPH_JOBS_PER_WORKER:-5}"
 RUNTIME_DIR="$ROOT_DIR/.internagents"
 LOG_DIR="$RUNTIME_DIR/logs"
 PID_DIR="$RUNTIME_DIR/pids"
+LANGGRAPH_STATE_DIR="$RUNTIME_DIR/langgraph-state"
+BACKEND_STATE_DIR="$LANGGRAPH_STATE_DIR/backend"
+LOCAL_RUNTIME_STATE_DIR="$LANGGRAPH_STATE_DIR/local-runtime"
 BACKEND_LOG="$LOG_DIR/backend.log"
 LOCAL_RUNTIME_LOG="$LOG_DIR/local-runtime.log"
 UI_LOG="$LOG_DIR/ui.log"
@@ -62,6 +65,30 @@ die() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+}
+
+ensure_langgraph_state_dir() {
+  local state_dir="$1"
+  mkdir -p "$state_dir"
+
+  if ln -sfn "$ROOT_DIR/agent.py" "$state_dir/agent.py" 2>/dev/null; then
+    return 0
+  fi
+
+  rm -f "$state_dir/agent.py"
+  {
+    printf '%s\n' "import importlib.util"
+    printf '%s\n' "import os"
+    printf '%s\n' "from pathlib import Path"
+    printf '%s\n' ""
+    printf '%s\n' "_root = Path(os.environ[\"INTERNAGENTS_GRAPH_ROOT\"])"
+    printf '%s\n' "_spec = importlib.util.spec_from_file_location(\"_internagents_real_agent\", _root / \"agent.py\")"
+    printf '%s\n' "if _spec is None or _spec.loader is None:"
+    printf '%s\n' "    raise RuntimeError(\"Unable to load InternAgents graph entrypoint.\")"
+    printf '%s\n' "_module = importlib.util.module_from_spec(_spec)"
+    printf '%s\n' "_spec.loader.exec_module(_module)"
+    printf '%s\n' "globals().update({name: getattr(_module, name) for name in dir(_module) if not name.startswith(\"__\")})"
+  } > "$state_dir/agent.py"
 }
 
 print_log_tail() {
@@ -204,6 +231,8 @@ install_dependencies() {
 
 prepare_environment() {
   mkdir -p "$LOG_DIR" "$PID_DIR"
+  ensure_langgraph_state_dir "$BACKEND_STATE_DIR"
+  ensure_langgraph_state_dir "$LOCAL_RUNTIME_STATE_DIR"
 
   if [ "$SKIP_INSTALL" = "1" ]; then
     [ -x "$PYTHON_BIN" ] || die ".venv is missing. Unset INTERNAGENTS_SKIP_INSTALL or create it first."
@@ -230,7 +259,8 @@ start_local_runtime() {
   : > "$LOCAL_RUNTIME_LOG"
   log "Starting local agent runtime on $LOCAL_RUNTIME_URL..."
   (
-    cd "$ROOT_DIR"
+    cd "$LOCAL_RUNTIME_STATE_DIR"
+    INTERNAGENTS_GRAPH_ROOT="$ROOT_DIR" \
     INTERNAGENT_PROCESS_ROLE=runtime \
     INTERNAGENT_RUNTIME_ID=local \
       "$PYTHON_BIN" -m langgraph_cli dev \
@@ -239,7 +269,7 @@ start_local_runtime() {
         --no-browser \
         $(langgraph_reload_args) \
         $(langgraph_jobs_args) \
-        --config langgraph.runtime.json
+        --config "$ROOT_DIR/langgraph.runtime.json"
   ) >>"$LOCAL_RUNTIME_LOG" 2>&1 &
 
   LOCAL_RUNTIME_PID="$!"
@@ -262,14 +292,15 @@ start_backend() {
   : > "$BACKEND_LOG"
   log "Starting backend on $BACKEND_URL..."
   (
-    cd "$ROOT_DIR"
+    cd "$BACKEND_STATE_DIR"
+    INTERNAGENTS_GRAPH_ROOT="$ROOT_DIR" \
     "$PYTHON_BIN" -m langgraph_cli dev \
       --host "$HOST" \
       --port "$BACKEND_PORT" \
       --no-browser \
       $(langgraph_reload_args) \
       $(langgraph_jobs_args) \
-      --config langgraph.json
+      --config "$ROOT_DIR/langgraph.json"
   ) >>"$BACKEND_LOG" 2>&1 &
 
   BACKEND_PID="$!"

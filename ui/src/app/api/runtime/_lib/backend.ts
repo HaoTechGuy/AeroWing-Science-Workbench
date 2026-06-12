@@ -7,6 +7,9 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
 } from "fs";
 import path from "path";
 import { spawn, execFile } from "child_process";
@@ -128,16 +131,49 @@ function runtimePaths(root: string) {
   const runtimeDir = path.join(root, ".internagents");
   const logDir = path.join(runtimeDir, "logs");
   const pidDir = path.join(runtimeDir, "pids");
+  const langGraphStateDir = path.join(runtimeDir, "langgraph-state");
 
   return {
     runtimeDir,
     logDir,
     pidDir,
+    backendStateDir: path.join(langGraphStateDir, "backend"),
+    localRuntimeStateDir: path.join(langGraphStateDir, "local-runtime"),
     backendLog: path.join(logDir, "backend.log"),
     localRuntimeLog: path.join(logDir, "local-runtime.log"),
     backendPidFile: path.join(pidDir, "backend.pid"),
     localRuntimePidFile: path.join(pidDir, "local-runtime.pid"),
   };
+}
+
+function agentEntrypointShim(): string {
+  return [
+    "import importlib.util",
+    "import os",
+    "from pathlib import Path",
+    "",
+    '_root = Path(os.environ["INTERNAGENTS_GRAPH_ROOT"])',
+    '_spec = importlib.util.spec_from_file_location("_internagents_real_agent", _root / "agent.py")',
+    "if _spec is None or _spec.loader is None:",
+    '    raise RuntimeError("Unable to load InternAgents graph entrypoint.")',
+    "_module = importlib.util.module_from_spec(_spec)",
+    "_spec.loader.exec_module(_module)",
+    'globals().update({name: getattr(_module, name) for name in dir(_module) if not name.startswith("__")})',
+    "",
+  ].join("\n");
+}
+
+function ensureLangGraphStateDir(root: string, stateDir: string) {
+  mkdirSync(stateDir, { recursive: true });
+  const entrypoint = path.join(stateDir, "agent.py");
+  rmSync(entrypoint, { force: true });
+
+  try {
+    symlinkSync(path.join(root, "agent.py"), entrypoint, "file");
+    return;
+  } catch {
+    writeFileSync(entrypoint, agentEntrypointShim(), "utf8");
+  }
 }
 
 function parseEnvValue(rawValue: string) {
@@ -565,6 +601,7 @@ async function startLangGraphServer({
   configFile,
   logPath,
   pidFile,
+  stateDir,
   allowBlocking = false,
   env,
 }: {
@@ -574,12 +611,17 @@ async function startLangGraphServer({
   configFile: string;
   logPath: string;
   pidFile: string;
+  stateDir: string;
   allowBlocking?: boolean;
   env?: NodeJS.ProcessEnv;
 }) {
   const paths = runtimePaths(root);
   mkdirSync(paths.logDir, { recursive: true });
   mkdirSync(paths.pidDir, { recursive: true });
+  ensureLangGraphStateDir(root, stateDir);
+  const configPath = path.isAbsolute(configFile)
+    ? configFile
+    : path.join(root, configFile);
 
   const shouldAllowBlocking = allowBlocking && IS_WINDOWS;
   const args = [
@@ -596,12 +638,13 @@ async function startLangGraphServer({
     langGraphJobsPerWorker(),
     ...(shouldAllowBlocking ? ["--allow-blocking"] : []),
     "--config",
-    configFile,
+    configPath,
   ];
   const serverEnv = {
     ...process.env,
     ...readProjectEnv(root),
     ...(env || {}),
+    INTERNAGENTS_GRAPH_ROOT: root,
     ...(IS_WINDOWS
       ? {
           PYTHONUTF8: "1",
@@ -615,7 +658,7 @@ async function startLangGraphServer({
     pythonBinary(root),
     args,
     {
-      cwd: root,
+      cwd: stateDir,
       detached: true,
       env: serverEnv,
       stdio: ["ignore", fd, fd],
@@ -680,6 +723,7 @@ export async function restartBackend(): Promise<BackendRestartResult> {
       configFile: "langgraph.runtime.json",
       logPath: paths.localRuntimeLog,
       pidFile: paths.localRuntimePidFile,
+      stateDir: paths.localRuntimeStateDir,
       allowBlocking: IS_WINDOWS,
       env: {
         ...process.env,
@@ -709,6 +753,7 @@ export async function restartBackend(): Promise<BackendRestartResult> {
       configFile: "langgraph.json",
       logPath: paths.backendLog,
       pidFile: paths.backendPidFile,
+      stateDir: paths.backendStateDir,
     });
     const ready = await waitForBackend(url);
 

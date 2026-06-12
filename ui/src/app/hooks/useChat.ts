@@ -12,7 +12,13 @@ import {
 } from "@langchain/langgraph-sdk";
 import { v4 as uuidv4 } from "uuid";
 import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
-import type { ChatAttachment, GoalState, TodoItem } from "@/app/types/types";
+import type {
+  ChatAttachment,
+  GoalState,
+  ScpCatalogItem,
+  ScpInvocationState,
+  TodoItem,
+} from "@/app/types/types";
 import type { StreamConfig } from "@/lib/config";
 import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
@@ -31,6 +37,9 @@ type RunConfig = Record<string, any>;
 type ParsedGoalCommand = {
   objective: string;
   tokenBudget?: number;
+};
+type SendMessageOptions = {
+  scpSelection?: ScpCatalogItem | null;
 };
 type RetryMessageOptions = {
   checkpoint?: Checkpoint | null;
@@ -51,7 +60,12 @@ type RunLifecycle = {
 };
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4_000;
+const MAX_SCP_PROMPT_CHARS = 4_000;
 const THREAD_SNAPSHOT_CACHE_MAX_ENTRIES = 40;
+const THREAD_STATUS_METADATA_KEY = "internagents_thread_status";
+const PENDING_RUN_STATUS_METADATA_KEY = "internagents_pending_run_status";
+const STREAM_RECOVERY_VISIBLE_DELAY_MS = 700;
+const ACTIVE_RUN_STATUSES = new Set(["busy", "pending", "running"]);
 
 type ThreadSnapshotCacheEntry = {
   data?: ThreadState<StateType>[];
@@ -68,6 +82,7 @@ export type StateType = {
   todos: TodoItem[];
   files: Record<string, string>;
   goal?: GoalState | null;
+  scpInvocation?: ScpInvocationState | null;
   email?: {
     id?: string;
     subject?: string;
@@ -100,7 +115,14 @@ function threadToState(
     tasks: [],
     metadata:
       thread.metadata && typeof thread.metadata === "object"
-        ? (thread.metadata as Record<string, unknown>)
+        ? {
+            ...(thread.metadata as Record<string, unknown>),
+            ...(typeof thread.status === "string"
+              ? { [THREAD_STATUS_METADATA_KEY]: thread.status }
+              : {}),
+          }
+        : typeof thread.status === "string"
+        ? { [THREAD_STATUS_METADATA_KEY]: thread.status }
         : {},
     created_at: thread.updated_at,
     checkpoint: {
@@ -121,6 +143,7 @@ function emptyThreadState(threadId: string): ThreadState<StateType> {
       todos: [],
       files: {},
       goal: null,
+      scpInvocation: null,
     },
     next: [],
     tasks: [],
@@ -148,6 +171,7 @@ function pendingRunToState(
       todos: [],
       files: {},
       goal: null,
+      scpInvocation: null,
     },
     next: [],
     tasks: [],
@@ -473,8 +497,32 @@ function mergeThreadRecord(
     metadata: {
       ...(mergedState.metadata || {}),
       ...threadMetadata,
+      ...(typeof thread.status === "string"
+        ? { [THREAD_STATUS_METADATA_KEY]: thread.status }
+        : {}),
     },
   });
+}
+
+function useDelayedBoolean(value: boolean, delayMs: number): boolean {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!value) {
+      setVisible(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setVisible(true);
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [delayMs, value]);
+
+  return visible;
 }
 
 async function loadThreadSnapshot({
@@ -958,6 +1006,43 @@ function createGoalState(
   };
 }
 
+function parseScpPrompt(content: string): string | null {
+  const match = content.trim().match(/^\/scp(?:\s+([\s\S]+))?$/i);
+  if (!match) {
+    return null;
+  }
+
+  let prompt = match[1]?.trim() ?? "";
+  while (/^(?:skill|tool)=[^\s]+\s*/i.test(prompt)) {
+    prompt = prompt.replace(/^(?:skill|tool)=[^\s]+\s*/i, "").trim();
+  }
+
+  if (!prompt || prompt.length > MAX_SCP_PROMPT_CHARS) {
+    return null;
+  }
+  return prompt;
+}
+
+function createScpInvocationState(
+  selection: ScpCatalogItem,
+  prompt: string,
+  threadId: string
+): ScpInvocationState {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    id: uuidv4(),
+    threadId,
+    skillName: selection.skillName,
+    displayName: selection.displayName,
+    toolName: selection.toolName,
+    endpoint: selection.endpoint,
+    prompt,
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export function useChat({
   activeAssistant,
   streamConfig,
@@ -990,6 +1075,7 @@ export function useChat({
   const [runLifecycle, setRunLifecycle] = useState<RunLifecycle>({
     status: "idle",
   });
+  const [localRunInFlight, setLocalRunInFlight] = useState(false);
   const [visibleError, setVisibleError] = useState<unknown>();
   const previousThreadIdRef = useRef<string | null>(threadId ?? null);
   const pendingNewThreadTitleRef = useRef<string | null>(null);
@@ -1021,6 +1107,7 @@ export function useChat({
   );
   const markRunStarting = useCallback(() => {
     setVisibleError(undefined);
+    setLocalRunInFlight(true);
     setRunLifecycle({
       status: "running",
       updatedAt: Date.now(),
@@ -1039,6 +1126,19 @@ export function useChat({
       ? (metadata as Record<string, unknown>)
       : {};
   }, [threadSnapshot?.data]);
+  const threadStatus =
+    typeof threadMetadata[THREAD_STATUS_METADATA_KEY] === "string"
+      ? threadMetadata[THREAD_STATUS_METADATA_KEY]
+      : null;
+  const pendingRunStatus =
+    typeof threadMetadata[PENDING_RUN_STATUS_METADATA_KEY] === "string"
+      ? threadMetadata[PENDING_RUN_STATUS_METADATA_KEY]
+      : null;
+  const snapshotHasActiveRun =
+    (threadStatus ? ACTIVE_RUN_STATUSES.has(threadStatus) : false) ||
+    (pendingRunStatus ? ACTIVE_RUN_STATUSES.has(pendingRunStatus) : false);
+  const snapshotHasSettledRunState =
+    Boolean(threadStatus) && !snapshotHasActiveRun;
 
   useEffect(() => {
     const previousThreadId = previousThreadIdRef.current;
@@ -1138,6 +1238,7 @@ export function useChat({
       run?: { run_id?: string; thread_id?: string }
     ) => {
       setVisibleError(undefined);
+      setLocalRunInFlight(false);
       setRunLifecycle({
         status: stateHasInterrupts(state) ? "interrupted" : "completed",
         updatedAt: Date.now(),
@@ -1152,6 +1253,7 @@ export function useChat({
   const handleStreamError = useCallback(
     (error: unknown, run?: { run_id?: string; thread_id?: string }) => {
       setVisibleError(error);
+      setLocalRunInFlight(false);
       setRunLifecycle({
         status: "error",
         updatedAt: Date.now(),
@@ -1165,6 +1267,7 @@ export function useChat({
 
   const handleStreamStop = useCallback(() => {
     setVisibleError(undefined);
+    setLocalRunInFlight(false);
     setRunLifecycle((current) => ({
       ...current,
       status: "stopped",
@@ -1257,29 +1360,54 @@ export function useChat({
     if (!stream.isLoading) {
       clearStreamEvents();
       setVisibleError(undefined);
+      setLocalRunInFlight(false);
       setRunLifecycle({ status: "idle" });
     }
   }, [streamScopeKey, stream.isLoading, clearStreamEvents]);
 
   const sendMessage = useCallback(
-    (content: string, attachments: ChatAttachment[] = []) => {
+    (
+      content: string,
+      attachments: ChatAttachment[] = [],
+      options: SendMessageOptions = {}
+    ) => {
       const goalCommand = parseGoalCommand(content);
+      const scpPrompt = options.scpSelection ? parseScpPrompt(content) : null;
       const existingGoal = threadId ? stream.values.goal : null;
       const hasActiveGoal = existingGoal?.status === "active";
       const shouldSeedGoal = Boolean(goalCommand && !hasActiveGoal);
+      const shouldSeedScp = Boolean(options.scpSelection && scpPrompt);
       const pendingNewThreadTitle = pendingNewThreadTitleRef.current;
       const newThreadId =
-        !threadId && (shouldSeedGoal || pendingNewThreadTitle)
+        !threadId && (shouldSeedGoal || shouldSeedScp || pendingNewThreadTitle)
           ? uuidv4()
           : null;
       const seededGoalThreadId = shouldSeedGoal
+        ? threadId ?? newThreadId ?? uuidv4()
+        : null;
+      const seededScpThreadId = shouldSeedScp
         ? threadId ?? newThreadId ?? uuidv4()
         : null;
       const seededGoal =
         shouldSeedGoal && goalCommand && seededGoalThreadId
           ? createGoalState(goalCommand, seededGoalThreadId)
           : null;
-      const messageContent = seededGoal ? seededGoal.objective : content;
+      const seededScp =
+        shouldSeedScp &&
+        options.scpSelection &&
+        scpPrompt &&
+        seededScpThreadId
+          ? createScpInvocationState(
+              options.scpSelection,
+              scpPrompt,
+              seededScpThreadId
+            )
+          : null;
+      const messageContent = seededScp
+        ? seededScp.prompt
+        : seededGoal
+        ? seededGoal.objective
+        : content;
       const additionalKwargs = {
         ...(attachments.length > 0
           ? { attachments: attachmentMetadata(attachments) }
@@ -1289,6 +1417,16 @@ export function useChat({
               internagents_goal_command: {
                 original_content: content,
                 goal_id: seededGoal.id,
+              },
+            }
+          : {}),
+        ...(seededScp
+          ? {
+              internagents_scp_command: {
+                original_content: content,
+                scp_invocation_id: seededScp.id,
+                skill_name: seededScp.skillName,
+                tool_name: seededScp.toolName,
               },
             }
           : {}),
@@ -1314,6 +1452,7 @@ export function useChat({
         {
           messages: [newMessage],
           ...(seededGoal ? { goal: seededGoal } : {}),
+          ...(seededScp ? { scpInvocation: seededScp } : {}),
         },
         withStreamSubmitOptions({
           metadata: workspaceMetadata,
@@ -1322,9 +1461,10 @@ export function useChat({
           optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
             ...(seededGoal ? { goal: seededGoal } : {}),
+            ...(seededScp ? { scpInvocation: seededScp } : {}),
           }),
           config: buildRunConfig({ recursion_limit: 100 }),
-          ...(seededGoal ? { durability: "async" as const } : {}),
+          ...(seededGoal || seededScp ? { durability: "async" as const } : {}),
         })
       );
       // Update thread list immediately when sending a message
@@ -1461,6 +1601,7 @@ export function useChat({
       todos: [],
       files: {},
       goal: null,
+      scpInvocation: null,
     };
   }, [effectiveStreamValues, isThreadScopedStateLoading]);
   const scopedMessages = useMemo(
@@ -1468,6 +1609,7 @@ export function useChat({
     [isThreadScopedStateLoading, scopedValues]
   );
   const activeGoal = scopedValues.goal ?? null;
+  const scpInvocation = scopedValues.scpInvocation ?? null;
 
   const threadTitle = useMemo(() => {
     if (optimisticThreadTitle) {
@@ -1644,6 +1786,7 @@ export function useChat({
   );
 
   const stopStream = useCallback(() => {
+    setLocalRunInFlight(false);
     setRunLifecycle((current) => ({
       ...current,
       status: "stopped",
@@ -1652,6 +1795,15 @@ export function useChat({
     stream.stop();
   }, [stream]);
 
+  const isRunLoading =
+    stream.isLoading && (localRunInFlight || snapshotHasActiveRun);
+  const shouldShowStreamRecovery =
+    stream.isLoading && !isRunLoading && !snapshotHasSettledRunState;
+  const isStreamRecovering = useDelayedBoolean(
+    shouldShowStreamRecovery,
+    STREAM_RECOVERY_VISIBLE_DELAY_MS
+  );
+
   const activeInterrupt = isThreadScopedStateLoading
     ? undefined
     : stream.interrupt ?? streamEventLayer.interrupt;
@@ -1659,7 +1811,7 @@ export function useChat({
     ? "error"
     : activeInterrupt
     ? "interrupted"
-    : stream.isLoading
+    : isRunLoading
     ? "running"
     : runLifecycle.status;
 
@@ -1668,6 +1820,7 @@ export function useChat({
     todos: scopedValues.todos ?? [],
     files: scopedValues.files ?? {},
     goal: activeGoal,
+    scpInvocation,
     email: scopedValues.email,
     ui: scopedValues.ui,
     threadId,
@@ -1679,7 +1832,8 @@ export function useChat({
     setFiles,
     messages: scopedMessages,
     error: visibleError,
-    isLoading: stream.isLoading,
+    isLoading: isRunLoading,
+    isStreamRecovering,
     isThreadLoading: isThreadScopedStateLoading,
     interrupt: activeInterrupt,
     runStatus,

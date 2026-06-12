@@ -1,5 +1,6 @@
 faxiandeepagents
 langchain-openai
+langchain-mcp-adapters
 langchain-openrouter>=0.2.0
 langgraph-cli[inmem]
 python-dotenv

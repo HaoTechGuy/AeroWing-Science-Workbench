@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -43,7 +43,11 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
   }) => {
     const useMutedStyle = Boolean(isLoading || muted) && !actionRequest;
     const [isExpanded, setIsExpanded] = useState(
-      () => !!uiComponent || !!actionRequest
+      () =>
+        !!uiComponent ||
+        !!actionRequest ||
+        toolCall.status === "error" ||
+        toolCall.status === "interrupted"
     );
     const [expandedArgs, setExpandedArgs] = useState<Record<string, boolean>>(
       {}
@@ -58,6 +62,27 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
         status: toolCall.status || "completed",
       };
     }, [toolCall]);
+
+    useEffect(() => {
+      if (status === "error" || status === "interrupted") {
+        setIsExpanded(true);
+      }
+    }, [status]);
+
+    const statusLabel = useMemo(() => {
+      switch (status) {
+        case "completed":
+          return "已完成";
+        case "error":
+          return "未返回结果";
+        case "pending":
+          return "运行中";
+        case "interrupted":
+          return "已中断";
+        default:
+          return "工具调用";
+      }
+    }, [status]);
 
     const statusIcon = useMemo(() => {
       const mutedClassName = useMutedStyle ? "text-muted-foreground/70" : "";
@@ -143,6 +168,21 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
               >
                 {displayName}
               </span>
+              {status !== "completed" && (
+                <span
+                  className={cn(
+                    "rounded-full border px-1.5 py-0.5 text-[11px] font-medium leading-none",
+                    status === "error"
+                      ? "border-destructive/30 text-destructive"
+                      : status === "interrupted"
+                      ? "border-orange-500/30 text-orange-600 dark:text-orange-300"
+                      : "border-border text-muted-foreground",
+                    useMutedStyle && "border-border/30 text-muted-foreground/70"
+                  )}
+                >
+                  {statusLabel}
+                </span>
+              )}
             </div>
             {hasContent &&
               (isExpanded ? (

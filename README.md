@@ -78,6 +78,14 @@ Runtime logs are written to:
 .internagents/logs/ui.log
 ```
 
+LangGraph dev persistence is isolated by process role so the coordinator and
+local runtime do not write the same checkpoint files:
+
+```text
+.internagents/langgraph-state/backend/.langgraph_api
+.internagents/langgraph-state/local-runtime/.langgraph_api
+```
+
 Useful overrides:
 
 ```bash
@@ -157,6 +165,83 @@ leaving `task`, `write_file`, and `edit_file` unintercepted, add:
 ```
 
 `root_dir` may be absolute or relative to the repository root.
+
+## MCP Tools
+
+InternAgents can load external tools from MCP (Model Context Protocol) servers
+at agent startup and pass them to `create_deep_agent(...)` alongside built-in
+InternAgents tools. This follows the DeepAgents and LangChain MCP adapter path:
+MCP servers are configured in `mcpServers`, discovered, converted to LangChain
+tools, and merged into the agent tool list.
+
+MCP config is intentionally local. The loader checks these locations from low
+to high precedence:
+
+```text
+~/.deepagents/.mcp.json
+<repo>/.deepagents/.mcp.json
+<repo>/.mcp.json
+INTERNAGENT_MCP_CONFIG_FILE
+```
+
+Local `.mcp.json` and `.deepagents/` files are ignored by git so API keys,
+private stdio commands, and local endpoints do not get committed. Header values
+support environment interpolation:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${INTERNAL_API_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Supported transports are `stdio`, `sse`, and `http`; `streamable_http`,
+`streamable-http`, and `streamableHttp` are accepted as HTTP aliases. Use
+`allowedTools` or `disabledTools` to narrow a server's tool catalog.
+
+To disable MCP discovery for a process:
+
+```bash
+export INTERNAGENT_MCP_DISABLED=1
+```
+
+## SCP Skills
+
+InternAgents has a built-in SCP entrypoint that follows the SCP skill tutorial:
+each catalog item maps one skill to one SCP MCP endpoint and one tool. The
+backend registers only a small wrapper tool by default; individual SCP tools are
+inactive until the user selects a skill/tool from the chat composer.
+
+Set the SCP Hub key in an untracked environment file:
+
+```env
+SCP_HUB_API_KEY=sk-...
+```
+
+In the UI, type `/scp` to open the SCP catalog. Selecting an item inserts a
+command like:
+
+```text
+/scp skill=chemical-structure-analysis tool=ChemicalStructureAnalyzer analyze aspirin
+```
+
+The command seeds `scpInvocation` in LangGraph state. During that run,
+`call_scp_tool` may invoke only the selected SCP tool, using the selected
+catalog endpoint and the backend-side `SCP_HUB_API_KEY`. The browser never reads
+or sends the key directly.
+
+The default catalog lives in:
+
+```text
+scp_catalog.json
+```
 
 ## Web UI Configuration
 

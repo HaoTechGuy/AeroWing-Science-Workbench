@@ -68,6 +68,11 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     const hasUserAttachments =
       isUser && (imageUrls.length > 0 || visibleFileAttachments.length > 0);
     const hasToolCalls = toolCalls.length > 0;
+    const hasTerminalToolIssue = toolCalls.some(
+      (toolCall) =>
+        Boolean(toolCall.result) &&
+        (toolCall.status === "error" || toolCall.status === "interrupted")
+    );
     const subAgents = useMemo(() => {
       return toolCalls
         .filter((toolCall: ToolCall) => {
@@ -177,6 +182,11 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <span className="min-w-0 truncate">{attachment.name}</span>
                 </div>
               ))}
+            </div>
+          )}
+          {!isUser && !hasContent && hasTerminalToolIssue && (
+            <div className="mt-4 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-foreground">
+              本次运行已结束，但没有生成最终回答。下面是停止位置：
             </div>
           )}
           {hasToolCalls && (

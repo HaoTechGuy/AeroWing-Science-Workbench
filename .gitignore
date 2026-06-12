@@ -1,5 +1,7 @@
 .DS_Store
 .env
+.mcp.json
+.deepagents/
 internagent.resources.local.json
 .venv/
 .desktop-python-runtime/
