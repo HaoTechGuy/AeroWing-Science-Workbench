@@ -1,4 +1,0 @@
-interface:
-  display_name: "InternAgents Test Task Creator"
-  short_description: "Create realistic InternAgents browser test tasks"
-  default_prompt: "Use $internagents-test-task-creator to create a new InternAgents end-to-end browser test task."
