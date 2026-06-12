@@ -43,11 +43,16 @@ async function chooseFolderOnLinux(title: string): Promise<string> {
   );
   const picker = pickerPath.trim().split(/\r?\n/)[0];
   if (!picker) {
-    throw new Error("当前系统没有可用的文件夹选择器，请安装 zenity、kdialog 或 yad。");
+    throw new Error(
+      "当前系统没有可用的文件夹选择器，请安装 zenity、kdialog 或 yad。"
+    );
   }
 
   const command: { file: string; args: string[] } = picker.endsWith("kdialog")
-    ? { file: picker, args: ["--getexistingdirectory", process.env.HOME || "."] }
+    ? {
+        file: picker,
+        args: ["--getexistingdirectory", process.env.HOME || "."],
+      }
     : {
         file: picker,
         args: ["--file-selection", "--directory", `--title=${title}`],
@@ -60,27 +65,53 @@ async function chooseFolderOnLinux(title: string): Promise<string> {
 
 export function decodeWindowsFolderPickerOutput(stdout: string): string {
   const encodedPath = stdout.trim();
-  return encodedPath
-    ? Buffer.from(encodedPath, "base64").toString("utf8")
-    : "";
+  return encodedPath ? Buffer.from(encodedPath, "base64").toString("utf8") : "";
+}
+
+export function buildWindowsFolderPickerScript(description: string): string {
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "Add-Type -AssemblyName System.Windows.Forms",
+    "Add-Type -AssemblyName System.Drawing",
+    "[System.Windows.Forms.Application]::EnableVisualStyles()",
+    "$owner = New-Object System.Windows.Forms.Form",
+    `$owner.Text = ${JSON.stringify(description)}`,
+    "$owner.StartPosition = 'CenterScreen'",
+    "$owner.Size = New-Object System.Drawing.Size(1, 1)",
+    "$owner.ShowInTaskbar = $true",
+    "$owner.TopMost = $true",
+    "$owner.Opacity = 0",
+    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+    `$dialog.Description = ${JSON.stringify(description)}`,
+    "$dialog.ShowNewFolderButton = $true",
+    "try {",
+    "  $owner.Show()",
+    "  $owner.Activate()",
+    "  if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {",
+    "    $selectedPath = $dialog.SelectedPath",
+    "    if ([string]::IsNullOrWhiteSpace($selectedPath)) {",
+    "      throw 'Selected folder did not resolve to a filesystem path.'",
+    "    }",
+    "    $bytes = [System.Text.Encoding]::UTF8.GetBytes($selectedPath)",
+    "    [Convert]::ToBase64String($bytes)",
+    "  }",
+    "} finally {",
+    "  $dialog.Dispose()",
+    "  $owner.Close()",
+    "  $owner.Dispose()",
+    "}",
+  ].join("\n");
 }
 
 async function chooseFolderOnWindows(description: string): Promise<string> {
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    "Add-Type -AssemblyName System.Windows.Forms",
-    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
-    `$dialog.Description = ${JSON.stringify(description)}`,
-    "$dialog.ShowNewFolderButton = $false",
-    "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {",
-    "  $bytes = [System.Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)",
-    "  [Convert]::ToBase64String($bytes)",
-    "}",
-  ].join("\n");
-
   const { stdout } = await execFileAsync(
     "powershell.exe",
-    ["-NoProfile", "-STA", "-Command", script],
+    [
+      "-NoProfile",
+      "-STA",
+      "-Command",
+      buildWindowsFolderPickerScript(description),
+    ],
     { timeout: PICKER_TIMEOUT_MS }
   );
   return decodeWindowsFolderPickerOutput(stdout);

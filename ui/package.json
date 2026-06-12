@@ -7,6 +7,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
+    "test:open-folder": "node --test --experimental-strip-types tests/open-folder.test.mts",
     "test:think-tags": "node --test --experimental-strip-types tests/think-tags.test.mts",
     "test:local-folder-picker": "node --test --experimental-strip-types tests/local-folder-picker.test.mts",
     "lint": "eslint .",

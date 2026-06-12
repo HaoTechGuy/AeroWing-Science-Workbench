@@ -1,40 +1,8 @@
-import { execFile, spawn } from "child_process";
-import { promisify } from "util";
 import { NextRequest, NextResponse } from "next/server";
 import { resolveWorkspacePath } from "@/app/api/workspace/_lib/workspace";
-
-const execFileAsync = promisify(execFile);
-const OPEN_FOLDER_TIMEOUT_MS = 10_000;
+import { openLocalFolder } from "@/app/api/workspace/_lib/open-folder";
 
 export const runtime = "nodejs";
-
-async function openFolder(folderPath: string) {
-  if (process.platform === "darwin") {
-    await execFileAsync("open", [folderPath], {
-      timeout: OPEN_FOLDER_TIMEOUT_MS,
-    });
-    return;
-  }
-
-  if (process.platform === "win32") {
-    const child = spawn("explorer.exe", [folderPath], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    child.unref();
-    return;
-  }
-
-  if (process.platform === "linux") {
-    await execFileAsync("xdg-open", [folderPath], {
-      timeout: OPEN_FOLDER_TIMEOUT_MS,
-    });
-    return;
-  }
-
-  throw new Error("当前系统暂不支持打开工作区文件夹。");
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,7 +20,7 @@ export async function POST(request: NextRequest) {
       throw new Error("只能打开本机工作区文件夹。");
     }
 
-    await openFolder(resolved.root);
+    await openLocalFolder(resolved.root);
     return NextResponse.json({ path: resolved.root });
   } catch (error) {
     return NextResponse.json(

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { decodeWindowsFolderPickerOutput } from "../src/app/api/_lib/local-folder-picker.ts";
+import {
+  buildWindowsFolderPickerScript,
+  decodeWindowsFolderPickerOutput,
+} from "../src/app/api/_lib/local-folder-picker.ts";
 
 test("decodeWindowsFolderPickerOutput preserves UTF-8 folder paths", () => {
   const selectedPath = "C:\\Users\\测试\\项目 中文";
@@ -12,4 +15,15 @@ test("decodeWindowsFolderPickerOutput preserves UTF-8 folder paths", () => {
 
 test("decodeWindowsFolderPickerOutput treats empty output as cancellation", () => {
   assert.equal(decodeWindowsFolderPickerOutput("\r\n"), "");
+});
+
+test("buildWindowsFolderPickerScript uses topmost dialog with new-folder support", () => {
+  const script = buildWindowsFolderPickerScript("选择工作区");
+
+  assert.match(script, /FolderBrowserDialog/);
+  assert.match(script, /TopMost\s*=\s*\$true/);
+  assert.match(script, /ShowDialog\(\$owner\)/);
+  assert.match(script, /ShowNewFolderButton\s*=\s*\$true/);
+  assert.doesNotMatch(script, /Shell\.Application/);
+  assert.doesNotMatch(script, /ShowNewFolderButton\s*=\s*\$false/);
 });
