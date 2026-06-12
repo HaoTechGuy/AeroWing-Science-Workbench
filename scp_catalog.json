@@ -1,0 +1,77 @@
+{
+  "skills": [
+    {
+      "skillName": "chemical-structure-analysis",
+      "displayName": "Chemical Structure Analysis",
+      "description": "Analyze chemical structures from compound names and retrieve SMILES, molecular formula, molecular weight, and LogP.",
+      "endpoint": "https://scp.intern-ai.org.cn/api/v1/mcp/28/InternAgent",
+      "transport": "http",
+      "toolName": "ChemicalStructureAnalyzer",
+      "toolDescription": "Analyze chemical structure from a compound name.",
+      "argumentHint": {
+        "compound_name": "aspirin"
+      },
+      "skillInstructions": "Use call_scp_tool with tool_name ChemicalStructureAnalyzer and arguments containing compound_name. Parse the returned JSON for smiles, molecular_formula, molecular_weight, and logP."
+    },
+    {
+      "skillName": "comprehensive-protein-analysis",
+      "displayName": "Comprehensive Protein Analysis",
+      "description": "Run a combined protein sequence analysis with InterProScan and BLAST through BioInfo-Tools.",
+      "endpoint": "https://scp.intern-ai.org.cn/api/v1/mcp/17/BioInfo-Tools",
+      "transport": "http",
+      "toolName": "analyze_protein",
+      "toolDescription": "Comprehensive protein analysis combining InterProScan and BLAST.",
+      "argumentHint": {
+        "sequence": "MKTIIALSYIFCLVFAGKRDEFPSTWYV",
+        "sequence_id": "query",
+        "databases": [
+          "Pfam"
+        ],
+        "evalue": 0.01,
+        "max_hits": 10
+      },
+      "skillInstructions": "Use call_scp_tool with tool_name analyze_protein and arguments containing sequence. Optional fields include sequence_id, databases, evalue, and max_hits. Summarize domains, GO terms, BLAST hits, and failures clearly."
+    },
+    {
+      "skillName": "dna-rna-sequence-analysis",
+      "displayName": "DNA/RNA Sequence Analysis",
+      "description": "Analyze DNA/RNA sequence properties, reverse complements, and primer temperatures.",
+      "endpoint": "https://scp.intern-ai.org.cn/api/v1/mcp/29/SciToolAgent-Bio",
+      "transport": "http",
+      "toolName": "GetReverseComplement",
+      "toolDescription": "Generate reverse complement sequence.",
+      "argumentHint": {
+        "SEQUENCE": "ATGCGTACGTAGCTAG"
+      },
+      "skillInstructions": "Use call_scp_tool with tool_name GetReverseComplement for reverse-complement requests. For other DNA/RNA calculations, ask the user to choose a matching SCP tool if the selected tool is insufficient."
+    },
+    {
+      "skillName": "biomedical-web-search",
+      "displayName": "Biomedical Web Search",
+      "description": "Search biomedical web sources using the Origene Search SCP server.",
+      "endpoint": "https://scp.intern-ai.org.cn/api/v1/mcp/7/Origene-Search",
+      "transport": "http",
+      "toolName": "tavily_search",
+      "toolDescription": "Search web sources for biomedical information.",
+      "argumentHint": {
+        "query": "brain tumor recent therapy"
+      },
+      "skillInstructions": "Use call_scp_tool with tool_name tavily_search and arguments containing query. Summarize results with source-aware caveats."
+    },
+    {
+      "skillName": "flowsearch-research",
+      "displayName": "FlowSearch Research",
+      "description": "Execute a research task using InternAgent FlowSearch.",
+      "endpoint": "https://scp.intern-ai.org.cn/api/v1/mcp/28/InternAgent",
+      "transport": "http",
+      "toolName": "FlowSearch",
+      "toolDescription": "Execute a research task using FlowSearch API.",
+      "argumentHint": {
+        "prompt": "Summarize recent progress in protein language models.",
+        "type": "normal_question",
+        "file_list": null
+      },
+      "skillInstructions": "Use call_scp_tool with tool_name FlowSearch and arguments containing prompt. type defaults to normal_question and file_list can be null unless files are explicitly supplied."
+    }
+  ]
+}

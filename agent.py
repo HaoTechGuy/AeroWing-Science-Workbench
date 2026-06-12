@@ -45,6 +45,9 @@ from goal_state import normalize_goal_state, update_goal_status
 from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
+from mcp_tools import load_configured_mcp_tools
+from scp_middleware import ScpContextMiddleware, scp_system_prompt
+from scp_tools import scp_tools
 from ssh_backend import SshShellBackend
 
 
@@ -362,6 +365,7 @@ class InternAgentState(TypedDict):
     files: NotRequired[dict[str, str]]
     goal: NotRequired[dict[str, Any]]
     goalContinuationTurns: NotRequired[int]
+    scpInvocation: NotRequired[dict[str, Any]]
     email: NotRequired[dict[str, Any]]
     ui: NotRequired[Any]
 
@@ -498,6 +502,13 @@ def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
     if isinstance(skills_config, dict):
         return _sync_selected_skills(skills_config)
     return None
+
+
+def _resolve_tools(config: dict[str, Any]) -> list[Any]:
+    tools = list(goal_tools())
+    tools.extend(scp_tools())
+    tools.extend(load_configured_mcp_tools(config, root_dir=ROOT_DIR))
+    return tools
 
 
 def _skill_source_paths(skills: list[Any] | None) -> list[Path]:
@@ -992,12 +1003,15 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if _uses_gateway_provider():
         middleware.append(GatewayTraceMiddleware())
     middleware.append(GoalContextMiddleware())
+    middleware.append(ScpContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
-        tools=goal_tools(),
+        tools=_resolve_tools(agent_config),
         backend=backend,
         skills=_resolve_skills(agent_config),
-        system_prompt=goal_system_prompt(_resource_system_prompt(base_prompt, resource)),
+        system_prompt=goal_system_prompt(
+            scp_system_prompt(_resource_system_prompt(base_prompt, resource))
+        ),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
     )
@@ -1057,12 +1071,13 @@ def create_runtime_agent():  # noqa: ANN201
     if _uses_gateway_provider():
         middleware.append(GatewayTraceMiddleware())
     middleware.append(GoalContextMiddleware())
+    middleware.append(ScpContextMiddleware())
     return create_deep_agent(
         model=_create_agent_model(),
-        tools=goal_tools(),
+        tools=_resolve_tools(agent_config),
         backend=backend,
         skills=skills,
-        system_prompt=goal_system_prompt(system_prompt),
+        system_prompt=goal_system_prompt(scp_system_prompt(system_prompt)),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
     )

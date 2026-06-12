@@ -31,6 +31,7 @@ import {
   Loader2,
   Paperclip,
   Pencil,
+  Plug,
   Target,
   X,
 } from "lucide-react";
@@ -44,6 +45,8 @@ import type {
   ReviewConfig,
   ChatAttachment,
   GoalState,
+  ScpCatalogItem,
+  ScpInvocationState,
 } from "@/app/types/types";
 import { Assistant, Message } from "@langchain/langgraph-sdk";
 import {
@@ -68,6 +71,7 @@ const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
 const MAX_PDF_ATTACHMENT_SIZE = 16 * 1024 * 1024;
 const SUPPORTED_ATTACHMENT_HINT = "支持图片、PDF 和文本文件。";
+const DEFAULT_SEND_SHORTCUT_MODIFIER = "Ctrl";
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -222,6 +226,72 @@ function goalStatusClassName(status: GoalState["status"]): string {
     default:
       return "border-primary/30 bg-primary/10 text-primary";
   }
+}
+
+function scpStatusLabel(status: ScpInvocationState["status"]): string {
+  switch (status) {
+    case "complete":
+      return "已完成";
+    case "blocked":
+      return "受阻";
+    case "error":
+      return "失败";
+    default:
+      return "进行中";
+  }
+}
+
+function scpStatusClassName(status: ScpInvocationState["status"]): string {
+  switch (status) {
+    case "complete":
+      return "border-success/30 bg-success/10 text-success";
+    case "blocked":
+      return "border-warning/30 bg-warning/10 text-warning";
+    case "error":
+      return "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300";
+    default:
+      return "border-primary/30 bg-primary/10 text-primary";
+  }
+}
+
+function isScpCommandInput(value: string): boolean {
+  return /^\/scp(?:\s|$)/i.test(value.trim());
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function inputContainsScpSelection(
+  value: string,
+  selection: ScpCatalogItem
+): boolean {
+  const trimmed = value.trim();
+  return (
+    new RegExp(`\\bskill=${escapeRegExp(selection.skillName)}\\b`, "i").test(
+      trimmed
+    ) &&
+    new RegExp(`\\btool=${escapeRegExp(selection.toolName)}\\b`, "i").test(
+      trimmed
+    )
+  );
+}
+
+function extractScpPromptDraft(value: string): string {
+  const match = value.trim().match(/^\/scp(?:\s+([\s\S]+))?$/i);
+  if (!match) return value.trim();
+
+  let prompt = match[1]?.trim() ?? "";
+  while (/^(?:skill|tool)=[^\s]+\s*/i.test(prompt)) {
+    prompt = prompt.replace(/^(?:skill|tool)=[^\s]+\s*/i, "").trim();
+  }
+  return prompt;
+}
+
+function buildScpCommand(selection: ScpCatalogItem, prompt: string): string {
+  const trimmedPrompt = prompt.trim();
+  const prefix = `/scp skill=${selection.skillName} tool=${selection.toolName}`;
+  return trimmedPrompt ? `${prefix} ${trimmedPrompt}` : `${prefix} `;
 }
 
 function todoStatusLabel(status: TodoItem["status"]): string {
@@ -631,9 +701,9 @@ function buildRemoteRuntimeToolMessages(
 }
 
 export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
-  const [metaOpen, setMetaOpen] = useState<"goal" | "tasks" | "files" | null>(
-    null
-  );
+  const [metaOpen, setMetaOpen] = useState<
+    "goal" | "scp" | "tasks" | "files" | null
+  >(null);
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -648,8 +718,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [sendShortcutModifier, setSendShortcutModifier] = useState(
+    DEFAULT_SEND_SHORTCUT_MODIFIER
+  );
   const [showIntermediateResults, setShowIntermediateResults] =
     useState(false);
+  const [scpCatalog, setScpCatalog] = useState<ScpCatalogItem[]>([]);
+  const [isScpCatalogLoading, setIsScpCatalogLoading] = useState(false);
+  const [scpCatalogError, setScpCatalogError] = useState<string | null>(null);
+  const [pendingScpSelection, setPendingScpSelection] =
+    useState<ScpCatalogItem | null>(null);
   const { scrollRef, contentRef } = useStickToBottom();
 
   const {
@@ -659,10 +737,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     todos,
     files,
     goal,
+    scpInvocation,
     ui,
     setFiles,
     error,
     isLoading,
+    isStreamRecovering,
     isThreadLoading,
     interrupt,
     runStatus,
@@ -676,11 +756,84 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     workspaceId,
   } = useChatContext();
 
-  const submitDisabled = isLoading || !assistant;
+  const composerBusy = isLoading || isStreamRecovering;
+  const submitDisabled = composerBusy || !assistant;
   const hasSendableAttachments = attachments.some(
     (attachment) => !attachment.error
   );
   const errorMessage = formatChatError(error);
+  const isScpComposerCommand = isScpCommandInput(input);
+  const scpPromptDraft = useMemo(() => extractScpPromptDraft(input), [input]);
+
+  useEffect(() => {
+    if (!isScpComposerCommand || scpCatalog.length > 0 || isScpCatalogLoading) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsScpCatalogLoading(true);
+    setScpCatalogError(null);
+
+    void fetch("/api/scp/catalog")
+      .then(async (response) => {
+        const payload = (await response.json()) as {
+          skills?: ScpCatalogItem[];
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(payload.error || "无法读取 SCP catalog");
+        }
+        if (!cancelled) {
+          setScpCatalog(Array.isArray(payload.skills) ? payload.skills : []);
+        }
+      })
+      .catch((catalogError) => {
+        if (!cancelled) {
+          setScpCatalogError(
+            catalogError instanceof Error
+              ? catalogError.message
+              : "无法读取 SCP catalog"
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsScpCatalogLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isScpCatalogLoading, isScpComposerCommand, scpCatalog.length]);
+
+  const filteredScpCatalog = scpCatalog;
+
+  const handleInputChange = useCallback(
+    (value: string) => {
+      setInput(value);
+      if (!isScpCommandInput(value)) {
+        setPendingScpSelection(null);
+        return;
+      }
+      if (
+        pendingScpSelection &&
+        !inputContainsScpSelection(value, pendingScpSelection)
+      ) {
+        setPendingScpSelection(null);
+      }
+    },
+    [pendingScpSelection]
+  );
+
+  const selectScpCatalogItem = useCallback(
+    (item: ScpCatalogItem) => {
+      setPendingScpSelection(item);
+      setInput(buildScpCommand(item, scpPromptDraft));
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [scpPromptDraft]
+  );
 
   useEffect(() => {
     if (!isEditingTitle) {
@@ -691,6 +844,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   useEffect(() => {
     setShowIntermediateResults(false);
   }, [threadId]);
+
+  useEffect(() => {
+    const platform = window.navigator.platform || window.navigator.userAgent;
+    setSendShortcutModifier(
+      /Mac|iPhone|iPad|iPod/i.test(platform) ? "⌘" : "Ctrl"
+    );
+  }, []);
 
   useEffect(() => {
     if (isLoading) {
@@ -740,16 +900,41 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
       );
       if (
         (!messageText && sendableAttachments.length === 0) ||
-        isLoading ||
+        composerBusy ||
         submitDisabled
       ) {
         return;
       }
-      sendMessage(messageText, sendableAttachments);
+
+      if (isScpCommandInput(messageText)) {
+        if (!pendingScpSelection) {
+          toast.error("请先选择一个 SCP skill/tool。");
+          return;
+        }
+        if (!extractScpPromptDraft(messageText)) {
+          toast.error("请输入要交给 SCP tool 的任务。");
+          return;
+        }
+      }
+
+      sendMessage(
+        messageText,
+        sendableAttachments,
+        pendingScpSelection ? { scpSelection: pendingScpSelection } : undefined
+      );
       setInput("");
       setAttachments([]);
+      setPendingScpSelection(null);
     },
-    [attachments, input, isLoading, sendMessage, setInput, submitDisabled]
+    [
+      attachments,
+      composerBusy,
+      input,
+      pendingScpSelection,
+      sendMessage,
+      setInput,
+      submitDisabled,
+    ]
   );
 
   const handleAttachmentFiles = useCallback(
@@ -1203,6 +1388,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     (runStatus === "idle" &&
       !isThreadLoading &&
       !isLoading &&
+      !isStreamRecovering &&
       !interrupt &&
       !error);
   const displayTodos = useMemo(
@@ -1220,6 +1406,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   };
 
   const hasGoal = Boolean(goal?.objective);
+  const hasScpInvocation = Boolean(scpInvocation?.prompt);
   const hasTasks = hasGoal && displayTodos.length > 0;
   const hasFiles = Object.keys(files).length > 0;
 
@@ -1396,6 +1583,36 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   </div>
                 </div>
               )}
+              {hasScpInvocation && scpInvocation && (
+                <div className="mb-4 rounded-lg border border-border bg-card px-4 py-3 shadow-sm shadow-black/[0.03]">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    <Plug className="h-4 w-4 text-primary" />
+                    SCP
+                    <span
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-xs font-semibold normal-case tracking-normal",
+                        scpStatusClassName(scpInvocation.status)
+                      )}
+                    >
+                      {scpStatusLabel(scpInvocation.status)}
+                    </span>
+                    <span className="normal-case tracking-normal">
+                      {scpInvocation.displayName}
+                    </span>
+                    <span className="normal-case tracking-normal">
+                      {scpInvocation.toolName}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-foreground">
+                    {scpInvocation.prompt}
+                  </div>
+                  {scpInvocation.summary && (
+                    <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                      {scpInvocation.summary}
+                    </div>
+                  )}
+                </div>
+              )}
               {displayMessages.map((data, index) => {
                 const messageUi = ui?.filter(
                   (u: any) => u.metadata?.message_id === data.message.id
@@ -1530,7 +1747,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
           )}
           data-tour="chat-input"
         >
-          {(hasGoal || hasTasks || hasFiles) && (
+          {(hasGoal || hasScpInvocation || hasTasks || hasFiles) && (
             <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-muted/50 empty:hidden">
               {!metaOpen && (
                 <>
@@ -1554,7 +1771,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "tasks" ? null : "tasks"
                             )
                           }
-                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
+                          className="grid min-w-0 flex-1 cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "tasks"}
                         >
                           {(() => {
@@ -1625,7 +1842,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                               prev === "goal" ? null : "goal"
                             )
                           }
-                          className="grid w-full cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
+                          className="grid min-w-0 flex-1 cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
                           aria-expanded={metaOpen === "goal"}
                         >
                           <Target
@@ -1637,6 +1854,34 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                           </span>
                           <span className="min-w-0 truncate text-sm text-muted-foreground">
                             {goal.objective}
+                          </span>
+                        </button>
+                      );
+                    })();
+
+                    const scpTrigger = (() => {
+                      if (!hasScpInvocation || !scpInvocation) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMetaOpen((prev) =>
+                              prev === "scp" ? null : "scp"
+                            )
+                          }
+                          className="grid min-w-0 flex-1 cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
+                          aria-expanded={metaOpen === "scp"}
+                        >
+                          <Plug
+                            size={16}
+                            className="text-primary"
+                          />
+                          <span className="ml-[1px] min-w-0 truncate text-sm">
+                            SCP · {scpStatusLabel(scpInvocation.status)}
+                          </span>
+                          <span className="min-w-0 truncate text-sm text-muted-foreground">
+                            {scpInvocation.displayName} /{" "}
+                            {scpInvocation.toolName}
                           </span>
                         </button>
                       );
@@ -1665,9 +1910,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     })();
 
                     return (
-                      <div className="grid grid-cols-[1fr_auto_auto] items-center">
-                        {goalTrigger || tasksTrigger}
-                        {goalTrigger ? tasksTrigger : null}
+                      <div className="flex flex-wrap items-center">
+                        {goalTrigger}
+                        {scpTrigger}
+                        {tasksTrigger}
                         {filesTrigger}
                       </div>
                     );
@@ -1691,6 +1937,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       >
                         <Target className="h-4 w-4 text-primary" />
                         Goal
+                      </button>
+                    )}
+                    {hasScpInvocation && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
+                        onClick={() =>
+                          setMetaOpen((prev) =>
+                            prev === "scp" ? null : "scp"
+                          )
+                        }
+                        aria-expanded={metaOpen === "scp"}
+                      >
+                        <Plug className="h-4 w-4 text-primary" />
+                        SCP
                       </button>
                     )}
                     {hasTasks && (
@@ -1757,6 +2018,31 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         <div className="text-sm leading-6 text-foreground">
                           {goal.objective}
                         </div>
+                      </div>
+                    )}
+
+                    {metaOpen === "scp" && scpInvocation && (
+                      <div className="mb-5 rounded-md border border-border bg-card px-3 py-3">
+                        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span
+                            className={cn(
+                              "rounded-full border px-2 py-0.5 text-xs font-semibold",
+                              scpStatusClassName(scpInvocation.status)
+                            )}
+                          >
+                            {scpStatusLabel(scpInvocation.status)}
+                          </span>
+                          <span>{scpInvocation.displayName}</span>
+                          <span>{scpInvocation.toolName}</span>
+                        </div>
+                        <div className="text-sm leading-6 text-foreground">
+                          {scpInvocation.prompt}
+                        </div>
+                        {scpInvocation.summary && (
+                          <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                            {scpInvocation.summary}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1847,6 +2133,73 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                 event.currentTarget.value = "";
               }}
             />
+            {isScpComposerCommand && (
+              <div className="border-b border-border bg-muted/40 px-[18px] py-2">
+                {pendingScpSelection ? (
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                    <span className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                      <Plug className="h-3.5 w-3.5" />
+                      {pendingScpSelection.displayName}
+                    </span>
+                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                      {pendingScpSelection.toolName}
+                    </span>
+                    <button
+                      type="button"
+                      className="ml-auto rounded-sm px-2 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
+                      onClick={() => setPendingScpSelection(null)}
+                    >
+                      更换
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      <Plug className="h-3.5 w-3.5 text-primary" />
+                      SCP
+                    </div>
+                    {isScpCatalogLoading ? (
+                      <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        加载中
+                      </div>
+                    ) : scpCatalogError ? (
+                      <div className="py-2 text-xs text-red-600 dark:text-red-300">
+                        {scpCatalogError}
+                      </div>
+                    ) : (
+                      <div className="grid gap-1">
+                        {filteredScpCatalog.slice(0, 8).map((item) => (
+                          <button
+                            key={`${item.skillName}:${item.toolName}`}
+                            type="button"
+                            className="grid min-w-0 grid-cols-[1fr_auto] gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-background"
+                            onClick={() => selectScpCatalogItem(item)}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-foreground">
+                                {item.displayName}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {item.description}
+                              </span>
+                            </span>
+                            <span className="max-w-48 truncate rounded-sm border border-border bg-card px-1.5 py-0.5 text-xs text-muted-foreground">
+                              {item.toolName}
+                            </span>
+                          </button>
+                        ))}
+                        {filteredScpCatalog.length === 0 && (
+                          <div className="py-2 text-xs text-muted-foreground">
+                            暂无 SCP tools
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 border-b border-border px-[18px] py-2">
                 {attachments.map((attachment) => (
@@ -1890,9 +2243,15 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isLoading ? "正在运行..." : "你希望我做些什么？"}
+              placeholder={
+                isStreamRecovering
+                  ? "正在恢复会话..."
+                  : isLoading
+                  ? "正在运行..."
+                  : "你希望我做些什么？"
+              }
               className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
               rows={2}
             />
@@ -1945,7 +2304,25 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex items-center justify-end gap-2">
+                {isStreamRecovering ? (
+                  <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>恢复中</span>
+                  </div>
+                ) : !isLoading ? (
+                  <div
+                    className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground"
+                    aria-label={`${sendShortcutModifier} 加 Enter 发送`}
+                  >
+                    <kbd className="min-w-5 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-center font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
+                      {sendShortcutModifier}
+                    </kbd>
+                    <kbd className="rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
+                      Enter
+                    </kbd>
+                  </div>
+                ) : null}
                 <Button
                   type={isLoading ? "button" : "submit"}
                   variant={isLoading ? "destructive" : "default"}

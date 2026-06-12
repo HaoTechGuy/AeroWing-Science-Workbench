@@ -39,6 +39,32 @@ export interface GoalState {
   updatedAt: number;
 }
 
+export interface ScpCatalogItem {
+  skillName: string;
+  displayName: string;
+  description: string;
+  endpoint: string;
+  transport: "http";
+  toolName: string;
+  toolDescription: string;
+  argumentHint: Record<string, unknown>;
+  skillInstructions: string;
+}
+
+export interface ScpInvocationState {
+  id: string;
+  threadId?: string | null;
+  skillName: string;
+  displayName: string;
+  toolName: string;
+  endpoint: string;
+  prompt: string;
+  status: "active" | "blocked" | "complete" | "error";
+  summary?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ChatAttachment {
   id: string;
   name: string;
