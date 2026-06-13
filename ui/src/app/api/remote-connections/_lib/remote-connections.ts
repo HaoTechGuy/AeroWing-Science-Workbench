@@ -58,6 +58,7 @@ const BACKEND_CLI_PACKAGE_ENTRIES = [
   "goal_middleware.py",
   "goal_state.py",
   "goal_tools.py",
+  "thread_skill_middleware.py",
   "internagents_backend_cli.py",
   "web_search_tools.py",
   "internagent.resources.json",

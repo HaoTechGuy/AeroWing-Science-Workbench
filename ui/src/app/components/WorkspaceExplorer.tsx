@@ -7,11 +7,13 @@ import {
   File,
   FileCode2,
   FileJson,
+  FileSpreadsheet,
   FileText,
   Folder,
   FolderOpen,
   Loader2,
   PanelLeftClose,
+  Presentation,
   RefreshCcw,
   Search,
 } from "lucide-react";
@@ -61,6 +63,18 @@ function FileIcon({ entry }: { entry: WorkspaceEntry }) {
 
   if (entry.previewKind === "pdf") {
     return <FileText className="h-4 w-4 text-[#A83232]" />;
+  }
+
+  if (entry.previewKind === "docx") {
+    return <FileText className="h-4 w-4 text-[#2F6868]" />;
+  }
+
+  if (entry.previewKind === "xlsx") {
+    return <FileSpreadsheet className="h-4 w-4 text-[#2E7D4F]" />;
+  }
+
+  if (entry.previewKind === "pptx") {
+    return <Presentation className="h-4 w-4 text-[#A85D32]" />;
   }
 
   if (entry.extension === ".json") {

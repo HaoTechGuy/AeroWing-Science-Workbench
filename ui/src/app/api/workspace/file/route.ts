@@ -6,7 +6,12 @@ import {
   getMimeType,
   getPreviewKind,
   readWorkspaceFileData,
+  readWorkspaceRawFile,
 } from "../_lib/workspace";
+import {
+  buildOfficePreview,
+  isOfficePreviewKind,
+} from "../_lib/office-preview";
 import type { WorkspaceFileResponse } from "@/app/types/workspace";
 
 export const runtime = "nodejs";
@@ -55,6 +60,26 @@ export async function GET(request: NextRequest) {
         payload.content = fileData.content;
       } else {
         payload.tooLarge = true;
+      }
+    }
+
+    if (isOfficePreviewKind(previewKind)) {
+      try {
+        const rawFile = await readWorkspaceRawFile(
+          fileData.path,
+          resourceId,
+          workspaceId
+        );
+        payload.officePreview = buildOfficePreview(rawFile.path, rawFile.data);
+      } catch (previewError) {
+        payload.officePreview = {
+          kind: previewKind,
+          blocks: [],
+          error:
+            previewError instanceof Error
+              ? previewError.message
+              : "无法生成 Office 文件预览。",
+        };
       }
     }
 

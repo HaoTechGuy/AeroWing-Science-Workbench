@@ -551,6 +551,7 @@ button {
 }
 
 .scrollbar-subtle::-webkit-scrollbar {
+  height: 6px;
   width: 4px;
 }
 

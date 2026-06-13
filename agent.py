@@ -55,6 +55,7 @@ _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS: set[str] = set()
 
 from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
+from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from deepagents.profiles.provider import apply_provider_profile
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
@@ -70,6 +71,7 @@ from kb_sync_middleware import KbSyncMiddleware
 from mcp_tools import load_configured_mcp_tools
 from scp_middleware import ScpContextMiddleware, scp_system_prompt
 from scp_tools import scp_tools
+from thread_skill_middleware import ThreadSkillMiddleware
 from ssh_backend import SshShellBackend
 from web_search_tools import (
     WebSearchBudgetMiddleware,
@@ -393,6 +395,7 @@ class InternAgentState(TypedDict):
     goal: NotRequired[dict[str, Any]]
     goalContinuationTurns: NotRequired[int]
     scpInvocation: NotRequired[dict[str, Any]]
+    threadSkills: NotRequired[dict[str, Any]]
     email: NotRequired[dict[str, Any]]
     ui: NotRequired[Any]
 
@@ -575,12 +578,18 @@ def _skill_read_only_roots(
             or skills_config.get("catalogPaths")
             or []
         )
-        if isinstance(catalog_paths, list):
-            roots.extend(
-                _resolve_config_path(source, ROOT_DIR).resolve()
-                for source in catalog_paths
-                if isinstance(source, str) and source.strip()
-            )
+        if not isinstance(catalog_paths, list) or not catalog_paths:
+            catalog_paths = ["skills", ".internagents/imported-skills"]
+        roots.extend(
+            _resolve_config_path(source, ROOT_DIR).resolve()
+            for source in catalog_paths
+            if isinstance(source, str) and source.strip()
+        )
+    else:
+        roots.extend(
+            _resolve_config_path(source, ROOT_DIR).resolve()
+            for source in ("skills", ".internagents/imported-skills")
+        )
 
     deduped: list[Path] = []
     seen: set[str] = set()
@@ -590,6 +599,67 @@ def _skill_read_only_roots(
             seen.add(key)
             deduped.append(root)
     return deduped
+
+
+def _thread_skill_catalog_paths(config: dict[str, Any]) -> list[str]:
+    skills_config = config.get("skills")
+    raw_paths: Any = None
+    if isinstance(skills_config, dict):
+        raw_paths = skills_config.get("catalog_paths") or skills_config.get("catalogPaths")
+    if not isinstance(raw_paths, list):
+        raw_paths = []
+
+    paths = [
+        path.strip()
+        for path in raw_paths
+        if isinstance(path, str) and path.strip()
+    ]
+    if not paths:
+        paths = ["skills", ".internagents/imported-skills"]
+    return list(dict.fromkeys(paths))
+
+
+def _thread_skill_label(config: dict[str, Any]) -> str:
+    skills_config = config.get("skills")
+    label = skills_config.get("label") if isinstance(skills_config, dict) else None
+    return label.strip() if isinstance(label, str) and label.strip() else "InternAgents"
+
+
+def _thread_skill_middleware(
+    config: dict[str, Any],
+    backend: Any,
+) -> ThreadSkillMiddleware:
+    return ThreadSkillMiddleware(
+        backend=backend,
+        root_dir=ROOT_DIR,
+        catalog_paths=_thread_skill_catalog_paths(config),
+        label=_thread_skill_label(config),
+    )
+
+
+def _thread_skill_subagents(config: dict[str, Any], backend: Any) -> list[dict[str, Any]]:
+    raw_subagents = config.get("subagents")
+    subagents = (
+        [dict(spec) for spec in raw_subagents if isinstance(spec, dict)]
+        if isinstance(raw_subagents, list)
+        else []
+    )
+
+    has_general_purpose = any(
+        spec.get("name") == GENERAL_PURPOSE_SUBAGENT["name"] for spec in subagents
+    )
+    if not has_general_purpose:
+        subagents.insert(0, dict(GENERAL_PURPOSE_SUBAGENT))
+
+    processed: list[dict[str, Any]] = []
+    for spec in subagents:
+        if "graph_id" in spec or "runnable" in spec:
+            processed.append(spec)
+            continue
+        middleware = list(spec.get("middleware") or [])
+        middleware.append(_thread_skill_middleware(config, backend))
+        processed.append({**spec, "middleware": middleware})
+    return processed
 
 
 def _agent_tools(agent_config: dict[str, Any]) -> list[Any]:
@@ -1280,11 +1350,12 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
     middleware.append(ScpContextMiddleware())
+    middleware.append(_thread_skill_middleware(agent_config, backend))
     return create_deep_agent(
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
-        skills=_resolve_skills(agent_config),
+        subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(
             scp_system_prompt(_resource_system_prompt(base_prompt, resource)),
             agent_config,
@@ -1303,11 +1374,10 @@ def create_runtime_agent():  # noqa: ANN201
         runtime_resource = resources.get(runtime_id)
     except Exception:
         runtime_resource = None
-    skills = _resolve_skills(agent_config)
     backend = _create_runtime_backend(
         agent_config,
         runtime_resource,
-        read_only_roots=_skill_read_only_roots(agent_config, skills),
+        read_only_roots=_skill_read_only_roots(agent_config, None),
     )
     base_prompt = agent_config.get(
         "system_prompt",
@@ -1351,11 +1421,12 @@ def create_runtime_agent():  # noqa: ANN201
     middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
     middleware.append(ScpContextMiddleware())
+    middleware.append(_thread_skill_middleware(agent_config, backend))
     return create_deep_agent(
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
-        skills=skills,
+        subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(scp_system_prompt(system_prompt), agent_config),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,

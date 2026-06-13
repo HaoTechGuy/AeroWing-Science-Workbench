@@ -50,6 +50,8 @@ import type {
   GoalState,
   ScpCatalogItem,
   ScpInvocationState,
+  ThreadSkillItem,
+  ThreadSkillsState,
 } from "@/app/types/types";
 import { Assistant, Message } from "@langchain/langgraph-sdk";
 import {
@@ -59,6 +61,7 @@ import {
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
+import { useQueryState } from "nuqs";
 import { FilesPopover } from "@/app/components/TasksFilesSidebar";
 import {
   WORKSPACE_FILE_DRAG_MIME,
@@ -69,12 +72,15 @@ import type { SkillEntry, SkillsConfigResponse } from "@/app/skills/types";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
+  headerActions?: React.ReactNode;
 }
 
 const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
 const MAX_PDF_ATTACHMENT_SIZE = 16 * 1024 * 1024;
-const SUPPORTED_ATTACHMENT_HINT = "支持图片、PDF 和文本文件。";
+const MAX_OFFICE_ATTACHMENT_SIZE = 16 * 1024 * 1024;
+const SUPPORTED_ATTACHMENT_HINT =
+  "支持图片、PDF、Word、Excel、PPT 和文本文件。";
 const MAX_MENTION_OPTIONS = 10;
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const CHAT_COMPOSER_HASH = "#chat-composer";
@@ -109,6 +115,73 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "zsh",
 ]);
 const PDF_ATTACHMENT_EXTENSIONS = new Set(["pdf"]);
+const OFFICE_ATTACHMENT_MIME_TYPES: Record<string, string> = {
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+const OFFICE_ATTACHMENT_EXTENSIONS = new Set(
+  Object.keys(OFFICE_ATTACHMENT_MIME_TYPES)
+);
+const AUTO_ATTACHMENT_THREAD_SKILLS: Record<
+  "pdf" | "docx" | "xlsx" | "pptx",
+  Omit<ThreadSkillItem, "addedAt">
+> = {
+  pdf: {
+    key: "skills/pdf",
+    name: "pdf",
+    description: "自动为 PDF 附件加载。",
+    relativePath: "skills/pdf",
+    folderName: "pdf",
+  },
+  docx: {
+    key: "skills/docx",
+    name: "docx",
+    description: "自动为 DOCX 附件加载。",
+    relativePath: "skills/docx",
+    folderName: "docx",
+  },
+  xlsx: {
+    key: "skills/xlsx",
+    name: "xlsx",
+    description: "自动为 XLSX 附件加载。",
+    relativePath: "skills/xlsx",
+    folderName: "xlsx",
+  },
+  pptx: {
+    key: "skills/pptx",
+    name: "pptx",
+    description: "自动为 PPTX 附件加载。",
+    relativePath: "skills/pptx",
+    folderName: "pptx",
+  },
+};
+const AUTO_ATTACHMENT_SKILL_BY_MIME: Record<string, keyof typeof AUTO_ATTACHMENT_THREAD_SKILLS> = {
+  "application/pdf": "pdf",
+  "application/msword": "docx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "docx",
+  "application/vnd.ms-excel": "xlsx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.ms-powerpoint": "pptx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+    "pptx",
+};
+const AUTO_ATTACHMENT_SKILL_BY_EXTENSION: Record<
+  string,
+  keyof typeof AUTO_ATTACHMENT_THREAD_SKILLS
+> = {
+  pdf: "pdf",
+  doc: "docx",
+  docx: "docx",
+  xls: "xlsx",
+  xlsx: "xlsx",
+  ppt: "pptx",
+  pptx: "pptx",
+};
 
 interface AttachmentUploadContext {
   resourceId?: string;
@@ -152,6 +225,102 @@ function skillMatchesQuery(skill: SkillEntry, query: string): boolean {
   return [skill.name, skill.description, skill.key, skill.relativePath].some(
     (value) => value.toLowerCase().includes(normalizedQuery)
   );
+}
+
+function threadSkillFromEntry(skill: SkillEntry): ThreadSkillItem {
+  return {
+    key: skill.key,
+    name: skill.name,
+    description: skill.description,
+    relativePath: skill.relativePath,
+    folderName: skill.folderName,
+    addedAt: Math.floor(Date.now() / 1000),
+  };
+}
+
+function addThreadSkillItem(
+  current: ThreadSkillsState | null | undefined,
+  skill: ThreadSkillItem
+): ThreadSkillsState {
+  const active = current?.active ?? [];
+  if (active.some((item) => item.key === skill.key)) {
+    return {
+      revision: current?.revision ?? 0,
+      active,
+    };
+  }
+
+  return {
+    revision: (current?.revision ?? 0) + 1,
+    active: [...active, skill],
+  };
+}
+
+function addThreadSkill(
+  current: ThreadSkillsState | null | undefined,
+  skill: SkillEntry
+): ThreadSkillsState {
+  return addThreadSkillItem(current, threadSkillFromEntry(skill));
+}
+
+function autoSkillNamesForAttachment(
+  attachment: ChatAttachment
+): Set<keyof typeof AUTO_ATTACHMENT_THREAD_SKILLS> {
+  const names = new Set<keyof typeof AUTO_ATTACHMENT_THREAD_SKILLS>();
+  const mimeSkill =
+    AUTO_ATTACHMENT_SKILL_BY_MIME[
+      (attachment.mimeType || "").trim().toLowerCase()
+    ];
+  if (mimeSkill) {
+    names.add(mimeSkill);
+  }
+
+  if (attachment.kind === "pdf") {
+    names.add("pdf");
+  }
+
+  const candidates = [
+    attachment.name,
+    attachment.workspacePath,
+    attachment.extractedWorkspacePath,
+  ].filter((value): value is string => Boolean(value));
+  for (const value of candidates) {
+    const extension = getAttachmentFileKey(value);
+    const extensionSkill = AUTO_ATTACHMENT_SKILL_BY_EXTENSION[extension];
+    if (extensionSkill) {
+      names.add(extensionSkill);
+    }
+  }
+
+  return names;
+}
+
+function addAttachmentThreadSkills(
+  current: ThreadSkillsState | null | undefined,
+  attachments: ChatAttachment[]
+): ThreadSkillsState | null {
+  let next = current ?? { revision: 0, active: [] };
+  let changed = false;
+  const addedAt = Math.floor(Date.now() / 1000);
+
+  for (const attachment of attachments) {
+    if (attachment.error) {
+      continue;
+    }
+    for (const skillName of autoSkillNamesForAttachment(attachment)) {
+      const template = AUTO_ATTACHMENT_THREAD_SKILLS[skillName];
+      if (next.active.some((item) => item.key === template.key)) {
+        continue;
+      }
+      next = addThreadSkillItem(next, {
+        ...template,
+        addedAt,
+      });
+      changed = true;
+    }
+  }
+
+  return changed ? next : null;
 }
 
 function formatAttachmentSize(size: number): string {
@@ -382,6 +551,19 @@ function isPdfAttachmentDescriptor(
   );
 }
 
+function isOfficeAttachmentDescriptor(
+  fileName: string,
+  mimeType?: string
+): boolean {
+  const fileKey = getAttachmentFileKey(fileName);
+  return (
+    OFFICE_ATTACHMENT_EXTENSIONS.has(fileKey) ||
+    Object.values(OFFICE_ATTACHMENT_MIME_TYPES).includes(
+      (mimeType || "").toLowerCase()
+    )
+  );
+}
+
 function isSupportedAttachmentDescriptor(
   fileName: string,
   mimeType?: string
@@ -389,6 +571,7 @@ function isSupportedAttachmentDescriptor(
   return (
     Boolean(mimeType?.startsWith("image/")) ||
     isPdfAttachmentDescriptor(fileName, mimeType) ||
+    isOfficeAttachmentDescriptor(fileName, mimeType) ||
     isTextAttachmentDescriptor(fileName, mimeType)
   );
 }
@@ -401,6 +584,20 @@ function isPdfAttachment(file: File): boolean {
   return isPdfAttachmentDescriptor(file.name, file.type);
 }
 
+function isOfficeAttachment(file: File): boolean {
+  return isOfficeAttachmentDescriptor(file.name, file.type);
+}
+
+function getAttachmentMimeType(file: File): string {
+  const fileKey = getAttachmentFileKey(file.name);
+  return (
+    file.type ||
+    OFFICE_ATTACHMENT_MIME_TYPES[fileKey] ||
+    (PDF_ATTACHMENT_EXTENSIONS.has(fileKey) ? "application/pdf" : "") ||
+    "application/octet-stream"
+  );
+}
+
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -410,7 +607,7 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-async function uploadPdfAttachment(
+async function uploadBinaryAttachment(
   file: File,
   context: AttachmentUploadContext
 ): Promise<Partial<ChatAttachment>> {
@@ -435,9 +632,43 @@ async function uploadPdfAttachment(
     error?: string;
   };
   if (!response.ok || !payload.attachment) {
-    throw new Error(payload.error || `PDF 上传失败（${response.status}）`);
+    throw new Error(payload.error || `附件上传失败（${response.status}）`);
   }
   return payload.attachment;
+}
+
+async function uploadWorkspaceOfficeAttachment(
+  payload: WorkspaceFileDragPayload,
+  context: AttachmentUploadContext
+): Promise<Partial<ChatAttachment>> {
+  const form = new FormData();
+  form.set("workspacePath", payload.path);
+  const effectiveResourceId = payload.resourceId || context.resourceId;
+  const effectiveWorkspaceId = payload.workspaceId || context.workspaceId;
+  if (effectiveResourceId) {
+    form.set("resourceId", effectiveResourceId);
+  }
+  if (effectiveWorkspaceId) {
+    form.set("workspaceId", effectiveWorkspaceId);
+  }
+  if (context.threadId) {
+    form.set("threadId", context.threadId);
+  }
+
+  const response = await fetch("/api/workspace/attachments", {
+    method: "POST",
+    body: form,
+  });
+  const responsePayload = (await parsePdfUploadResponse(response)) as {
+    attachment?: Partial<ChatAttachment>;
+    error?: string;
+  };
+  if (!response.ok || !responsePayload.attachment) {
+    throw new Error(
+      responsePayload.error || `工作区附件处理失败（${response.status}）`
+    );
+  }
+  return responsePayload.attachment;
 }
 
 async function parsePdfUploadResponse(response: Response): Promise<unknown> {
@@ -452,7 +683,7 @@ async function parsePdfUploadResponse(response: Response): Promise<unknown> {
 
   const text = (await response.text().catch(() => "")).trim();
   return {
-    error: text && text !== "Internal Server Error" ? text : "PDF 上传失败",
+    error: text && text !== "Internal Server Error" ? text : "附件上传失败",
   };
 }
 
@@ -505,7 +736,7 @@ async function prepareAttachment(
   const baseAttachment = {
     id: createAttachmentId(),
     name: file.name,
-    mimeType: file.type || "application/octet-stream",
+    mimeType: getAttachmentMimeType(file),
     size: file.size,
   };
 
@@ -535,7 +766,7 @@ async function prepareAttachment(
     }
 
     try {
-      const uploaded = await uploadPdfAttachment(file, context);
+      const uploaded = await uploadBinaryAttachment(file, context);
       return {
         ...baseAttachment,
         ...uploaded,
@@ -546,6 +777,31 @@ async function prepareAttachment(
         ...baseAttachment,
         kind: "pdf",
         error: error instanceof Error ? error.message : "PDF 上传失败",
+      };
+    }
+  }
+
+  if (isOfficeAttachment(file)) {
+    if (file.size > MAX_OFFICE_ATTACHMENT_SIZE) {
+      return {
+        ...baseAttachment,
+        kind: "file",
+        error: "Office 文件超过 16 MB",
+      };
+    }
+
+    try {
+      const uploaded = await uploadBinaryAttachment(file, context);
+      return {
+        ...baseAttachment,
+        ...uploaded,
+        kind: "file",
+      };
+    } catch (error) {
+      return {
+        ...baseAttachment,
+        kind: "file",
+        error: error instanceof Error ? error.message : "附件上传失败",
       };
     }
   }
@@ -576,10 +832,13 @@ function isWorkspaceFileAttachmentAllowed(
   payload: WorkspaceFileDragPayload
 ): boolean {
   if (
+    payload.previewKind === "docx" ||
     payload.previewKind === "image" ||
     payload.previewKind === "pdf" ||
+    payload.previewKind === "pptx" ||
     payload.previewKind === "markdown" ||
-    payload.previewKind === "text"
+    payload.previewKind === "text" ||
+    payload.previewKind === "xlsx"
   ) {
     return true;
   }
@@ -590,6 +849,23 @@ function isWorkspaceFileAttachmentAllowed(
       }`
     : payload.name;
   return isSupportedAttachmentDescriptor(descriptorName);
+}
+
+function isWorkspaceOfficeAttachment(payload: WorkspaceFileDragPayload): boolean {
+  if (
+    payload.previewKind === "docx" ||
+    payload.previewKind === "pptx" ||
+    payload.previewKind === "xlsx"
+  ) {
+    return true;
+  }
+
+  const descriptorName = payload.extension
+    ? `${payload.name}${payload.extension.startsWith(".") ? "" : "."}${
+        payload.extension
+      }`
+    : payload.name;
+  return isOfficeAttachmentDescriptor(descriptorName);
 }
 
 async function workspaceDragPayloadToFile(
@@ -792,9 +1068,10 @@ function buildRemoteRuntimeToolMessages(
   return Array.from(remoteMessages.values());
 }
 
-export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
+export const ChatInterface = React.memo<ChatInterfaceProps>(
+  ({ assistant, headerActions }) => {
   const [metaOpen, setMetaOpen] = useState<
-    "goal" | "scp" | "tasks" | "files" | null
+    "goal" | "scp" | "skills" | "tasks" | "files" | null
   >(null);
   const tasksContainerRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLFormElement | null>(null);
@@ -804,6 +1081,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scpCatalogRequestInFlightRef = useRef(false);
   const chatDragDepthRef = useRef(0);
+  const suppressSkillsMetaToggleUntilRef = useRef(0);
+  const [, setSelectedFilePath] = useQueryState("file");
 
   const [input, setInput] = useState("");
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
@@ -825,6 +1104,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+
+  const openAttachmentPreview = useCallback(
+    (workspacePath: string) => {
+      const normalizedPath = workspacePath.replace(/^\/+/, "");
+      if (normalizedPath) {
+        void setSelectedFilePath(normalizedPath);
+      }
+    },
+    [setSelectedFilePath]
+  );
 
   const updateMentionMenuPosition = useCallback(() => {
     const composer = composerRef.current;
@@ -902,8 +1191,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     files,
     goal,
     scpInvocation,
+    threadSkills,
     ui,
     setFiles,
+    updateThreadSkills,
     error,
     isLoading,
     isStreamRecovering,
@@ -922,8 +1213,29 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
   const composerBusy = isLoading || isStreamRecovering;
   const submitDisabled = composerBusy || !assistant;
+  const activeThreadSkillKeys = useMemo(
+    () => new Set((threadSkills?.active ?? []).map((skill) => skill.key)),
+    [threadSkills]
+  );
+  const hasThreadSkills = Boolean(threadSkills?.active?.length);
   const hasSendableAttachments = attachments.some(
     (attachment) => !attachment.error
+  );
+  const applyAutoAttachmentSkills = useCallback(
+    async (nextAttachments: ChatAttachment[]) => {
+      const nextThreadSkills = addAttachmentThreadSkills(
+        threadSkills,
+        nextAttachments
+      );
+      if (!nextThreadSkills) {
+        return;
+      }
+
+      suppressSkillsMetaToggleUntilRef.current = Date.now() + 500;
+      setMetaOpen(null);
+      await updateThreadSkills(nextThreadSkills);
+    },
+    [threadSkills, updateThreadSkills]
   );
   const errorMessage = formatChatError(error);
   const mentionQuery = mentionContext?.query ?? "";
@@ -1217,24 +1529,49 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
   const selectMentionSkill = useCallback(
     (skill: SkillEntry) => {
+      if (composerBusy) {
+        toast.error("当前会话正在运行，结束后再添加技能。", {
+          position: "top-center",
+        });
+        closeMentionMenu();
+        return;
+      }
+
       const textarea = textareaRef.current;
       const cursorEnd = textarea?.selectionEnd ?? input.length;
       const start = mentionContext?.start ?? cursorEnd;
-      const mentionText = `@${skill.name} `;
-      const nextInput = `${input.slice(0, start)}${mentionText}${input.slice(
-        cursorEnd
-      )}`;
-      const nextCursor = start + mentionText.length;
+      const nextInput = `${input.slice(0, start)}${input.slice(cursorEnd)}`;
+      const nextCursor = start;
+      const alreadyEnabled = activeThreadSkillKeys.has(skill.key);
 
       setInput(nextInput);
       closeMentionMenu();
+      if (!alreadyEnabled) {
+        const nextThreadSkills = addThreadSkill(threadSkills, skill);
+        suppressSkillsMetaToggleUntilRef.current = Date.now() + 500;
+        setMetaOpen(null);
+        void updateThreadSkills(nextThreadSkills).catch((error) => {
+          toast.error(
+            error instanceof Error ? error.message : "技能添加失败",
+            { position: "top-center" }
+          );
+        });
+      }
 
       window.requestAnimationFrame(() => {
         textareaRef.current?.focus();
         textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
       });
     },
-    [closeMentionMenu, input, mentionContext]
+    [
+      activeThreadSkillKeys,
+      closeMentionMenu,
+      composerBusy,
+      input,
+      mentionContext,
+      threadSkills,
+      updateThreadSkills,
+    ]
   );
 
   const handleSubmit = useCallback(
@@ -1297,9 +1634,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
           prepareAttachment(file, { resourceId, workspaceId, threadId })
         )
       );
+      try {
+        await applyAutoAttachmentSkills(preparedAttachments);
+      } catch (skillError) {
+        toast.error(
+          skillError instanceof Error ? skillError.message : "自动加载技能失败",
+          { position: "top-center" }
+        );
+      }
       setAttachments((current) => [...current, ...preparedAttachments]);
     },
-    [resourceId, threadId, workspaceId]
+    [applyAutoAttachmentSkills, resourceId, threadId, workspaceId]
   );
 
   const resetChatDropState = useCallback(() => {
@@ -1389,22 +1734,46 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
 
       setIsPreparingDroppedAttachment(true);
       try {
-        const file = await workspaceDragPayloadToFile(payload, {
+        const attachmentContext = {
           resourceId,
           workspaceId,
           threadId,
-        });
-        const attachment = await prepareAttachment(file, {
-          resourceId,
-          workspaceId,
-          threadId,
-        });
+        };
+        const attachment = isWorkspaceOfficeAttachment(payload)
+          ? ({
+              id: createAttachmentId(),
+              name: payload.name,
+              mimeType:
+                OFFICE_ATTACHMENT_MIME_TYPES[
+                  getAttachmentFileKey(payload.name)
+                ] || "application/octet-stream",
+              size: payload.size || 0,
+              kind: "file",
+              ...(await uploadWorkspaceOfficeAttachment(
+                payload,
+                attachmentContext
+              )),
+            } satisfies ChatAttachment)
+          : await prepareAttachment(
+              await workspaceDragPayloadToFile(payload, attachmentContext),
+              attachmentContext
+            );
 
         if (attachment.error) {
           toast.error(`${attachment.name}: ${attachment.error}`);
           return;
         }
 
+        try {
+          await applyAutoAttachmentSkills([attachment]);
+        } catch (skillError) {
+          toast.error(
+            skillError instanceof Error
+              ? skillError.message
+              : "自动加载技能失败",
+            { position: "top-center" }
+          );
+        }
         setAttachments((current) => [...current, attachment]);
         toast.success(`已添加 ${attachment.name}`);
       } catch (dropError) {
@@ -1419,6 +1788,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
     },
     [
       handleAttachmentFiles,
+      applyAutoAttachmentSkills,
       resetChatDropState,
       resourceId,
       submitDisabled,
@@ -2016,29 +2386,32 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
             </Button>
           </div>
         ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-                onClick={startTitleEdit}
-                disabled={isThreadLoading}
-                aria-label="更改会话标题"
+          <div className="flex shrink-0 items-center gap-1">
+            {headerActions}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                  onClick={startTitleEdit}
+                  disabled={isThreadLoading}
+                  aria-label="更改会话标题"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="center"
+                sideOffset={6}
+                className="whitespace-nowrap"
               >
-                <Pencil className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              align="center"
-              sideOffset={6}
-              className="whitespace-nowrap"
-            >
-              更改会话标题
-            </TooltipContent>
-          </Tooltip>
+                更改会话标题
+              </TooltipContent>
+            </Tooltip>
+          </div>
         )}
       </div>
 
@@ -2111,6 +2484,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     stream={stream}
                     onResumeInterrupt={resumeInterrupt}
                     graphId={assistant?.graph_id}
+                    onOpenAttachment={openAttachmentPreview}
                   />
                 );
               })}
@@ -2151,6 +2525,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                             stream={stream}
                             onResumeInterrupt={resumeInterrupt}
                             graphId={assistant?.graph_id}
+                            onOpenAttachment={openAttachmentPreview}
                           />
                         );
                       })}
@@ -2219,7 +2594,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
           )}
           data-tour="chat-input"
         >
-          {(hasGoal || hasScpInvocation || hasTasks || hasFiles) && (
+          {(hasGoal ||
+            hasScpInvocation ||
+            hasTasks ||
+            hasFiles ||
+            hasThreadSkills) && (
             <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-muted/50 empty:hidden">
               {!metaOpen && (
                 <>
@@ -2359,6 +2738,41 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       );
                     })();
 
+                    const skillsTrigger = (() => {
+                      if (!hasThreadSkills || !threadSkills) return null;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              Date.now() <
+                              suppressSkillsMetaToggleUntilRef.current
+                            ) {
+                              return;
+                            }
+                            setMetaOpen((prev) =>
+                              prev === "skills" ? null : "skills"
+                            );
+                          }}
+                          className="grid min-w-[220px] flex-1 cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
+                          aria-expanded={metaOpen === "skills"}
+                        >
+                          <Sparkles
+                            size={16}
+                            className="text-primary"
+                          />
+                          <span className="ml-[1px] min-w-0 truncate text-sm">
+                            技能 · {threadSkills.active.length}
+                          </span>
+                          <span className="min-w-0 truncate text-sm text-muted-foreground">
+                            {threadSkills.active
+                              .map((skill) => skill.name)
+                              .join("、")}
+                          </span>
+                        </button>
+                      );
+                    })();
+
                     const filesTrigger = (() => {
                       if (!hasFiles) return null;
                       return (
@@ -2385,6 +2799,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       <div className="flex flex-wrap items-center">
                         {goalTrigger}
                         {scpTrigger}
+                        {skillsTrigger}
                         {tasksTrigger}
                         {filesTrigger}
                       </div>
@@ -2438,6 +2853,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                         aria-expanded={metaOpen === "tasks"}
                       >
                         子任务
+                      </button>
+                    )}
+                    {hasThreadSkills && threadSkills && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
+                        onClick={() =>
+                          setMetaOpen((prev) =>
+                            prev === "skills" ? null : "skills"
+                          )
+                        }
+                        aria-expanded={metaOpen === "skills"}
+                      >
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        技能
+                        <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-xs leading-[16px]">
+                          {threadSkills.active.length}
+                        </span>
                       </button>
                     )}
                     {hasFiles && (
@@ -2541,6 +2974,31 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                             </div>
                           </div>
                         ))}
+
+                    {metaOpen === "skills" && threadSkills && (
+                      <div className="mb-5 grid gap-2">
+                        {threadSkills.active.map((skill) => (
+                          <div
+                            key={skill.key}
+                            className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-border bg-card px-3 py-3"
+                          >
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-sm font-semibold text-primary">
+                              {skill.name.slice(0, 1)}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-foreground">
+                                {skill.name}
+                              </span>
+                              {skill.description && (
+                                <span className="mt-1 line-clamp-2 block text-xs leading-5 text-muted-foreground">
+                                  {skill.description}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                     {metaOpen === "files" && (
                       <div className="mb-6">
@@ -2649,6 +3107,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     <div className="scrollbar-subtle max-h-56 overflow-y-auto p-1">
                       {filteredMentionSkills.map((skill, index) => {
                         const active = index === activeMentionIndex;
+                        const selectedForThread = activeThreadSkillKeys.has(
+                          skill.key
+                        );
                         return (
                           <button
                             key={skill.key}
@@ -2670,16 +3131,25 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                             <span
                               className={cn(
                                 "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
-                                skill.enabled
+                                selectedForThread
                                   ? "border-primary/25 bg-primary/10 text-primary"
                                   : "border-border bg-background text-muted-foreground"
                               )}
                             >
-                              <Sparkles className="h-3.5 w-3.5" />
+                              {selectedForThread ? (
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              ) : (
+                                <Sparkles className="h-3.5 w-3.5" />
+                              )}
                             </span>
                             <span className="min-w-0 flex-1 truncate text-sm font-medium">
                               {skill.name}
                             </span>
+                            {selectedForThread && (
+                              <span className="text-xs text-muted-foreground">
+                                已启用
+                              </span>
+                            )}
                           </button>
                         );
                       })}
@@ -2783,9 +3253,22 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     ) : (
                       <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                     )}
-                    <span className="min-w-0 max-w-[180px] truncate">
-                      {attachment.name}
-                    </span>
+                    {attachment.workspacePath ? (
+                      <button
+                        type="button"
+                        className="min-w-0 max-w-[180px] truncate text-left hover:text-primary"
+                        onClick={() =>
+                          openAttachmentPreview(attachment.workspacePath!)
+                        }
+                        title={`打开 ${attachment.workspacePath}`}
+                      >
+                        {attachment.name}
+                      </button>
+                    ) : (
+                      <span className="min-w-0 max-w-[180px] truncate">
+                        {attachment.name}
+                      </span>
+                    )}
                     <span className="shrink-0 text-muted-foreground">
                       {attachment.error ||
                         formatAttachmentSize(attachment.size)}
@@ -2851,7 +3334,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                       className="h-8 w-8 text-muted-foreground hover:text-primary"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={submitDisabled}
-                      aria-label="添加附件(文本或PDF)"
+                      aria-label="添加附件"
                     >
                       <Paperclip className="h-4 w-4" />
                     </Button>
@@ -2862,7 +3345,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(({ assistant }) => {
                     sideOffset={6}
                     className="whitespace-nowrap"
                   >
-                    添加附件(文本或PDF)
+                    添加附件
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>

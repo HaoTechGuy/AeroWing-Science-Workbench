@@ -1,12 +1,31 @@
 export type WorkspaceEntryKind = "directory" | "file";
 
 export type WorkspacePreviewKind =
+  | "docx"
   | "image"
   | "markdown"
   | "pdf"
+  | "pptx"
   | "text"
+  | "xlsx"
   | "binary"
   | "unsupported";
+
+export type WorkspaceOfficePreviewKind = "docx" | "xlsx" | "pptx";
+
+export interface WorkspaceOfficePreviewBlock {
+  title: string;
+  lines?: string[];
+  rows?: string[][];
+  truncated?: boolean;
+}
+
+export interface WorkspaceOfficePreview {
+  kind: WorkspaceOfficePreviewKind;
+  blocks: WorkspaceOfficePreviewBlock[];
+  truncated?: boolean;
+  error?: string;
+}
 
 export interface WorkspaceEntry {
   name: string;
@@ -42,6 +61,7 @@ export interface WorkspaceFileResponse {
   previewKind: WorkspacePreviewKind;
   mimeType: string;
   content?: string;
+  officePreview?: WorkspaceOfficePreview;
   rawUrl?: string;
   tooLarge?: boolean;
 }

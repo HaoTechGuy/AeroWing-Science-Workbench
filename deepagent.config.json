@@ -27,8 +27,8 @@
   "authorization_mode": "auto",
   "model_selection_mode": "manual",
   "manual_model": "deepseek-v4-flash",
-  "model_provider": "gateway",
-  "gateway_model": "deepseek-v4-flash",
+  "model_provider": "openrouter",
+  "openrouter_model": "deepseek-v4-flash",
   "web_search": {
     "enabled": true,
     "provider": "duckduckgo",

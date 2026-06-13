@@ -35,6 +35,7 @@ import {
   prepareSearchQuery,
   type SearchDocument,
 } from "@/app/skills/skill-search";
+import { scienceSkillDisplayText } from "@/app/skills/science-skill-display";
 import type {
   BackendRestartResult,
   BackendStatusResult,
@@ -173,10 +174,13 @@ function searchDocumentForScienceSkill(
   skill: ScienceSkillSnapshot
 ): SearchDocument {
   const category = SCIENCE_CATEGORY_BY_ID.get(skill.categoryId);
+  const display = scienceSkillDisplayText(skill, category);
   return {
-    title: skill.name,
-    description: skill.description,
+    title: display.name,
+    description: display.description,
     keywords: [
+      skill.name,
+      skill.description,
       skill.id,
       skill.sourcePath,
       category?.name ?? "",
@@ -289,7 +293,9 @@ function ScienceSkillCard({
   onInstall: (skill: ScienceSkillSnapshot) => void;
   skill: ScienceSkillSnapshot;
 }) {
-  const label = skill.name.trim().charAt(0).toUpperCase() || "S";
+  const category = SCIENCE_CATEGORY_BY_ID.get(skill.categoryId);
+  const display = scienceSkillDisplayText(skill, category);
+  const label = display.name.trim().charAt(0).toUpperCase() || "S";
 
   return (
     <article className="flex min-h-[120px] min-w-0 max-w-full items-start gap-4 rounded-lg border border-border/70 bg-card/30 px-4 py-4 transition-[background-color,border-color] hover:border-border hover:bg-card/60">
@@ -300,10 +306,10 @@ function ScienceSkillCard({
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold leading-6">
-              {skill.name}
+              {display.name}
             </h3>
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-              {skill.description}
+              {display.description}
             </p>
           </div>
           <Button
@@ -313,7 +319,9 @@ function ScienceSkillCard({
             onClick={() => onInstall(skill)}
             disabled={actionBusy || installed}
             className="h-8 shrink-0 px-2"
-            title={installed ? `${skill.name} 已添加` : `安装 ${skill.name}`}
+            title={
+              installed ? `${display.name} 已添加` : `安装 ${display.name}`
+            }
           >
             {installing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -645,10 +653,14 @@ export function SkillsMarketplace() {
     }
 
     setInstallingScienceSkillId(skill.id);
+    const display = scienceSkillDisplayText(
+      skill,
+      SCIENCE_CATEGORY_BY_ID.get(skill.categoryId)
+    );
     try {
       await importAndInstallSkill("cloud", skill.installUrl, {
         clearInput: false,
-        successMessage: () => `「${skill.name}」已添加`,
+        successMessage: () => `「${display.name}」已添加`,
       });
     } finally {
       setInstallingScienceSkillId(null);

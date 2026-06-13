@@ -93,6 +93,9 @@ const MIME_TYPES: Record<string, string> = {
   ".csv": "text/csv; charset=utf-8",
   caddyfile: "text/plain; charset=utf-8",
   dockerfile: "text/x-dockerfile; charset=utf-8",
+  ".doc": "application/msword",
+  ".docx":
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".env.example": "text/plain; charset=utf-8",
   gemfile: "text/plain; charset=utf-8",
   ".gif": "image/gif",
@@ -107,6 +110,9 @@ const MIME_TYPES: Record<string, string> = {
   makefile: "text/x-makefile; charset=utf-8",
   ".pdf": "application/pdf",
   ".png": "image/png",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   procfile: "text/plain; charset=utf-8",
   ".py": "text/x-python; charset=utf-8",
   rakefile: "text/plain; charset=utf-8",
@@ -116,6 +122,8 @@ const MIME_TYPES: Record<string, string> = {
   ".tsx": "text/typescript; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
   ".webp": "image/webp",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".yaml": "application/yaml; charset=utf-8",
   ".yml": "application/yaml; charset=utf-8",
 };
@@ -746,6 +754,18 @@ export function toWorkspacePath(root: string, absolutePath: string): string {
 export function getPreviewKind(filePath: string): WorkspacePreviewKind {
   const extension = getFileExtension(filePath);
 
+  if (extension === ".doc" || extension === ".docx") {
+    return "docx";
+  }
+
+  if (extension === ".xls" || extension === ".xlsx") {
+    return "xlsx";
+  }
+
+  if (extension === ".ppt" || extension === ".pptx") {
+    return "pptx";
+  }
+
   if (MARKDOWN_EXTENSIONS.has(extension)) {
     return "markdown";
   }
@@ -1234,7 +1254,10 @@ export async function readWorkspaceFileData(
     isFile: true,
   };
   if (stats.size <= MAX_TEXT_FILE_SIZE) {
-    payload.content = await fs.readFile(resolved.absolutePath, "utf8");
+    const previewKind = getPreviewKind(resolved.relativePath);
+    if (previewKind === "markdown" || previewKind === "text") {
+      payload.content = await fs.readFile(resolved.absolutePath, "utf8");
+    }
   } else {
     payload.tooLarge = true;
   }
