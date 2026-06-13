@@ -105,10 +105,111 @@ jobs:
           printf 'Source repository: %s\n' "$source_repository"
           printf 'Source ref: %s\n' "$source_ref"
 
+  prepare-release:
+    name: Prepare binary release
+    needs: metadata
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
+      INTERNAGENTS_IS_TEST_RELEASE: ${{ needs.metadata.outputs.is_test_release }}
+      INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
+      INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+      INTERNAGENTS_SOURCE_LABEL: ${{ needs.metadata.outputs.source_label }}
+      INTERNAGENTS_EXTRA_NOTES: ${{ needs.metadata.outputs.extra_notes }}
+
+    steps:
+      - name: Require repository-local release token
+        if: needs.metadata.outputs.is_test_release == 'true'
+        env:
+          INTERNAGENTS_LOCAL_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$INTERNAGENTS_LOCAL_RELEASE_TOKEN" ]; then
+            echo "::error::Set INTERNAGENTS_LOCAL_RELEASE_TOKEN in ${GITHUB_REPOSITORY} -> Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Require cross-repository release token
+        if: needs.metadata.outputs.is_test_release != 'true' && needs.metadata.outputs.release_repo != github.repository
+        env:
+          INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
+          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
+        run: |
+          if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
+            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in ${GITHUB_REPOSITORY} with Contents write access to ${INTERNAGENTS_RELEASE_REPO}."
+            exit 1
+          fi
+
+      - name: Create or refresh release
+        env:
+          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ "$INTERNAGENTS_IS_TEST_RELEASE" = "true" ]; then
+            release_kind="test release"
+            latest_args=(--prerelease)
+            target_args=(--target "$GITHUB_SHA")
+            encoded_tag="${INTERNAGENTS_RELEASE_TAG//\//%2F}"
+            test_update_notes="
+          Test update API:
+          INTERNAGENTS_UPDATE_API_URL=https://api.github.com/repos/${INTERNAGENTS_RELEASE_REPO}/releases/tags/${encoded_tag}"
+          else
+            release_kind="release"
+            latest_args=(--latest)
+            target_args=()
+            test_update_notes=""
+          fi
+
+          NOTES="InternAgents desktop app ${release_kind} ${INTERNAGENTS_RELEASE_TAG}
+
+          Release highlights:
+          - macOS desktop app packaged for Apple Silicon and Intel Macs.
+          - Windows desktop app packaged as an x64 NSIS installer.
+          - Remote backend CLI package for SSH workspace runtime synchronization.
+          - Auto-update assets are published separately by platform and architecture.
+
+          Desktop version: ${INTERNAGENTS_DESKTOP_VERSION}
+          Source ref: ${INTERNAGENTS_SOURCE_LABEL}
+          Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, and remote backend CLI tarball${test_update_notes}"
+
+          if [ -n "${INTERNAGENTS_EXTRA_NOTES:-}" ]; then
+            NOTES="${NOTES}
+
+          Additional notes:
+          ${INTERNAGENTS_EXTRA_NOTES}"
+          fi
+
+          if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
+            existing_assets="$(gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" --json assets --jq '.assets[].name')"
+            while IFS= read -r asset; do
+              [ -z "$asset" ] && continue
+              gh release delete-asset "$INTERNAGENTS_RELEASE_TAG" "$asset" --repo "$INTERNAGENTS_RELEASE_REPO" --yes
+            done <<< "$existing_assets"
+
+            gh release edit "$INTERNAGENTS_RELEASE_TAG" \
+              --repo "$INTERNAGENTS_RELEASE_REPO" \
+              --title "$INTERNAGENTS_RELEASE_TAG" \
+              --notes "$NOTES" \
+              "${latest_args[@]}"
+          else
+            gh release create "$INTERNAGENTS_RELEASE_TAG" \
+              --repo "$INTERNAGENTS_RELEASE_REPO" \
+              --title "$INTERNAGENTS_RELEASE_TAG" \
+              --notes "$NOTES" \
+              "${latest_args[@]}" \
+              "${target_args[@]}"
+          fi
+
   build:
     name: Build macOS DMG (${{ matrix.arch }})
-    needs: metadata
+    needs:
+      - metadata
+      - prepare-release
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -217,25 +318,53 @@ jobs:
           INTERNAGENTS_DESKTOP_ARCH: ${{ matrix.arch }}
         run: npm --prefix desktop run build
 
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: internagents-dmg-${{ matrix.arch }}
-          path: desktop/release/InternAgents-*-${{ matrix.arch }}.dmg
-          if-no-files-found: error
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
+          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
+          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmg_assets=(desktop/release/InternAgents-*-${{ matrix.arch }}.dmg)
+          if [ "${#dmg_assets[@]}" -ne 1 ]; then
+            printf 'Expected exactly one %s DMG, found %s:\n' "${{ matrix.arch }}" "${#dmg_assets[@]}"
+            printf '  %s\n' "${dmg_assets[@]}"
+            exit 1
+          fi
 
-      - name: Upload backend CLI artifact
+          gh release upload "$INTERNAGENTS_RELEASE_TAG" \
+            "${dmg_assets[@]}" \
+            --repo "$INTERNAGENTS_RELEASE_REPO" \
+            --clobber
+
+      - name: Upload backend CLI to release
         if: matrix.arch == 'arm64'
-        uses: actions/upload-artifact@v6
-        with:
-          name: internagents-backend-cli
-          path: dist-app/internagents-template/internagents-backend-cli.tar.gz
-          if-no-files-found: error
+        env:
+          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
+          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
+          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          backend_asset="dist-app/internagents-template/internagents-backend-cli.tar.gz"
+          if [ ! -f "$backend_asset" ]; then
+            echo "::error::Missing backend CLI asset: $backend_asset"
+            exit 1
+          fi
+
+          gh release upload "$INTERNAGENTS_RELEASE_TAG" \
+            "$backend_asset" \
+            --repo "$INTERNAGENTS_RELEASE_REPO" \
+            --clobber
 
   build-windows:
     name: Build Windows installer (x64)
-    needs: metadata
+    needs:
+      - metadata
+      - prepare-release
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout source
@@ -332,140 +461,21 @@ jobs:
       - name: Build Windows artifacts
         run: npm --prefix desktop run build:win
 
-      - name: Upload Windows artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: internagents-windows-x64
-          path: desktop/release/InternAgents-*-x64.exe
-          if-no-files-found: error
-
-  release:
-    name: Publish binary release
-    needs:
-      - metadata
-      - build
-      - build-windows
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
-      INTERNAGENTS_IS_TEST_RELEASE: ${{ needs.metadata.outputs.is_test_release }}
-      INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
-      INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
-      INTERNAGENTS_SOURCE_LABEL: ${{ needs.metadata.outputs.source_label }}
-      INTERNAGENTS_EXTRA_NOTES: ${{ needs.metadata.outputs.extra_notes }}
-
-    steps:
-      - name: Require repository-local release token
-        if: needs.metadata.outputs.is_test_release == 'true'
-        env:
-          INTERNAGENTS_LOCAL_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN }}
-        run: |
-          if [ -z "$INTERNAGENTS_LOCAL_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_LOCAL_RELEASE_TOKEN in ${GITHUB_REPOSITORY} -> Settings -> Secrets and variables -> Actions."
-            exit 1
-          fi
-
-      - name: Require cross-repository release token
-        if: needs.metadata.outputs.is_test_release != 'true' && needs.metadata.outputs.release_repo != github.repository
-        env:
-          INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
-          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
-        run: |
-          if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in ${GITHUB_REPOSITORY} with Contents write access to ${INTERNAGENTS_RELEASE_REPO}."
-            exit 1
-          fi
-
-      - name: Download desktop artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: internagents-*
-          path: release-assets
-          merge-multiple: true
-
-      - name: Publish binary release
+      - name: Upload Windows installer to release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
+          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
+          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
         run: |
-          shopt -s nullglob
-          dmg_assets=(release-assets/InternAgents-*.dmg)
-          windows_assets=(release-assets/InternAgents-*.exe)
-          backend_assets=(release-assets/internagents-backend-cli.tar.gz)
-          if [ "${#dmg_assets[@]}" -ne 2 ]; then
-            printf 'Expected exactly two DMGs, found %s:\n' "${#dmg_assets[@]}"
-            printf '  %s\n' "${dmg_assets[@]}"
+          $assets = @(Get-ChildItem -Path "desktop/release" -Filter "InternAgents-*-x64.exe" -File)
+          if ($assets.Count -ne 1) {
+            Write-Error "Expected exactly one Windows x64 installer, found $($assets.Count)."
+            $assets | ForEach-Object { Write-Host "  $($_.FullName)" }
             exit 1
           fi
-          if [ "${#windows_assets[@]}" -ne 1 ]; then
-            printf 'Expected exactly one Windows installer, found %s:\n' "${#windows_assets[@]}"
-            printf '  %s\n' "${windows_assets[@]}"
-            exit 1
-          fi
-          if [ "${#backend_assets[@]}" -ne 1 ]; then
-            printf 'Expected exactly one backend CLI asset, found %s:\n' "${#backend_assets[@]}"
-            printf '  %s\n' "${backend_assets[@]}"
-            exit 1
-          fi
-          release_assets=("${dmg_assets[@]}" "${windows_assets[@]}" "${backend_assets[@]}")
 
-          if [ "$INTERNAGENTS_IS_TEST_RELEASE" = "true" ]; then
-            release_kind="test release"
-            latest_args=(--prerelease)
-            target_args=(--target "$GITHUB_SHA")
-            encoded_tag="${INTERNAGENTS_RELEASE_TAG//\//%2F}"
-            test_update_notes="
-          Test update API:
-          INTERNAGENTS_UPDATE_API_URL=https://api.github.com/repos/${INTERNAGENTS_RELEASE_REPO}/releases/tags/${encoded_tag}"
-          else
-            release_kind="release"
-            latest_args=(--latest)
-            target_args=()
-            test_update_notes=""
-          fi
-
-          NOTES="InternAgents desktop app ${release_kind} ${INTERNAGENTS_RELEASE_TAG}
-
-          Release highlights:
-          - macOS desktop app packaged for Apple Silicon and Intel Macs.
-          - Windows desktop app packaged as an x64 NSIS installer.
-          - Remote backend CLI package for SSH workspace runtime synchronization.
-          - Auto-update assets are published separately by platform and architecture.
-
-          Desktop version: ${INTERNAGENTS_DESKTOP_VERSION}
-          Source ref: ${INTERNAGENTS_SOURCE_LABEL}
-          Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, and remote backend CLI tarball${test_update_notes}"
-
-          if [ -n "${INTERNAGENTS_EXTRA_NOTES:-}" ]; then
-            NOTES="${NOTES}
-
-          Additional notes:
-          ${INTERNAGENTS_EXTRA_NOTES}"
-          fi
-
-          if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
-            existing_assets="$(gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" --json assets --jq '.assets[].name')"
-            while IFS= read -r asset; do
-              [ -z "$asset" ] && continue
-              gh release delete-asset "$INTERNAGENTS_RELEASE_TAG" "$asset" --repo "$INTERNAGENTS_RELEASE_REPO" --yes
-            done <<< "$existing_assets"
-
-            gh release upload "$INTERNAGENTS_RELEASE_TAG" \
-              "${release_assets[@]}" \
-              --repo "$INTERNAGENTS_RELEASE_REPO" \
-              --clobber
-            gh release edit "$INTERNAGENTS_RELEASE_TAG" \
-              --repo "$INTERNAGENTS_RELEASE_REPO" \
-              --title "$INTERNAGENTS_RELEASE_TAG" \
-              --notes "$NOTES" \
-              "${latest_args[@]}"
-          else
-            gh release create "$INTERNAGENTS_RELEASE_TAG" \
-              "${release_assets[@]}" \
-              --repo "$INTERNAGENTS_RELEASE_REPO" \
-              --title "$INTERNAGENTS_RELEASE_TAG" \
-              --notes "$NOTES" \
-              "${latest_args[@]}" \
-              "${target_args[@]}"
-          fi
+          gh release upload $env:INTERNAGENTS_RELEASE_TAG `
+            $assets[0].FullName `
+            --repo $env:INTERNAGENTS_RELEASE_REPO `
+            --clobber
