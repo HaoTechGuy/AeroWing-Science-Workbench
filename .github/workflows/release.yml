@@ -473,7 +473,7 @@ jobs:
             Write-Error "Expected exactly one Windows x64 installer, found $($assets.Count)."
             $assets | ForEach-Object { Write-Host "  $($_.FullName)" }
             exit 1
-          fi
+          }
 
           gh release upload $env:INTERNAGENTS_RELEASE_TAG `
             $assets[0].FullName `
