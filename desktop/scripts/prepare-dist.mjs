@@ -29,6 +29,7 @@ const backendWheelhouseTargets = [
   },
 ];
 const backendSourceDistributions = new Set(["forbiddenfruit"]);
+const backendLinuxWheelhouseExcludedRequirements = new Set(["pywin32"]);
 const backendRuntimeBinaryRequirements = ["httptools>=0.5.0", "uvloop>=0.18.0"];
 const canCreatePortableSymlinks = process.platform !== "win32";
 const standaloneCopyLinkOptions = {
@@ -507,7 +508,12 @@ async function prepareBackendWheelhouse() {
     distDir,
     "backend-wheelhouse-source-requirements.txt"
   );
-  const requirements = projectDependencyRequirements(pythonBin);
+  const requirements = projectDependencyRequirements(pythonBin).filter(
+    (requirement) =>
+      !backendLinuxWheelhouseExcludedRequirements.has(
+        requirementName(requirement)
+      )
+  );
   const sourceRequirements = requirements.filter((requirement) =>
     backendSourceDistributions.has(requirementName(requirement))
   );
