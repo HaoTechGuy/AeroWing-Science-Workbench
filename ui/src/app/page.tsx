@@ -10,9 +10,12 @@ import React, {
 } from "react";
 import Link from "next/link";
 import {
+  ArrowLeftRight,
   FolderOpen,
   Info,
   Loader2,
+  MessageSquare,
+  MessageSquareOff,
   Plus,
   Settings,
   Sparkles,
@@ -47,6 +50,11 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ChatProvider } from "@/providers/ChatProvider";
 import { Button } from "@/components/ui/button";
 import { ChatInterface } from "@/app/components/ChatInterface";
@@ -55,6 +63,7 @@ import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
 import { pageHrefWithWorkbenchReturn } from "@/app/utils/navigationContext";
+import { cn } from "@/lib/utils";
 
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
 const ADD_REMOTE_WORKSPACE_VALUE = "__add_remote_workspace__";
@@ -188,6 +197,9 @@ function HomePageInner({
   );
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [pushingBackendCli, setPushingBackendCli] = useState(false);
+  const [chatAndFileSwapped, setChatAndFileSwapped] = useState(false);
+  const [chatPanelHidden, setChatPanelHidden] = useState(false);
+  const chatPanelRef = useRef<ImperativePanelHandle>(null);
   const [workspacePanelCompact, setWorkspacePanelCompact] = useState(false);
   const workspacePanelRef = useRef<ImperativePanelHandle>(null);
   const [viewerPanelCompact, setViewerPanelCompact] = useState(false);
@@ -262,6 +274,10 @@ function HomePageInner({
     },
     [setSelectedFilePath]
   );
+
+  const handleClearSelectedFile = useCallback(async () => {
+    await setSelectedFilePath(null);
+  }, [setSelectedFilePath]);
 
   const ensureRemoteResource = useCallback(
     async (resourceId: string) => {
@@ -459,6 +475,23 @@ function HomePageInner({
     });
   }, []);
 
+  const handleSwapChatAndFilePanels = useCallback(() => {
+    setChatAndFileSwapped((swapped) => !swapped);
+  }, []);
+
+  const handleToggleChatPanel = useCallback(() => {
+    setChatPanelHidden((hidden) => {
+      const nextHidden = !hidden;
+      if (nextHidden) {
+        setViewerPanelCompact(false);
+      }
+      window.requestAnimationFrame(() => {
+        chatPanelRef.current?.resize(nextHidden ? 4 : 51);
+      });
+      return nextHidden;
+    });
+  }, []);
+
   const handleRemoteConfigured = useCallback(
     async (resource: ResourceConfig, resources: ResourceConfig[]) => {
       await setThreadId(null);
@@ -597,6 +630,151 @@ function HomePageInner({
   const aboutHref = useMemo(
     () => pageHrefWithWorkbenchReturn("/about", searchParams),
     [searchParams]
+  );
+
+  const chatHeaderActions = (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+            aria-label="隐藏会话区"
+            onClick={handleToggleChatPanel}
+          >
+            <MessageSquareOff className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          align="center"
+          sideOffset={6}
+          className="whitespace-nowrap"
+        >
+          隐藏会话区
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+            aria-label={
+              chatAndFileSwapped
+                ? "恢复会话区和文件区位置"
+                : "交换会话区和文件区位置"
+            }
+            aria-pressed={chatAndFileSwapped}
+            onClick={handleSwapChatAndFilePanels}
+          >
+            <ArrowLeftRight className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          align="center"
+          sideOffset={6}
+          className="whitespace-nowrap"
+        >
+          {chatAndFileSwapped ? "恢复会话/文件位置" : "交换会话/文件位置"}
+        </TooltipContent>
+      </Tooltip>
+    </>
+  );
+
+  const chatPanel = (
+    <ResizablePanel
+      key="chat-panel"
+      ref={chatPanelRef}
+      id="chat"
+      className={
+        chatPanelHidden
+          ? "relative min-w-[44px] max-w-[56px] bg-card"
+          : "relative flex min-w-[420px] flex-col bg-card/70"
+      }
+      order={chatAndFileSwapped ? 3 : 2}
+      defaultSize={chatPanelHidden ? 4 : 51}
+      minSize={chatPanelHidden ? 4 : 34}
+      maxSize={chatPanelHidden ? 6 : undefined}
+    >
+      {chatPanelHidden && (
+        <div className="flex h-full w-full items-start justify-center py-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground hover:text-primary"
+            aria-label="显示会话区"
+            onClick={handleToggleChatPanel}
+          >
+            <MessageSquare className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+      <div
+        className={cn(
+          "h-full min-h-0",
+          chatPanelHidden ? "hidden" : "flex min-w-0 flex-col"
+        )}
+      >
+        <ChatProvider
+          key={`${activeResource.id}:${activeAssistantId}:${
+            activeWorkspace?.id || "workspace"
+          }:${chatInstanceKey}`}
+          activeAssistant={assistant}
+          streamConfig={config.stream}
+          onHistoryRevalidate={handleRunActivity}
+          onGeneratedThreadId={handleGeneratedThreadId}
+          resourceId={activeResource.id}
+          resourceLabel={activeResource.label}
+          runtimeUrl={activeResource.runtimeUrl}
+          workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
+          workspacePath={
+            isActiveLocalResource ? activeWorkspace?.resolvedPath : undefined
+          }
+          workspaceLabel={
+            isActiveLocalResource ? activeWorkspace?.label : undefined
+          }
+        >
+          <ChatInterface
+            assistant={assistant}
+            headerActions={chatHeaderActions}
+          />
+        </ChatProvider>
+      </div>
+    </ResizablePanel>
+  );
+
+  const viewerPanel = (
+    <ResizablePanel
+      key="viewer-panel"
+      ref={viewerPanelRef}
+      id="viewer"
+      order={chatAndFileSwapped ? 2 : 3}
+      defaultSize={viewerPanelCompact ? 4 : 31}
+      minSize={viewerPanelCompact ? 4 : 22}
+      maxSize={viewerPanelCompact ? 6 : undefined}
+      className={
+        viewerPanelCompact
+          ? "relative min-w-[44px] max-w-[56px] border-l border-border bg-card"
+          : "relative min-w-[320px] overflow-hidden border-l border-border bg-card"
+      }
+    >
+      <WorkspaceViewer
+        key={activeWorkspace?.id || activeResource.id}
+        selectedPath={selectedFilePath}
+        resourceId={activeResource.id}
+        workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
+        compact={viewerPanelCompact}
+        onCollapse={() => handleViewerPanelCompactChange(true)}
+        onExpand={() => handleViewerPanelCompactChange(false)}
+        onClear={() => void handleClearSelectedFile()}
+      />
+    </ResizablePanel>
   );
 
   return (
@@ -809,65 +987,19 @@ function HomePageInner({
           </ResizablePanel>
           <ResizableHandle />
 
-          <ResizablePanel
-            id="chat"
-            className="relative flex min-w-[420px] flex-col bg-card/70"
-            order={2}
-            defaultSize={51}
-            minSize={34}
-          >
-            <ChatProvider
-              key={`${activeResource.id}:${activeAssistantId}:${
-                activeWorkspace?.id || "workspace"
-              }:${chatInstanceKey}`}
-              activeAssistant={assistant}
-              streamConfig={config.stream}
-              onHistoryRevalidate={handleRunActivity}
-              onGeneratedThreadId={handleGeneratedThreadId}
-              resourceId={activeResource.id}
-              resourceLabel={activeResource.label}
-              runtimeUrl={activeResource.runtimeUrl}
-              workspaceId={
-                isActiveLocalResource ? activeWorkspace?.id : undefined
-              }
-              workspacePath={
-                isActiveLocalResource
-                  ? activeWorkspace?.resolvedPath
-                  : undefined
-              }
-              workspaceLabel={
-                isActiveLocalResource ? activeWorkspace?.label : undefined
-              }
-            >
-              <ChatInterface assistant={assistant} />
-            </ChatProvider>
-          </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel
-            ref={viewerPanelRef}
-            id="viewer"
-            order={3}
-            defaultSize={viewerPanelCompact ? 4 : 31}
-            minSize={viewerPanelCompact ? 4 : 22}
-            maxSize={viewerPanelCompact ? 6 : undefined}
-            className={
-              viewerPanelCompact
-                ? "relative min-w-[44px] max-w-[56px] border-l border-border bg-card"
-                : "relative min-w-[320px] border-l border-border bg-card"
-            }
-          >
-            <WorkspaceViewer
-              key={activeWorkspace?.id || activeResource.id}
-              selectedPath={selectedFilePath}
-              resourceId={activeResource.id}
-              workspaceId={
-                isActiveLocalResource ? activeWorkspace?.id : undefined
-              }
-              compact={viewerPanelCompact}
-              onCollapse={() => handleViewerPanelCompactChange(true)}
-              onExpand={() => handleViewerPanelCompactChange(false)}
-            />
-          </ResizablePanel>
+          {chatAndFileSwapped ? (
+            <>
+              {viewerPanel}
+              <ResizableHandle />
+              {chatPanel}
+            </>
+          ) : (
+            <>
+              {chatPanel}
+              <ResizableHandle />
+              {viewerPanel}
+            </>
+          )}
         </ResizablePanelGroup>
       </div>
       <RemoteConnectionDialog

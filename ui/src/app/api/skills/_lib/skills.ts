@@ -139,9 +139,16 @@ async function readAgentConfig(root: string): Promise<AgentConfig> {
   }
 }
 
-async function writeAgentConfig(root: string, config: AgentConfig): Promise<void> {
+async function writeAgentConfig(
+  root: string,
+  config: AgentConfig
+): Promise<void> {
   const configPath = path.join(root, "deepagent.config.json");
-  await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await fs.writeFile(
+    configPath,
+    `${JSON.stringify(config, null, 2)}\n`,
+    "utf8"
+  );
 }
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -314,6 +321,31 @@ function normalizeGitHubRepoName(value: string): string {
   return value.replace(/\.git$/, "");
 }
 
+function isGitCommitRef(value: string | undefined): value is string {
+  return Boolean(value && /^[a-f0-9]{40}$/i.test(value));
+}
+
+function parseGitHubRepoUrl(repoUrl: string | undefined): {
+  owner: string;
+  repo: string;
+} | null {
+  if (!repoUrl) {
+    return null;
+  }
+
+  const match = repoUrl.match(
+    /^https:\/\/github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?$/
+  );
+  if (!match) {
+    return null;
+  }
+
+  return {
+    owner: match[1],
+    repo: normalizeGitHubRepoName(match[2]),
+  };
+}
+
 function normalizeCloudSkillSpec(source: string): CloudSkillSpec {
   const trimmed = source.trim();
   if (!trimmed) {
@@ -380,6 +412,57 @@ function normalizeCloudSkillSpec(source: string): CloudSkillSpec {
   };
 }
 
+async function downloadGitHubArchiveSkill(
+  root: string,
+  spec: CloudSkillSpec
+): Promise<{ sourcePath: string; tmpDirectory: string } | null> {
+  const githubRepo = parseGitHubRepoUrl(spec.repoUrl);
+  if (!githubRepo) {
+    return null;
+  }
+
+  const tmpRoot = resolveWorkspaceChild(root, IMPORT_TMP_PATH);
+  await fs.mkdir(tmpRoot, { recursive: true });
+  const tmpDirectory = await fs.mkdtemp(path.join(tmpRoot, "skill-import-"));
+  const ref = spec.branch || "main";
+  const archiveUrl = `https://codeload.github.com/${githubRepo.owner}/${
+    githubRepo.repo
+  }/tar.gz/${encodeURIComponent(ref)}`;
+  const archivePath = path.join(tmpDirectory, "repo.tar.gz");
+
+  try {
+    const response = await fetch(archiveUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    await fs.writeFile(archivePath, Buffer.from(await response.arrayBuffer()));
+    await execFileAsync("tar", ["-xzf", archivePath, "-C", tmpDirectory], {
+      timeout: CLOUD_CLONE_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024,
+    });
+
+    const entries = await fs.readdir(tmpDirectory, { withFileTypes: true });
+    const extractedRoot = entries.find(
+      (entry) => entry.isDirectory() && entry.name !== "repo"
+    );
+    if (!extractedRoot) {
+      throw new Error("GitHub 归档内容为空。");
+    }
+
+    const extractedDirectory = path.join(tmpDirectory, extractedRoot.name);
+    return {
+      sourcePath: spec.subPath
+        ? path.join(extractedDirectory, spec.subPath)
+        : extractedDirectory,
+      tmpDirectory,
+    };
+  } catch (error) {
+    await fs.rm(tmpDirectory, { force: true, recursive: true });
+    throw error;
+  }
+}
+
 async function cloneCloudSkill(
   root: string,
   spec: CloudSkillSpec
@@ -390,8 +473,13 @@ async function cloneCloudSkill(
   const cloneDirectory = path.join(tmpDirectory, "repo");
 
   try {
-    const args = ["clone", "--depth", "1"];
-    if (spec.branch) {
+    const args = ["clone"];
+    if (isGitCommitRef(spec.branch)) {
+      args.push("--filter=blob:none", "--no-checkout");
+    } else {
+      args.push("--depth", "1");
+    }
+    if (spec.branch && !isGitCommitRef(spec.branch)) {
       args.push("--branch", spec.branch, "--single-branch");
     }
     args.push(spec.repoUrl!, cloneDirectory);
@@ -400,6 +488,25 @@ async function cloneCloudSkill(
       timeout: CLOUD_CLONE_TIMEOUT_MS,
       maxBuffer: 1024 * 1024,
     });
+
+    if (isGitCommitRef(spec.branch)) {
+      await execFileAsync(
+        "git",
+        ["-C", cloneDirectory, "fetch", "--depth", "1", "origin", spec.branch],
+        {
+          timeout: CLOUD_CLONE_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+        }
+      );
+      await execFileAsync(
+        "git",
+        ["-C", cloneDirectory, "checkout", "--detach", spec.branch],
+        {
+          timeout: CLOUD_CLONE_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+        }
+      );
+    }
 
     return {
       sourcePath: spec.subPath
@@ -668,7 +775,14 @@ export async function importSkills(
     if (spec.kind === "raw") {
       imported = await importRawSkill(root, spec.rawUrl!);
     } else {
-      const cloned = await cloneCloudSkill(root, spec);
+      let cloned: { sourcePath: string; tmpDirectory: string };
+      try {
+        cloned =
+          (await downloadGitHubArchiveSkill(root, spec)) ??
+          (await cloneCloudSkill(root, spec));
+      } catch {
+        cloned = await cloneCloudSkill(root, spec);
+      }
       try {
         imported = await importSkillDirectories(root, cloned.sourcePath, 3);
       } finally {

@@ -17,6 +17,7 @@ import type {
   GoalState,
   ScpCatalogItem,
   ScpInvocationState,
+  ThreadSkillsState,
   TodoItem,
 } from "@/app/types/types";
 import type { StreamConfig } from "@/lib/config";
@@ -83,6 +84,7 @@ export type StateType = {
   files: Record<string, string>;
   goal?: GoalState | null;
   scpInvocation?: ScpInvocationState | null;
+  threadSkills?: ThreadSkillsState | null;
   email?: {
     id?: string;
     subject?: string;
@@ -144,6 +146,7 @@ function emptyThreadState(threadId: string): ThreadState<StateType> {
       files: {},
       goal: null,
       scpInvocation: null,
+      threadSkills: null,
     },
     next: [],
     tasks: [],
@@ -172,6 +175,7 @@ function pendingRunToState(
       files: {},
       goal: null,
       scpInvocation: null,
+      threadSkills: null,
     },
     next: [],
     tasks: [],
@@ -944,11 +948,45 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
       continue;
     }
 
+    const pathHint = attachment.workspacePath
+      ? ` path="${formatAttachmentAttribute(attachment.workspacePath)}"`
+      : "";
+    const readablePathHint = attachment.extractedWorkspacePath
+      ? ` readable_path="${formatAttachmentAttribute(
+          attachment.extractedWorkspacePath
+        )}"`
+      : "";
+    const fileLocation = attachment.workspacePath
+      ? `The original file is available at ${attachment.workspacePath}.`
+      : "No workspace path is available for this file.";
+    const readableLocation = attachment.extractedWorkspacePath
+      ? `A readable summary is available at ${attachment.extractedWorkspacePath}.`
+      : "";
+    const readableSummary = attachment.text?.trim();
+    const extractionError = attachment.extractionError?.trim();
     blocks.push({
       type: "text",
-      text: `[附件: ${attachment.name}, type=${
-        attachment.mimeType || "unknown"
-      }, size=${formatAttachmentSize(attachment.size)}. 二进制内容未内嵌。]`,
+      text: [
+        `<attachment name="${formatAttachmentAttribute(
+          attachment.name
+        )}" mime_type="${formatAttachmentAttribute(
+          attachment.mimeType || "application/octet-stream"
+        )}" size="${formatAttachmentSize(
+          attachment.size
+        )}"${pathHint}${readablePathHint}>`,
+        readableSummary
+          ? [
+              `[Office file uploaded and processed locally. ${fileLocation} ${readableLocation} Use the readable summary first for reading, summarization, and question answering; use the original file when layout, images, formulas, or manual inspection are needed.${
+                attachment.truncated
+                  ? " The summary shown in this message is truncated."
+                  : ""
+              }${extractionError ? ` Local extraction reported: ${extractionError}` : ""}]`,
+              "",
+              readableSummary,
+            ].join("\n")
+          : `[File uploaded. ${fileLocation} Binary content is not embedded in this message.]`,
+        "</attachment>",
+      ].join("\n"),
     });
   }
 
@@ -1043,6 +1081,35 @@ function createScpInvocationState(
   };
 }
 
+function normalizeThreadSkills(value: unknown): ThreadSkillsState | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Partial<ThreadSkillsState>;
+  const revision =
+    typeof record.revision === "number" && Number.isFinite(record.revision)
+      ? Math.max(0, Math.floor(record.revision))
+      : 0;
+  const active = Array.isArray(record.active)
+    ? record.active.filter(
+        (skill) =>
+          skill &&
+          typeof skill.key === "string" &&
+          typeof skill.name === "string" &&
+          typeof skill.description === "string" &&
+          typeof skill.relativePath === "string" &&
+          typeof skill.folderName === "string"
+      )
+    : [];
+
+  return { revision, active };
+}
+
+function hasThreadSkills(value: ThreadSkillsState | null | undefined): boolean {
+  return Boolean(value?.active?.length);
+}
+
 export function useChat({
   activeAssistant,
   streamConfig,
@@ -1072,6 +1139,11 @@ export function useChat({
   const [optimisticThreadTitle, setOptimisticThreadTitle] = useState<
     string | null
   >(null);
+  const [pendingThreadSkills, setPendingThreadSkills] =
+    useState<ThreadSkillsState | null>(null);
+  const [optimisticThreadSkills, setOptimisticThreadSkills] =
+    useState<ThreadSkillsState | null>(null);
+  const threadSkillsRef = useRef<ThreadSkillsState | null>(null);
   const [runLifecycle, setRunLifecycle] = useState<RunLifecycle>({
     status: "idle",
   });
@@ -1157,6 +1229,9 @@ export function useChat({
       pendingNewThreadTitleThreadIdRef.current = null;
       setOptimisticThreadTitle(null);
     }
+    setPendingThreadSkills(null);
+    setOptimisticThreadSkills(null);
+    threadSkillsRef.current = null;
   }, [threadId]);
 
   const streamSubmitOptions = useMemo(
@@ -1375,11 +1450,25 @@ export function useChat({
       const scpPrompt = options.scpSelection ? parseScpPrompt(content) : null;
       const existingGoal = threadId ? stream.values.goal : null;
       const hasActiveGoal = existingGoal?.status === "active";
+      const pendingSkills = normalizeThreadSkills(pendingThreadSkills);
+      const selectedSkills = normalizeThreadSkills(threadSkillsRef.current);
+      const streamSkills = normalizeThreadSkills(stream.values.threadSkills);
+      const snapshotSkills = normalizeThreadSkills(
+        threadSnapshot?.data?.[0]?.values?.threadSkills
+      );
+      const runThreadSkills =
+        selectedSkills ??
+        (threadId ? streamSkills ?? snapshotSkills : pendingSkills);
       const shouldSeedGoal = Boolean(goalCommand && !hasActiveGoal);
       const shouldSeedScp = Boolean(options.scpSelection && scpPrompt);
+      const shouldSeedThreadSkills = hasThreadSkills(runThreadSkills);
       const pendingNewThreadTitle = pendingNewThreadTitleRef.current;
       const newThreadId =
-        !threadId && (shouldSeedGoal || shouldSeedScp || pendingNewThreadTitle)
+        !threadId &&
+        (shouldSeedGoal ||
+          shouldSeedScp ||
+          shouldSeedThreadSkills ||
+          pendingNewThreadTitle)
           ? uuidv4()
           : null;
       const seededGoalThreadId = shouldSeedGoal
@@ -1403,6 +1492,7 @@ export function useChat({
               seededScpThreadId
             )
           : null;
+      const seededThreadSkills = shouldSeedThreadSkills ? runThreadSkills : null;
       const messageContent = seededScp
         ? seededScp.prompt
         : seededGoal
@@ -1453,6 +1543,7 @@ export function useChat({
           messages: [newMessage],
           ...(seededGoal ? { goal: seededGoal } : {}),
           ...(seededScp ? { scpInvocation: seededScp } : {}),
+          ...(seededThreadSkills ? { threadSkills: seededThreadSkills } : {}),
         },
         withStreamSubmitOptions({
           metadata: workspaceMetadata,
@@ -1462,8 +1553,11 @@ export function useChat({
             messages: [...(prev.messages ?? []), newMessage],
             ...(seededGoal ? { goal: seededGoal } : {}),
             ...(seededScp ? { scpInvocation: seededScp } : {}),
+            ...(seededThreadSkills
+              ? { threadSkills: seededThreadSkills }
+              : {}),
           }),
-          config: buildRunConfig({ recursion_limit: 100 }),
+          config: buildRunConfig(),
           ...(seededGoal || seededScp ? { durability: "async" as const } : {}),
         })
       );
@@ -1477,6 +1571,8 @@ export function useChat({
       withStreamSubmitOptions,
       buildRunConfig,
       onHistoryRevalidate,
+      pendingThreadSkills,
+      threadSnapshot?.data,
       workspaceMetadata,
       invalidImplicitCheckpointOptions,
       threadId,
@@ -1515,7 +1611,7 @@ export function useChat({
               newMessage,
             ],
           }),
-          config: buildRunConfig({ recursion_limit: 100 }),
+          config: buildRunConfig(),
         })
       );
       onHistoryRevalidate?.();
@@ -1586,6 +1682,33 @@ export function useChat({
     [remoteAgent, threadId]
   );
 
+  const updateThreadSkills = useCallback(
+    async (nextThreadSkills: ThreadSkillsState | null) => {
+      const normalized = normalizeThreadSkills(nextThreadSkills) ?? {
+        revision: 0,
+        active: [],
+      };
+      const previous = threadSkillsRef.current;
+      threadSkillsRef.current = normalized;
+      if (!threadId) {
+        setPendingThreadSkills(normalized);
+        return;
+      }
+
+      setOptimisticThreadSkills(normalized);
+      try {
+        await remoteAgent.updateState(threadId, { threadSkills: normalized });
+        await threadSnapshot?.mutate?.(threadId);
+        onHistoryRevalidate?.();
+      } catch (error) {
+        threadSkillsRef.current = previous;
+        setOptimisticThreadSkills(previous);
+        throw error;
+      }
+    },
+    [onHistoryRevalidate, remoteAgent, threadId, threadSnapshot]
+  );
+
   const isThreadScopedStateLoading = Boolean(
     threadId &&
       (stream.isThreadLoading ||
@@ -1602,6 +1725,7 @@ export function useChat({
       files: {},
       goal: null,
       scpInvocation: null,
+      threadSkills: null,
     };
   }, [effectiveStreamValues, isThreadScopedStateLoading]);
   const scopedMessages = useMemo(
@@ -1610,6 +1734,35 @@ export function useChat({
   );
   const activeGoal = scopedValues.goal ?? null;
   const scpInvocation = scopedValues.scpInvocation ?? null;
+  const activeThreadSkills = useMemo(() => {
+    const stateSkills = normalizeThreadSkills(scopedValues.threadSkills);
+    const snapshotSkills = normalizeThreadSkills(
+      threadSnapshot?.data?.[0]?.values?.threadSkills
+    );
+    if (optimisticThreadSkills) {
+      return optimisticThreadSkills;
+    }
+    if (stateSkills) {
+      return stateSkills;
+    }
+    if (snapshotSkills) {
+      return snapshotSkills;
+    }
+    if (!threadId) {
+      return pendingThreadSkills;
+    }
+    return null;
+  }, [
+    optimisticThreadSkills,
+    pendingThreadSkills,
+    scopedValues.threadSkills,
+    threadSnapshot?.data,
+    threadId,
+  ]);
+
+  useEffect(() => {
+    threadSkillsRef.current = activeThreadSkills;
+  }, [activeThreadSkills]);
 
   const threadTitle = useMemo(() => {
     if (optimisticThreadTitle) {
@@ -1719,10 +1872,7 @@ export function useChat({
         undefined,
         withStreamSubmitOptions({
           ...invalidImplicitCheckpointOptions,
-          config: {
-            ...buildRunConfig(),
-            recursion_limit: 100,
-          },
+          config: buildRunConfig(),
           ...(hasTaskToolCall
             ? { interruptAfter: ["tools"] }
             : { interruptBefore: ["tools"] }),
@@ -1821,6 +1971,7 @@ export function useChat({
     files: scopedValues.files ?? {},
     goal: activeGoal,
     scpInvocation,
+    threadSkills: activeThreadSkills,
     email: scopedValues.email,
     ui: scopedValues.ui,
     threadId,
@@ -1829,6 +1980,7 @@ export function useChat({
     threadTitle,
     threadMetadata,
     updateThreadTitle,
+    updateThreadSkills,
     setFiles,
     messages: scopedMessages,
     error: visibleError,

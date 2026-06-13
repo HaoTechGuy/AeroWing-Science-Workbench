@@ -32,6 +32,7 @@ interface ChatMessageProps {
   onResumeInterrupt?: (value: any) => void;
   graphId?: string;
   runtimeMuted?: boolean;
+  onOpenAttachment?: (path: string) => void;
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
@@ -47,6 +48,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     onResumeInterrupt,
     graphId,
     runtimeMuted,
+    onOpenAttachment,
   }) => {
     const isUser = message.type === "human";
     const messageContent = extractVisibleStringFromMessageContent(message);
@@ -174,13 +176,29 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 />
               ))}
               {visibleFileAttachments.map((attachment) => (
-                <div
+                <button
                   key={attachment.id}
-                  className="flex max-w-56 items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-xs text-muted-foreground shadow-sm shadow-black/[0.025]"
+                  type="button"
+                  className={cn(
+                    "flex max-w-56 items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-left text-xs text-muted-foreground shadow-sm shadow-black/[0.025]",
+                    attachment.workspacePath &&
+                      "transition-colors hover:border-primary/30 hover:text-foreground"
+                  )}
+                  onClick={() => {
+                    if (attachment.workspacePath) {
+                      onOpenAttachment?.(attachment.workspacePath);
+                    }
+                  }}
+                  disabled={!attachment.workspacePath}
+                  title={
+                    attachment.workspacePath
+                      ? `打开 ${attachment.workspacePath}`
+                      : attachment.name
+                  }
                 >
                   <FileIcon className="h-4 w-4 shrink-0" />
                   <span className="min-w-0 truncate">{attachment.name}</span>
-                </div>
+                </button>
               ))}
             </div>
           )}

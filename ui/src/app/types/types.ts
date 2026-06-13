@@ -65,6 +65,20 @@ export interface ScpInvocationState {
   updatedAt: number;
 }
 
+export interface ThreadSkillItem {
+  key: string;
+  name: string;
+  description: string;
+  relativePath: string;
+  folderName: string;
+  addedAt: number;
+}
+
+export interface ThreadSkillsState {
+  revision: number;
+  active: ThreadSkillItem[];
+}
+
 export interface ChatAttachment {
   id: string;
   name: string;

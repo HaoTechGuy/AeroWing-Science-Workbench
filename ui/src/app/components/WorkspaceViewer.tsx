@@ -7,6 +7,7 @@ import {
   PanelRight,
   PanelRightClose,
   PanelRightOpen,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -19,7 +20,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { WorkspaceFileResponse } from "@/app/types/workspace";
+import type {
+  WorkspaceFileResponse,
+  WorkspaceOfficePreviewBlock,
+} from "@/app/types/workspace";
 
 interface WorkspaceViewerProps {
   selectedPath?: string | null;
@@ -28,6 +32,7 @@ interface WorkspaceViewerProps {
   compact?: boolean;
   onCollapse?: () => void;
   onExpand?: () => void;
+  onClear?: () => void;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -51,6 +56,29 @@ const LANGUAGE_MAP: Record<string, string> = {
   ".yaml": "yaml",
   ".yml": "yaml",
 };
+
+const PREVIEW_KIND_LABELS: Record<WorkspaceFileResponse["previewKind"], string> =
+  {
+    binary: "Binary",
+    docx: "Docx",
+    image: "Image",
+    markdown: "Markdown",
+    pdf: "PDF",
+    pptx: "PPT",
+    text: "Text",
+    unsupported: "File",
+    xlsx: "Excel",
+  };
+
+function previewKindLabel(kind: WorkspaceFileResponse["previewKind"]): string {
+  return PREVIEW_KIND_LABELS[kind] || kind;
+}
+
+function isOfficePreviewKind(
+  kind: WorkspaceFileResponse["previewKind"] | undefined
+) {
+  return kind === "docx" || kind === "xlsx" || kind === "pptx";
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -88,7 +116,7 @@ function EmptyViewer() {
           <PanelRight className="h-5 w-5 text-muted-foreground" />
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          从工作区选择代码、文本、图片或 PDF 文件后，会在这里预览。
+          从工作区选择代码、文本、图片、PDF、Docx、Excel 或 PPT 文件后，会在这里预览。
         </p>
       </div>
     </div>
@@ -126,6 +154,37 @@ function CollapsePreviewButton({ onCollapse }: { onCollapse?: () => void }) {
   );
 }
 
+function ClearPreviewButton({ onClear }: { onClear?: () => void }) {
+  if (!onClear) {
+    return null;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+          aria-label="关闭文件预览"
+          onClick={onClear}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="center"
+        sideOffset={6}
+        className="whitespace-nowrap"
+      >
+        关闭文件预览
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function ViewerHeader({
   title,
   onCollapse,
@@ -143,6 +202,174 @@ function ViewerHeader({
   );
 }
 
+function hasOfficeBlockContent(block: WorkspaceOfficePreviewBlock): boolean {
+  return Boolean(block.lines?.length || block.rows?.length);
+}
+
+function OfficeFallback({ message }: { message?: string }) {
+  return (
+    <div className="flex h-full items-center justify-center px-8 text-center">
+      <div className="max-w-sm rounded-md border border-border bg-muted p-5 text-sm leading-6 text-muted-foreground">
+        {message || "无法生成预览，可用系统查看器打开文件。"}
+      </div>
+    </div>
+  );
+}
+
+function OfficeTextBlock({
+  block,
+  documentMode = false,
+}: {
+  block: WorkspaceOfficePreviewBlock;
+  documentMode?: boolean;
+}) {
+  const lines = block.lines || [];
+  if (lines.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">没有可预览的文本内容。</p>
+    );
+  }
+
+  return (
+    <div className={documentMode ? "space-y-4" : "space-y-3"}>
+      {lines.map((line, index) => (
+        <p
+          key={`${index}-${line.slice(0, 24)}`}
+          className={
+            documentMode
+              ? "whitespace-pre-wrap break-words text-[15px] leading-7 text-foreground"
+              : "whitespace-pre-wrap break-words text-sm leading-6 text-foreground"
+          }
+        >
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function OfficeSheetBlock({ block }: { block: WorkspaceOfficePreviewBlock }) {
+  const rows = block.rows || [];
+  const maxColumns = Math.max(...rows.map((row) => row.length), 0);
+  const columns = Array.from({ length: maxColumns }, (_, index) => index);
+
+  if (rows.length === 0 || maxColumns === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">没有可预览的表格内容。</p>
+    );
+  }
+
+  return (
+    <div className="w-full min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-background">
+      <div className="scrollbar-subtle w-full min-w-0 overflow-x-auto overflow-y-hidden pb-2">
+        <table className="w-max min-w-full border-collapse text-xs">
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr
+                key={rowIndex}
+                className="border-b border-border last:border-b-0"
+              >
+                <th className="sticky left-0 z-10 w-10 min-w-10 border-r border-border bg-muted px-2 py-1 text-right font-medium text-muted-foreground">
+                  {rowIndex + 1}
+                </th>
+                {columns.map((columnIndex) => (
+                  <td
+                    key={columnIndex}
+                    className="min-w-[120px] max-w-[260px] border-r border-border px-2 py-1 align-top leading-5 text-foreground last:border-r-0"
+                  >
+                    <span className="block whitespace-pre-wrap break-words">
+                      {row[columnIndex] || ""}
+                    </span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
+  const preview = file.officePreview;
+  const blocks = preview?.blocks || [];
+  const hasContent = blocks.some(hasOfficeBlockContent);
+
+  if (!preview || preview.error || !hasContent) {
+    return <OfficeFallback message={preview?.error} />;
+  }
+
+  if (preview.kind === "docx") {
+    return (
+      <div className="scrollbar-subtle h-full w-full min-w-0 overflow-y-auto bg-muted/30">
+        <div className="w-full min-w-0 px-4 py-5 sm:px-6">
+          {preview.truncated && (
+            <div className="mx-auto mb-4 max-w-[740px] rounded-md border border-border bg-background px-3 py-2 text-xs leading-5 text-muted-foreground shadow-sm shadow-black/[0.025]">
+              预览已截断，仅显示文件前部分内容。
+            </div>
+          )}
+          <article className="mx-auto min-h-[72vh] w-full max-w-[740px] rounded-md border border-border bg-background px-6 py-7 shadow-sm shadow-black/[0.04] sm:px-10 sm:py-10">
+            <div className="space-y-7">
+              {blocks.map((block, index) => (
+                <section key={`${block.title}-${index}`} className="min-w-0">
+                  {blocks.length > 1 && (
+                    <div className="mb-4 flex items-center justify-between gap-3 border-b border-border/70 pb-2">
+                      <h3 className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {block.title}
+                      </h3>
+                      {block.truncated && (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          已截断
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <OfficeTextBlock block={block} documentMode />
+                </section>
+              ))}
+            </div>
+          </article>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="scrollbar-subtle h-full w-full min-w-0 overflow-y-auto">
+      <div className="min-w-0 space-y-4 px-5 py-4">
+        {preview.truncated && (
+          <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
+            预览已截断，仅显示文件前部分内容。
+          </div>
+        )}
+        {blocks.map((block, index) => (
+          <section
+            key={`${block.title}-${index}`}
+            className="min-w-0 rounded-md border border-border bg-card p-4"
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="truncate text-sm font-semibold leading-5">
+                {block.title}
+              </h3>
+              {block.truncated && (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  已截断
+                </span>
+              )}
+            </div>
+            {preview.kind === "xlsx" ? (
+              <OfficeSheetBlock block={block} />
+            ) : (
+              <OfficeTextBlock block={block} />
+            )}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function WorkspaceViewer({
   selectedPath,
   resourceId,
@@ -150,6 +377,7 @@ export function WorkspaceViewer({
   compact,
   onCollapse,
   onExpand,
+  onClear,
 }: WorkspaceViewerProps) {
   const [file, setFile] = useState<WorkspaceFileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -257,7 +485,7 @@ export function WorkspaceViewer({
 
   if (!selectedPath) {
     return (
-      <div className="flex h-full flex-col bg-card">
+      <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-card">
         <ViewerHeader
           title="文件预览"
           onCollapse={onCollapse}
@@ -268,7 +496,7 @@ export function WorkspaceViewer({
   }
 
   return (
-    <div className="flex h-full flex-col bg-card">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-card">
       <div className="flex min-h-11 shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-card/90 px-4 py-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="min-w-0 truncate text-sm font-semibold leading-5">
@@ -276,7 +504,9 @@ export function WorkspaceViewer({
           </h2>
           <div className="flex shrink-0 items-center gap-2 text-xs leading-4 text-muted-foreground">
             {file && <span>{formatBytes(file.size)}</span>}
-            {file?.previewKind && <span>{file.previewKind}</span>}
+            {file?.previewKind && (
+              <span>{previewKindLabel(file.previewKind)}</span>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -298,15 +528,16 @@ export function WorkspaceViewer({
               )}
             </Button>
           )}
+          <ClearPreviewButton onClear={onClear} />
           <CollapsePreviewButton onCollapse={onCollapse} />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         {isLoading && (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading file...
+            正在加载文件...
           </div>
         )}
 
@@ -347,7 +578,7 @@ export function WorkspaceViewer({
             <div className="min-w-0 p-4">
               {file.tooLarge ? (
                 <div className="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
-                  This text file is too large to preview inline.
+                  这个文本文件太大，无法在这里直接预览。
                 </div>
               ) : (
                 <SyntaxHighlighter
@@ -394,10 +625,16 @@ export function WorkspaceViewer({
         {!isLoading &&
           !error &&
           file &&
-          !["image", "markdown", "pdf", "text"].includes(file.previewKind) && (
+          isOfficePreviewKind(file.previewKind) && <OfficePreview file={file} />}
+
+        {!isLoading &&
+          !error &&
+          file &&
+          !["image", "markdown", "pdf", "text"].includes(file.previewKind) &&
+          !isOfficePreviewKind(file.previewKind) && (
             <div className="flex h-full items-center justify-center px-8 text-center">
               <div className="max-w-xs rounded-md border border-border bg-muted p-5 text-sm text-muted-foreground">
-                This file type cannot be previewed inline.
+                这个文件类型暂时不能在这里直接预览。
               </div>
             </div>
           )}
