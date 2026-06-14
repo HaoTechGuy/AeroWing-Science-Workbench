@@ -21,6 +21,7 @@ from deepagents.backends.protocol import (
 from internagent_resources import ResourceConfig, load_resource_config
 
 SKILL_URI_PREFIX = "skill://"
+VALIDATED_SKILL_URI_PREFIX = "/skill:/"
 SHELL_PATH_STOP_CHARS = set(" \t\r\n'\";|&<>()")
 HOST_ROOTS = {
     "Applications",
@@ -39,6 +40,13 @@ HOST_ROOTS = {
     "usr",
     "var",
 }
+
+
+def _canonical_skill_uri(file_path: str) -> str:
+    """Recover skill URIs after DeepAgents virtual path normalization."""
+    if file_path.startswith(VALIDATED_SKILL_URI_PREFIX):
+        return f"{SKILL_URI_PREFIX}{file_path[len(VALIDATED_SKILL_URI_PREFIX):]}"
+    return file_path
 
 
 class DynamicLocalShellBackend(SandboxBackendProtocol):
@@ -174,6 +182,7 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         return None
 
     def _resolve_skill_path(self, file_path: str) -> tuple[Path | None, str | None]:
+        file_path = _canonical_skill_uri(file_path)
         if not file_path.startswith(SKILL_URI_PREFIX):
             return None, None
 
@@ -251,8 +260,13 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
                 None,
                 (
                     "Path is outside the selected workspace. "
-                    "Use a logical workspace path such as '/file.py' or "
-                    "a logical skill path such as 'skill://docx/SKILL.md'."
+                    "For filesystem tools, use a logical workspace path such as "
+                    "'/document.docx' or '/scripts/process.py', or a logical "
+                    "skill path such as "
+                    "'skill://docx/SKILL.md'. When running shell commands or "
+                    "writing code/scripts, use workspace-relative paths such as "
+                    "'document.docx' or './scripts/process.py' instead of host "
+                    "paths or logical absolute paths."
                 ),
             )
 
@@ -337,7 +351,7 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         return self._backend().glob(pattern, normalized or path)
 
     def write(self, file_path: str, content: str):
-        if file_path.startswith(SKILL_URI_PREFIX):
+        if _canonical_skill_uri(file_path).startswith(SKILL_URI_PREFIX):
             return WriteResult(error="Skills are read-only. Write workspace files under '/...'.")
         normalized, error = self._normalize_path(file_path)
         if error:
@@ -351,7 +365,7 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         new_string: str,
         replace_all: bool = False,
     ):
-        if file_path.startswith(SKILL_URI_PREFIX):
+        if _canonical_skill_uri(file_path).startswith(SKILL_URI_PREFIX):
             return EditResult(error="Skills are read-only. Edit workspace files under '/...'.")
         normalized, error = self._normalize_path(file_path)
         if error:
@@ -415,8 +429,9 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         return "." if not relative else f"./{relative.rstrip('/')}"
 
     def _logical_shell_path(self, token: str) -> str | None:
-        if token.startswith(SKILL_URI_PREFIX):
-            resolved, error = self._resolve_skill_path(token)
+        skill_token = _canonical_skill_uri(token)
+        if skill_token.startswith(SKILL_URI_PREFIX):
+            resolved, error = self._resolve_skill_path(skill_token)
             if error or resolved is None:
                 return None
             return str(resolved)
