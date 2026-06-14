@@ -13,6 +13,7 @@ const distDir = path.join(rootDir, "dist-app");
 const uiStandaloneDir = path.join(distDir, "ui-standalone");
 const templateDir = path.join(distDir, "internagents-template");
 const pythonRuntimeDir = path.join(distDir, "python-runtime");
+const officeToolsDir = path.join(distDir, "office-tools");
 const standaloneDependencyRoots = ["pdf-parse"];
 const backendWheelhouseDirName = "backend-wheelhouse";
 const backendCliArchiveName = "internagents-backend-cli.tar.gz";
@@ -31,6 +32,13 @@ const backendWheelhouseTargets = [
 const backendSourceDistributions = new Set(["forbiddenfruit"]);
 const backendLinuxWheelhouseExcludedRequirements = new Set(["pywin32"]);
 const backendRuntimeBinaryRequirements = ["httptools>=0.5.0", "uvloop>=0.18.0"];
+const officePythonImportChecks = [
+  ["defusedxml", "defusedxml"],
+  ["lxml.etree", "lxml"],
+  ["pandas", "pandas"],
+  ["openpyxl", "openpyxl"],
+  ["markitdown", "markitdown[pptx]"],
+];
 const canCreatePortableSymlinks = process.platform !== "win32";
 const standaloneCopyLinkOptions = {
   verbatimSymlinks: canCreatePortableSymlinks,
@@ -62,6 +70,29 @@ const runtimeEntries = [
   "requirements.txt",
   "skills",
 ];
+// Developer-only skills can stay in Git, but should not ship to user runtimes.
+const runtimeSkillExcludedDirectories = new Set(["codex"]);
+
+function shouldCopyRuntimeSkill(source) {
+  const skillsRoot = path.join(rootDir, "skills");
+  const relativePath = path.relative(skillsRoot, source);
+  if (!relativePath) {
+    return true;
+  }
+
+  const [topLevelDirectory] = relativePath.split(path.sep);
+  return !runtimeSkillExcludedDirectories.has(topLevelDirectory);
+}
+
+function runtimeCopyOptions(entry) {
+  if (entry !== "skills") {
+    return {};
+  }
+
+  return {
+    filter: (source) => shouldCopyRuntimeSkill(source),
+  };
+}
 
 function commandForPlatform(command, args) {
   if (command === "npm" && process.env.npm_execpath) {
@@ -75,6 +106,58 @@ function commandForPlatform(command, args) {
     executable: command,
     args,
   };
+}
+
+function executableName(name) {
+  return process.platform === "win32" ? `${name}.exe` : name;
+}
+
+function findExecutableOnPath(command) {
+  const lookupCommand = process.platform === "win32" ? "where" : "which";
+  const result = spawnSync(lookupCommand, [command], {
+    encoding: "utf8",
+    shell: false,
+  });
+  if (result.status !== 0) {
+    return "";
+  }
+  return (
+    result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || ""
+  );
+}
+
+function findNamedExecutable(directory, names) {
+  if (!existsSync(directory)) {
+    return "";
+  }
+
+  const stack = [directory];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      if (
+        (entry.isFile() || entry.isSymbolicLink()) &&
+        names.has(entry.name.toLowerCase())
+      ) {
+        return entryPath;
+      }
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+      }
+    }
+  }
+  return "";
 }
 
 function run(command, args, options = {}) {
@@ -404,7 +487,8 @@ async function prepareRuntimeTemplate() {
   for (const entry of runtimeEntries) {
     await copyIfExists(
       path.join(rootDir, entry),
-      path.join(templateDir, entry)
+      path.join(templateDir, entry),
+      runtimeCopyOptions(entry)
     );
   }
   await copyIfExists(
@@ -628,6 +712,118 @@ async function prepareBackendCliArchive() {
   });
 }
 
+async function copyExecutable(source, destination) {
+  const realSource = await fs.realpath(source);
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+  await fs.cp(realSource, destination, {
+    recursive: true,
+    force: true,
+    verbatimSymlinks: false,
+  });
+  if (process.platform !== "win32") {
+    await fs.chmod(destination, 0o755).catch(() => undefined);
+  }
+}
+
+function validateExecutable(command, args, env = process.env) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    env,
+    shell: false,
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `${command} ${args.join(" ")} failed: ${
+        result.error?.message || result.stderr || result.stdout
+      }`
+    );
+  }
+}
+
+async function preparePandocBinary() {
+  const source =
+    process.env.INTERNAGENTS_PANDOC_BIN || findExecutableOnPath("pandoc");
+  if (!source || !existsSync(source)) {
+    throw new Error(
+      "Office attachment packaging requires pandoc. Set INTERNAGENTS_PANDOC_BIN or install pandoc on the build machine."
+    );
+  }
+
+  const destination = path.join(officeToolsDir, "bin", executableName("pandoc"));
+  await copyExecutable(source, destination);
+  validateExecutable(destination, ["--version"]);
+  console.log(`Bundled pandoc at ${path.relative(distDir, destination)}.`);
+}
+
+function libreOfficeSourceCandidates() {
+  return uniquePaths([
+    process.env.INTERNAGENTS_LIBREOFFICE_RUNTIME_SOURCE,
+    process.platform === "darwin" ? "/Applications/LibreOffice.app" : "",
+  ]);
+}
+
+async function prepareLibreOfficeRuntime() {
+  const destinationRoot = path.join(officeToolsDir, "libreoffice");
+  const source = libreOfficeSourceCandidates().find((candidate) =>
+    existsSync(candidate)
+  );
+
+  if (!source) {
+    if (process.env.INTERNAGENTS_SKIP_LIBREOFFICE_RUNTIME === "1") {
+      await fs.mkdir(destinationRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(destinationRoot, "README.txt"),
+        [
+          "LibreOffice runtime was intentionally not bundled.",
+          "Legacy .doc/.xls/.ppt conversion is disabled for this package.",
+        ].join("\n")
+      );
+      console.warn(
+        "LibreOffice runtime was skipped; legacy .doc/.xls/.ppt conversion will be unavailable in packaged apps."
+      );
+      return;
+    }
+    throw new Error(
+      "Office attachment packaging requires LibreOffice for legacy .doc/.xls/.ppt conversion. Set INTERNAGENTS_LIBREOFFICE_RUNTIME_SOURCE or INTERNAGENTS_SKIP_LIBREOFFICE_RUNTIME=1."
+    );
+  }
+
+  const stat = statSync(source);
+  const destination = stat.isDirectory()
+    ? path.join(destinationRoot, path.basename(source))
+    : path.join(destinationRoot, "bin", path.basename(source));
+  await fs.mkdir(destinationRoot, { recursive: true });
+  await fs.cp(await fs.realpath(source), destination, {
+    recursive: stat.isDirectory(),
+    force: true,
+    verbatimSymlinks: false,
+  });
+
+  const soffice = findNamedExecutable(
+    destinationRoot,
+    new Set([executableName("soffice").toLowerCase()])
+  );
+  if (!soffice) {
+    throw new Error(
+      `LibreOffice runtime source ${source} did not contain a soffice executable.`
+    );
+  }
+
+  validateExecutable(soffice, ["--version"], {
+    ...process.env,
+    SAL_USE_VCLPLUGIN: "svp",
+  });
+  console.log(`Bundled LibreOffice at ${path.relative(distDir, soffice)}.`);
+}
+
+async function prepareOfficeTools() {
+  await fs.rm(officeToolsDir, { recursive: true, force: true });
+  await fs.mkdir(officeToolsDir, { recursive: true });
+  await preparePandocBinary();
+  await prepareLibreOfficeRuntime();
+}
+
 function uniquePaths(paths) {
   const seen = new Set();
   return paths.filter((candidate) => {
@@ -823,12 +1019,27 @@ function isPortablePythonCandidate(candidate, runtimeDir) {
 }
 
 function pythonSmokeTest(candidate, runtimeDir) {
+  const script = [
+    "import sys",
+    "required = " + JSON.stringify(officePythonImportChecks),
+    "missing = []",
+    "for module_name, package_name in required:",
+    "    try:",
+    "        __import__(module_name)",
+    "    except Exception as exc:",
+    "        missing.append(f'{package_name} ({module_name}): {exc}')",
+    "try:",
+    "    import langgraph_cli",
+    "except Exception as exc:",
+    "    missing.append(f'langgraph-cli[inmem] (langgraph_cli): {exc}')",
+    "if sys.version_info < (3, 11):",
+    "    missing.append('Python >= 3.11 is required')",
+    "if missing:",
+    "    raise SystemExit('Missing bundled Python runtime dependency:\\n- ' + '\\n- '.join(missing))",
+  ].join("\n");
   const result = spawnSync(
     candidate,
-    [
-      "-c",
-      "import sys; import langgraph_cli; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
-    ],
+    ["-c", script],
     {
       cwd: rootDir,
       encoding: "utf8",
@@ -1080,6 +1291,7 @@ async function main() {
   await prepareBackendWheelhouse();
   await prepareBackendCliArchive();
   await preparePythonRuntime();
+  await prepareOfficeTools();
   await pruneWindowsPythonRuntime();
 
   console.log(`Prepared desktop resources at ${distDir}`);

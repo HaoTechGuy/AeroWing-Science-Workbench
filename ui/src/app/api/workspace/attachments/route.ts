@@ -8,7 +8,7 @@ import {
   writeWorkspaceRawFile,
 } from "../_lib/workspace";
 import {
-  buildOfficePreview,
+  buildOfficeReadablePreview,
   officePreviewToMarkdown,
 } from "../_lib/office-preview";
 import type { WorkspaceOfficePreviewKind } from "@/app/types/workspace";
@@ -300,7 +300,10 @@ export async function POST(request: NextRequest) {
           officeType.matchedExtension
         )}.summary.md`,
       ].join("/");
-      const preview = buildOfficePreview(rawFile.path, rawFile.data);
+      const preview = await buildOfficeReadablePreview(
+        rawFile.path,
+        rawFile.data
+      );
       const summaryMarkdown = officePreviewToMarkdown({
         name: rawFile.name || path.basename(rawFile.path),
         sourceWorkspacePath,
@@ -395,7 +398,7 @@ export async function POST(request: NextRequest) {
         workspaceIdValue
       );
       const sourceWorkspacePath = workspaceFilePath(fileData.path);
-      const preview = buildOfficePreview(fileData.path, data);
+      const preview = await buildOfficeReadablePreview(fileData.path, data);
       const summaryMarkdown = officePreviewToMarkdown({
         name: file.name || fileData.name,
         sourceWorkspacePath,

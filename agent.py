@@ -697,6 +697,21 @@ def _logical_path_prompt() -> str:
     )
 
 
+def _office_attachment_prompt() -> str:
+    return (
+        "For Office attachments (.doc, .docx, .xls, .xlsx, .ppt, .pptx), "
+        "do not use read_file on the original Office file as the first step; "
+        "it is a binary/container file. First read the readable summary path "
+        "shown in the attachment, such as readable_logical_path or "
+        "extractedWorkspacePath. Also read the matching skill before editing "
+        "or extracting beyond the summary: Word files use "
+        "'skill://docx/SKILL.md', Excel files use 'skill://xlsx/SKILL.md', "
+        "and PowerPoint files use 'skill://pptx/SKILL.md'. Use the original "
+        "Office file only when layout, images, formulas, or document editing "
+        "requires it, and then follow the corresponding skill workflow."
+    )
+
+
 def _remote_workspace_path_prompt() -> str:
     return (
         "Use workspace-virtual file paths such as '/file.py' or '/src/file.py' "
@@ -795,7 +810,8 @@ def _resource_system_prompt(base_prompt: str, resource: ResourceConfig) -> str:
         f"{kb_line}\n"
         "Do not change server network settings, firewall settings, SSH daemon settings, or cloud security-group settings. "
         "If such a change seems necessary, stop and ask the user. "
-        f"{path_prompt}"
+        f"{path_prompt}\n"
+        f"{_office_attachment_prompt()}"
     )
 
 
@@ -1436,7 +1452,8 @@ def create_runtime_agent():  # noqa: ANN201
         f"Runtime id: {runtime_id}\n"
         "The main InternAgents server coordinates sessions and projects your state to the frontend. "
         "Do not change server network settings, firewall settings, SSH daemon settings, or cloud security-group settings. "
-        "If such a change seems necessary, stop and ask the user."
+        "If such a change seems necessary, stop and ask the user.\n"
+        f"{_office_attachment_prompt()}"
     )
     if runtime_resource is not None:
         path_prompt = (

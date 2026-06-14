@@ -3,5 +3,10 @@ langchain-openai
 langchain-mcp-adapters
 langchain-openrouter>=0.2.0
 langgraph-cli[inmem]
+defusedxml
+lxml
+markitdown[pptx]
+openpyxl
+pandas
 python-dotenv
 socksio

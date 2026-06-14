@@ -25,6 +25,9 @@ export interface WorkspaceOfficePreview {
   blocks: WorkspaceOfficePreviewBlock[];
   truncated?: boolean;
   error?: string;
+  extractionMethod?: string;
+  convertedFrom?: string;
+  warnings?: string[];
 }
 
 export interface WorkspaceEntry {

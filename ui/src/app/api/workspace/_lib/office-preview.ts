@@ -1,4 +1,9 @@
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { inflateRawSync } from "node:zlib";
 import type {
   WorkspaceOfficePreview,
@@ -18,6 +23,10 @@ const MAX_XLSX_SHEETS = 8;
 const MAX_XLSX_ROWS = 80;
 const MAX_XLSX_COLUMNS = 20;
 const MAX_PREVIEW_CHARS = 120_000;
+const OFFICE_PREPROCESS_TIMEOUT_MS = 30_000;
+const OFFICE_PREPROCESS_MAX_BUFFER = 2_000_000;
+
+const execFileAsync = promisify(execFile);
 
 const OFFICE_KIND_LABELS: Record<WorkspaceOfficePreviewKind, string> = {
   docx: "Word document",
@@ -64,6 +73,75 @@ export function buildOfficePreview(
   }
 }
 
+export async function buildOfficeReadablePreview(
+  filePath: string,
+  data: Buffer
+): Promise<WorkspaceOfficePreview> {
+  const kind = officePreviewKindForPath(filePath);
+  const extension = path.extname(filePath).toLowerCase();
+  const warnings: string[] = [];
+  let tempDir: string | null = null;
+
+  try {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "internagents-office-"));
+    const sourcePath = path.join(
+      tempDir,
+      `source${extension || defaultOfficeExtension(kind)}`
+    );
+    await writeFile(sourcePath, data);
+
+    let preparedPath = sourcePath;
+    let convertedFrom: string | undefined;
+    let preparationMethod: string | undefined;
+
+    if (isLegacyOfficeExtension(extension)) {
+      const converted = await convertLegacyOfficeFile(
+        sourcePath,
+        kind,
+        tempDir
+      );
+      preparedPath = converted.path;
+      convertedFrom = extension;
+      preparationMethod = converted.method;
+    }
+
+    if (kind === "docx") {
+      const preview = await buildDocxReadablePreview(preparedPath, tempDir);
+      return withPreviewMetadata(preview, {
+        method: joinMethods(preparationMethod, preview.extractionMethod),
+        convertedFrom,
+      });
+    }
+
+    if (kind === "xlsx") {
+      const preview = await buildXlsxReadablePreview(preparedPath);
+      return withPreviewMetadata(preview, {
+        method: joinMethods(preparationMethod, preview.extractionMethod),
+        convertedFrom,
+      });
+    }
+
+    const preview = await buildPptxReadablePreview(preparedPath, tempDir);
+    return withPreviewMetadata(preview, {
+      method: joinMethods(preparationMethod, preview.extractionMethod),
+      convertedFrom,
+    });
+  } catch (error) {
+    warnings.push(
+      `Skill-style Office preprocessing failed: ${formatErrorMessage(error)}`
+    );
+    const fallback = buildOfficePreview(filePath, data);
+    return withPreviewMetadata(fallback, {
+      method: fallback.extractionMethod || "direct-openxml-preview-fallback",
+      warnings,
+    });
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
 export function officePreviewToMarkdown({
   name,
   sourceWorkspacePath,
@@ -82,8 +160,18 @@ export function officePreviewToMarkdown({
     `Source file logical path (file tools): ${sourceWorkspacePath}`,
     `Source file shell/script path: ${sourceRuntimePath}`,
     `Type: ${OFFICE_KIND_LABELS[preview.kind] || preview.kind}`,
+    `Extraction method: ${
+      preview.extractionMethod || "direct-openxml-preview"
+    }`,
+    ...(preview.convertedFrom
+      ? [`Converted from: ${preview.convertedFrom}`]
+      : []),
     `Truncated: ${preview.truncated ? "yes" : "no"}`,
   ];
+
+  if (preview.warnings?.length) {
+    lines.push("", "## Extraction Warnings", "", ...preview.warnings);
+  }
 
   if (preview.error) {
     lines.push("", "## Extraction Error", "", preview.error);
@@ -126,6 +214,285 @@ function officePreviewKindForPath(
   throw new Error("Unsupported Office file type.");
 }
 
+function defaultOfficeExtension(kind: WorkspaceOfficePreviewKind): string {
+  if (kind === "docx") return ".docx";
+  if (kind === "xlsx") return ".xlsx";
+  return ".pptx";
+}
+
+function isLegacyOfficeExtension(extension: string): boolean {
+  return extension === ".doc" || extension === ".xls" || extension === ".ppt";
+}
+
+async function buildDocxReadablePreview(
+  filePath: string,
+  tempDir: string
+): Promise<WorkspaceOfficePreview> {
+  const pandocCommands = pandocCommandCandidates();
+  if (pandocCommands.length > 0) {
+    try {
+      const markdown = await readDocxWithPandoc(filePath, pandocCommands);
+      return withPreviewMetadata(
+        previewFromMarkdownText("docx", "Markdown", markdown),
+        { method: "pandoc-markdown" }
+      );
+    } catch {
+      // Fall back to the skill XML unpacker; the summary should still be usable.
+    }
+  }
+
+  const unpackedDir = path.join(tempDir, "docx-unpacked");
+  await runSkillUnpack("docx", filePath, unpackedDir);
+  const documentXml = await readFile(
+    path.join(unpackedDir, "word", "document.xml"),
+    "utf8"
+  );
+  return withPreviewMetadata(buildDocxPreviewFromXml("docx", documentXml), {
+    method: "skill-unpack-xml",
+  });
+}
+
+async function buildPptxReadablePreview(
+  filePath: string,
+  tempDir: string
+): Promise<WorkspaceOfficePreview> {
+  try {
+    const markdown = await readPptxWithMarkitdown(filePath);
+    return withPreviewMetadata(
+      previewFromMarkdownText("pptx", "Markdown", markdown),
+      { method: "markitdown-markdown" }
+    );
+  } catch {
+    // Fall back to the skill XML unpacker; the summary should still be usable.
+  }
+
+  const unpackedDir = path.join(tempDir, "pptx-unpacked");
+  await runSkillUnpack("pptx", filePath, unpackedDir);
+  const slidesDir = path.join(unpackedDir, "ppt", "slides");
+  const slideFiles = (await readdir(slidesDir))
+    .filter((entryName) => /^slide\d+\.xml$/i.test(entryName))
+    .sort((left, right) => slideIndex(left) - slideIndex(right));
+  if (slideFiles.length === 0) {
+    throw new Error("未找到演示文稿页面。");
+  }
+  const slides: Array<{ name: string; xml: string }> = [];
+  for (const slideFile of slideFiles) {
+    slides.push({
+      name: slideFile,
+      xml: await readFile(path.join(slidesDir, slideFile), "utf8"),
+    });
+  }
+  return withPreviewMetadata(buildPptxPreviewFromSlides("pptx", slides), {
+    method: "skill-unpack-xml",
+  });
+}
+
+async function buildXlsxReadablePreview(
+  filePath: string
+): Promise<WorkspaceOfficePreview> {
+  const pandas = await readXlsxWithPandas(filePath);
+  return withPreviewMetadata(
+    {
+      kind: "xlsx",
+      blocks: pandas.blocks,
+      truncated: pandas.truncated,
+    },
+    { method: "pandas-read-excel" }
+  );
+}
+
+async function runSkillUnpack(
+  kind: WorkspaceOfficePreviewKind,
+  filePath: string,
+  outputDirectory: string
+): Promise<void> {
+  const script = resolveSkillScript(kind, "scripts/office/unpack.py");
+  await runCommandCandidates(pythonCommandCandidates(), [
+    script,
+    filePath,
+    outputDirectory,
+  ]);
+}
+
+async function readDocxWithPandoc(
+  filePath: string,
+  commands: string[]
+): Promise<string> {
+  const result = await runCommandCandidates(commands, [
+    "--track-changes=all",
+    "--wrap=none",
+    filePath,
+    "-t",
+    "gfm",
+  ]);
+  if (!result.stdout.trim()) {
+    throw new Error("pandoc returned empty output.");
+  }
+  return result.stdout;
+}
+
+async function readPptxWithMarkitdown(filePath: string): Promise<string> {
+  const result = await runCommandCandidates(pythonCommandCandidates(), [
+    "-m",
+    "markitdown",
+    filePath,
+  ]);
+  if (!result.stdout.trim()) {
+    throw new Error("markitdown returned empty output.");
+  }
+  return result.stdout;
+}
+
+function previewFromMarkdownText(
+  kind: WorkspaceOfficePreviewKind,
+  title: string,
+  markdown: string
+): WorkspaceOfficePreview {
+  const lines: string[] = [];
+  let totalChars = 0;
+  let truncated = false;
+
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const line = normalizePreviewText(rawLine);
+    if (!line) {
+      continue;
+    }
+    if (lines.length >= MAX_DOCX_PARAGRAPHS) {
+      truncated = true;
+      break;
+    }
+    if (totalChars + line.length > MAX_PREVIEW_CHARS) {
+      truncated = true;
+      break;
+    }
+    totalChars += line.length;
+    lines.push(line);
+  }
+
+  return {
+    kind,
+    blocks: [
+      {
+        title,
+        lines,
+        truncated,
+      },
+    ],
+    truncated,
+  };
+}
+
+async function convertLegacyOfficeFile(
+  filePath: string,
+  kind: WorkspaceOfficePreviewKind,
+  outputDirectory: string
+): Promise<{ path: string; method: string }> {
+  const outputExtension = defaultOfficeExtension(kind);
+  const outputFormat = outputExtension.slice(1);
+  await runCommandCandidates(
+    sofficeCommandCandidates(),
+    [
+      "--headless",
+      "--convert-to",
+      outputFormat,
+      "--outdir",
+      outputDirectory,
+      filePath,
+    ],
+    {
+      env: { ...process.env, SAL_USE_VCLPLUGIN: "svp" },
+      timeoutMs: 45_000,
+    }
+  );
+
+  const basename = path.basename(filePath, path.extname(filePath));
+  const expectedPath = path.join(outputDirectory, `${basename}${outputExtension}`);
+  if (existsSync(expectedPath)) {
+    return {
+      path: expectedPath,
+      method: `libreoffice-convert-to-${outputFormat}`,
+    };
+  }
+
+  const converted = (await readdir(outputDirectory)).find((entryName) =>
+    entryName.toLowerCase().endsWith(outputExtension)
+  );
+  if (!converted) {
+    throw new Error(`LibreOffice did not produce a ${outputExtension} file.`);
+  }
+  return {
+    path: path.join(outputDirectory, converted),
+    method: `libreoffice-convert-to-${outputFormat}`,
+  };
+}
+
+async function readXlsxWithPandas(filePath: string): Promise<{
+  blocks: WorkspaceOfficePreviewBlock[];
+  truncated: boolean;
+}> {
+  const script = `
+import json
+import math
+import sys
+
+import pandas as pd
+
+path = sys.argv[1]
+max_sheets = int(sys.argv[2])
+max_rows = int(sys.argv[3])
+max_columns = int(sys.argv[4])
+
+sheets = pd.read_excel(path, sheet_name=None, header=None, dtype=object)
+blocks = []
+for index, (name, frame) in enumerate(sheets.items()):
+    if index >= max_sheets:
+        break
+    truncated = len(frame.index) > max_rows or len(frame.columns) > max_columns
+    frame = frame.iloc[:max_rows, :max_columns]
+    rows = []
+    for raw_row in frame.values.tolist():
+        row = []
+        for value in raw_row:
+            if value is None:
+                cell = ""
+            elif isinstance(value, float) and math.isnan(value):
+                cell = ""
+            else:
+                cell = str(value).strip()
+            row.append(cell)
+        while row and row[-1] == "":
+            row.pop()
+        if any(row):
+            rows.append(row)
+    if rows:
+        blocks.append({"title": str(name), "rows": rows, "truncated": truncated})
+
+print(json.dumps({
+    "blocks": blocks,
+    "truncated": len(sheets) > max_sheets,
+}, ensure_ascii=False))
+`;
+  const result = await runCommandCandidates(
+    pythonCommandCandidates(),
+    [
+      "-c",
+      script,
+      filePath,
+      String(MAX_XLSX_SHEETS),
+      String(MAX_XLSX_ROWS),
+      String(MAX_XLSX_COLUMNS),
+    ]
+  );
+  const parsed = JSON.parse(result.stdout || "{}") as {
+    blocks?: WorkspaceOfficePreviewBlock[];
+    truncated?: boolean;
+  };
+  return {
+    blocks: Array.isArray(parsed.blocks) ? parsed.blocks : [],
+    truncated: Boolean(parsed.truncated),
+  };
+}
+
 function buildDocxPreview(
   kind: WorkspaceOfficePreviewKind,
   entries: ZipEntryMap,
@@ -136,6 +503,13 @@ function buildDocxPreview(
     throw new Error("未找到 Word 文档正文。");
   }
 
+  return buildDocxPreviewFromXml(kind, documentXml);
+}
+
+function buildDocxPreviewFromXml(
+  kind: WorkspaceOfficePreviewKind,
+  documentXml: string
+): WorkspaceOfficePreview {
   const lines: string[] = [];
   let totalChars = 0;
   let truncated = false;
@@ -177,6 +551,39 @@ function buildDocxPreview(
   };
 }
 
+function buildPptxPreviewFromSlides(
+  kind: WorkspaceOfficePreviewKind,
+  slides: Array<{ name: string; xml: string }>
+): WorkspaceOfficePreview {
+  const blocks: WorkspaceOfficePreviewBlock[] = [];
+  let totalChars = 0;
+  let truncated = false;
+
+  for (const slide of slides.slice(0, MAX_PPTX_SLIDES)) {
+    const lines = extractTextNodes(slide.xml, ["a:t"])
+      .map(normalizePreviewText)
+      .filter(Boolean)
+      .slice(0, MAX_PPTX_LINES_PER_SLIDE);
+    const lineChars = lines.reduce((sum, line) => sum + line.length, 0);
+    if (totalChars + lineChars > MAX_PREVIEW_CHARS) {
+      truncated = true;
+      break;
+    }
+    totalChars += lineChars;
+    blocks.push({
+      title: `第 ${slideIndex(slide.name)} 页`,
+      lines,
+      truncated: lines.length >= MAX_PPTX_LINES_PER_SLIDE,
+    });
+  }
+
+  return {
+    kind,
+    blocks,
+    truncated: truncated || slides.length > blocks.length,
+  };
+}
+
 function buildPptxPreview(
   kind: WorkspaceOfficePreviewKind,
   entries: ZipEntryMap,
@@ -190,39 +597,13 @@ function buildPptxPreview(
     throw new Error("未找到演示文稿页面。");
   }
 
-  const blocks: WorkspaceOfficePreviewBlock[] = [];
-  let totalChars = 0;
-  let truncated = false;
-
-  for (const slideName of slideNames) {
-    if (blocks.length >= MAX_PPTX_SLIDES) {
-      truncated = true;
-      break;
-    }
-    const xml = readZipText(entries, data, slideName);
-    if (!xml) continue;
-    const lines = extractTextNodes(xml, ["a:t"])
-      .map(normalizePreviewText)
-      .filter(Boolean)
-      .slice(0, MAX_PPTX_LINES_PER_SLIDE);
-    const lineChars = lines.reduce((sum, line) => sum + line.length, 0);
-    if (totalChars + lineChars > MAX_PREVIEW_CHARS) {
-      truncated = true;
-      break;
-    }
-    totalChars += lineChars;
-    blocks.push({
-      title: `第 ${slideIndex(slideName)} 页`,
-      lines,
-      truncated: lines.length >= MAX_PPTX_LINES_PER_SLIDE,
-    });
-  }
-
-  return {
+  return buildPptxPreviewFromSlides(
     kind,
-    blocks,
-    truncated: truncated || slideNames.length > blocks.length,
-  };
+    slideNames.flatMap((slideName) => {
+      const xml = readZipText(entries, data, slideName);
+      return xml ? [{ name: slideName, xml }] : [];
+    })
+  );
 }
 
 function buildXlsxPreview(
@@ -506,6 +887,162 @@ function getCellValue(
   }
   const formula = extractFirstTagValue(cellXml, "f");
   return formula ? `=${normalizePreviewText(formula)}` : "";
+}
+
+function withPreviewMetadata(
+  preview: WorkspaceOfficePreview,
+  metadata: {
+    method?: string;
+    convertedFrom?: string;
+    warnings?: string[];
+  }
+): WorkspaceOfficePreview {
+  return {
+    ...preview,
+    extractionMethod:
+      metadata.method || preview.extractionMethod || "direct-openxml-preview",
+    convertedFrom: metadata.convertedFrom || preview.convertedFrom,
+    warnings: [
+      ...(preview.warnings || []),
+      ...(metadata.warnings || []),
+    ].filter(Boolean),
+  };
+}
+
+function joinMethods(
+  first: string | undefined,
+  second: string | undefined
+): string | undefined {
+  return [first, second].filter(Boolean).join(" -> ") || undefined;
+}
+
+function isDesktopRuntime(): boolean {
+  return process.env.INTERNAGENTS_DESKTOP === "1";
+}
+
+function resolveSkillScript(
+  kind: WorkspaceOfficePreviewKind,
+  relativePath: string
+): string {
+  const candidates = [
+    process.env.INTERNAGENTS_APP_ROOT
+      ? path.resolve(
+          process.env.INTERNAGENTS_APP_ROOT,
+          "skills",
+          kind,
+          relativePath
+        )
+      : "",
+    path.resolve(process.cwd(), "skills", kind, relativePath),
+    path.resolve(process.cwd(), "..", "skills", kind, relativePath),
+    path.resolve(process.cwd(), "..", "..", "skills", kind, relativePath),
+  ];
+  const match = candidates.find((candidate) => existsSync(candidate));
+  if (!match) {
+    throw new Error(`Unable to locate ${kind} skill script ${relativePath}.`);
+  }
+  return match;
+}
+
+function pandocCommandCandidates(): string[] {
+  if (isDesktopRuntime()) {
+    return uniqueStrings([process.env.INTERNAGENTS_PANDOC_BIN]);
+  }
+  return uniqueStrings([process.env.INTERNAGENTS_PANDOC_BIN, "pandoc"]);
+}
+
+function pythonCommandCandidates(): string[] {
+  if (isDesktopRuntime()) {
+    return uniqueStrings([process.env.INTERNAGENTS_PYTHON_BIN]);
+  }
+  return uniqueStrings([process.env.INTERNAGENTS_PYTHON_BIN, "python3", "python"]);
+}
+
+function sofficeCommandCandidates(): string[] {
+  if (isDesktopRuntime()) {
+    return uniqueStrings([process.env.INTERNAGENTS_SOFFICE_BIN]);
+  }
+  return uniqueStrings([
+    process.env.INTERNAGENTS_SOFFICE_BIN,
+    "soffice",
+    "libreoffice",
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+  ]);
+}
+
+async function runCommandCandidates(
+  commands: string[],
+  args: string[],
+  options?: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    timeoutMs?: number;
+  }
+): Promise<{ command: string; stdout: string; stderr: string }> {
+  if (commands.length === 0) {
+    throw new Error("No configured command candidates.");
+  }
+
+  const errors: string[] = [];
+  for (const command of commands) {
+    try {
+      const result = await execFileAsync(command, args, {
+        cwd: options?.cwd,
+        env: options?.env,
+        timeout: options?.timeoutMs || OFFICE_PREPROCESS_TIMEOUT_MS,
+        maxBuffer: OFFICE_PREPROCESS_MAX_BUFFER,
+      });
+      return {
+        command,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      };
+    } catch (error) {
+      errors.push(formatCommandFailure(command, error));
+    }
+  }
+  throw new Error(errors.join("\n"));
+}
+
+function formatCommandFailure(command: string, error: unknown): string {
+  const record = error as {
+    code?: unknown;
+    signal?: unknown;
+    message?: unknown;
+    stderr?: unknown;
+    stdout?: unknown;
+  };
+  const detail =
+    typeof record.stderr === "string" && record.stderr.trim()
+      ? record.stderr.trim()
+      : typeof record.stdout === "string" && record.stdout.trim()
+        ? record.stdout.trim()
+        : typeof record.message === "string"
+          ? record.message
+          : String(error);
+  const status = [record.code, record.signal].filter(Boolean).join("/");
+  return `${command}${status ? ` (${status})` : ""}: ${truncateText(detail, 600)}`;
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
 }
 
 function extractTextNodes(xml: string, tags: string[]): string[] {

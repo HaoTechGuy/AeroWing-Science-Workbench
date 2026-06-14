@@ -451,7 +451,11 @@ function envPathKey(env) {
 
 function pythonRuntimeEnv(baseEnv = process.env) {
   const runtimeDir = path.join(resourcesRoot(), "python-runtime");
-  const env = {};
+  const env = {
+    PYTHONDONTWRITEBYTECODE: "1",
+    PYTHONNOUSERSITE: "1",
+    PYTHONUTF8: "1",
+  };
   const sitePackages = runtimeSitePackages(runtimeDir);
 
   if (sitePackages.length > 0) {
@@ -489,12 +493,19 @@ function canRunPython(candidate, env) {
     return false;
   }
 
+  const script = [
+    "import sys",
+    "import langgraph_cli",
+    "import defusedxml",
+    "import lxml.etree",
+    "import markitdown",
+    "import openpyxl",
+    "import pandas",
+    "raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
+  ].join("; ");
   const result = spawnSync(
     candidate,
-    [
-      "-c",
-      "import sys; import langgraph_cli; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
-    ],
+    ["-c", script],
     {
       env,
       windowsHide: true,
@@ -539,7 +550,72 @@ function pythonBinary() {
       return candidate;
     }
   }
+  if (app.isPackaged) {
+    throw new Error(
+      "Bundled Python runtime is missing or does not include required Office attachment dependencies."
+    );
+  }
   return process.platform === "win32" ? "python" : "python3";
+}
+
+function executableName(name) {
+  return process.platform === "win32" ? `${name}.exe` : name;
+}
+
+function findNamedExecutableSync(directory, names) {
+  if (!fs.existsSync(directory)) {
+    return "";
+  }
+
+  const stack = [directory];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      if (
+        (entry.isFile() || entry.isSymbolicLink()) &&
+        names.has(entry.name.toLowerCase())
+      ) {
+        return entryPath;
+      }
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+      }
+    }
+  }
+  return "";
+}
+
+function bundledOfficeTool(name) {
+  const officeToolsRoot = path.join(resourcesRoot(), "office-tools");
+  const directPath = path.join(officeToolsRoot, "bin", executableName(name));
+  if (fs.existsSync(directPath)) {
+    return directPath;
+  }
+  return findNamedExecutableSync(
+    officeToolsRoot,
+    new Set([executableName(name).toLowerCase()])
+  );
+}
+
+function officeToolEnv() {
+  const env = {};
+  const pandoc = bundledOfficeTool("pandoc");
+  if (pandoc) {
+    env.INTERNAGENTS_PANDOC_BIN = pandoc;
+  }
+  const soffice = bundledOfficeTool("soffice");
+  if (soffice) {
+    env.INTERNAGENTS_SOFFICE_BIN = soffice;
+  }
+  return env;
 }
 
 function nodeHostBinary() {
@@ -617,6 +693,7 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
   const env = {
     ...process.env,
     ...pythonRuntimeEnv(process.env),
+    ...officeToolEnv(),
     ELECTRON_RUN_AS_NODE: "1",
     HOSTNAME: HOST,
     PORT: String(uiPort),
