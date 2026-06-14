@@ -10,6 +10,44 @@ interface ResourceConfig {
   runtimeUrl?: string;
 }
 
+const DEFAULT_LOCAL_RUNTIME_PORT = "22024";
+
+function isLocalUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname;
+    return (
+      hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function localRuntimeUrl(deploymentUrl: string, desktopMode: boolean) {
+  const configuredPort = process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT?.trim();
+  const port =
+    configuredPort ||
+    (desktopMode || isLocalUrl(deploymentUrl)
+      ? DEFAULT_LOCAL_RUNTIME_PORT
+      : "");
+
+  return port ? `http://127.0.0.1:${port}` : undefined;
+}
+
+function attachLocalRuntimeUrl(
+  resources: ResourceConfig[],
+  runtimeUrl: string | undefined
+) {
+  if (!runtimeUrl) {
+    return resources;
+  }
+  return resources.map((resource) =>
+    resource.id === "local" && !resource.runtimeUrl
+      ? { ...resource, runtimeUrl }
+      : resource
+  );
+}
+
 function parseResources(value: string | undefined): ResourceConfig[] | undefined {
   if (!value?.trim()) {
     return undefined;
@@ -53,20 +91,22 @@ export function GET() {
   const desktopMode = process.env.INTERNAGENTS_DESKTOP === "1";
   const assistantId =
     process.env.NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID || "agent_local";
-  const resources =
+  const deploymentUrl = process.env.NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL || "";
+  const runtimeUrl = localRuntimeUrl(deploymentUrl, desktopMode);
+  const resources = attachLocalRuntimeUrl(
     parseResources(process.env.NEXT_PUBLIC_INTERNAGENT_RESOURCES) || [
       {
         id: "local",
         label: "Current Machine",
         assistantId,
-        runtimeUrl: process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT
-          ? `http://127.0.0.1:${process.env.INTERNAGENTS_LOCAL_RUNTIME_PORT}`
-          : undefined,
+        runtimeUrl,
       },
-    ];
+    ],
+    runtimeUrl
+  );
   const config = {
     desktopMode,
-    deploymentUrl: process.env.NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL || "",
+    deploymentUrl,
     assistantId,
     langsmithApiKey: process.env.NEXT_PUBLIC_LANGSMITH_API_KEY || "",
     defaultResourceId:
