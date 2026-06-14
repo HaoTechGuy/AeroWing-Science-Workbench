@@ -33,6 +33,8 @@ async function resolveThreadValues(
   client: Client,
   runtimeClient: Client | null
 ): Promise<unknown> {
+  let pendingRunStatus: string | undefined;
+
   return resolveThreadListValues({
     threadValues: thread.values,
     loadMainStateValues: async () =>
@@ -42,6 +44,7 @@ async function resolveThreadValues(
         client,
         thread.thread_id
       );
+      pendingRunStatus = pendingRunPreview?.status;
       if (!pendingRunPreview) return undefined;
       return {
         ...(thread.values && typeof thread.values === "object"
@@ -50,6 +53,8 @@ async function resolveThreadValues(
         ...pendingRunValues(pendingRunPreview),
       };
     },
+    preferRuntimeValuesBeforePending: () =>
+      pendingRunStatus === "pending" || pendingRunStatus === "running",
     loadRuntimeStateValues: runtimeClient
       ? async () =>
           (await runtimeClient.threads.getState(thread.thread_id)).values

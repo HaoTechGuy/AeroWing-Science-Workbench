@@ -80,6 +80,29 @@ test("resolveThreadListValues prefers run input preview before polluted thread v
   assert.equal(result, rootValues);
 });
 
+test("resolveThreadListValues can prefer runtime values for active pending runs", async () => {
+  const runtimeValues = {
+    messages: [
+      rootValues.messages[0],
+      {
+        id: "runtime-ai",
+        type: "ai",
+        content: "正在分析 PDF 的 benchmark 和 game 章节。",
+      },
+    ],
+  };
+
+  const result = await resolveThreadListValues({
+    threadValues: subtaskValues,
+    loadMainStateValues: async () => ({ messages: [] }),
+    loadPendingValues: async () => rootValues,
+    preferRuntimeValuesBeforePending: () => true,
+    loadRuntimeStateValues: async () => runtimeValues,
+  });
+
+  assert.equal(result, runtimeValues);
+});
+
 test("loadPendingRunInputPreview can recover input from errored runs", async () => {
   const client = {
     runs: {

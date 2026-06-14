@@ -7,6 +7,8 @@ import {
   type Message,
   type Assistant,
   type Checkpoint,
+  type Run,
+  type StreamMode,
   type Thread,
   type ThreadState,
 } from "@langchain/langgraph-sdk";
@@ -21,6 +23,7 @@ import type {
   TodoItem,
 } from "@/app/types/types";
 import type { StreamConfig } from "@/lib/config";
+import type { RemoteAgentStreamEvent } from "@/lib/remote-agent";
 import { useRemoteAgent } from "@/providers/ClientProvider";
 import { useQueryState } from "nuqs";
 import { useStreamEventLayer } from "@/app/hooks/useStreamEventLayer";
@@ -80,6 +83,7 @@ const THREAD_RECOVERY_KIND_METADATA_KEY = "internagents_recovery_kind";
 const THREAD_RECOVERY_FAILED_RUN_INPUT = "failed_run_input";
 const STREAM_RECOVERY_VISIBLE_DELAY_MS = 700;
 const ACTIVE_RUN_STATUSES = new Set(["busy", "pending", "running"]);
+const RUNTIME_STREAM_ACTIVE_RUN_STATUSES = new Set(["pending", "running"]);
 
 type ThreadSnapshotCacheEntry = {
   data?: ThreadState<StateType>[];
@@ -112,6 +116,150 @@ type LangGraphContentBlock =
       type: "image_url";
       image_url: string | { url: string; detail?: "auto" | "low" | "high" };
     };
+
+function splitStreamEventName(rawEvent: string): {
+  mode: string;
+  namespace?: string[];
+} {
+  const [mode, ...namespace] = rawEvent.split("|");
+  return {
+    mode,
+    namespace: namespace.length > 0 ? namespace : undefined,
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
+function latestActiveRuntimeRun(runs: Run[]): Run | undefined {
+  return runs.find((run) =>
+    RUNTIME_STREAM_ACTIVE_RUN_STATUSES.has(run.status)
+  );
+}
+
+function useRuntimeLiveStream({
+  runtimeClient,
+  threadId,
+  enabled,
+  streamMode,
+  appendStreamEvent,
+  onEvent,
+  onSettled,
+}: {
+  runtimeClient: Client<StateType> | null;
+  threadId: string | null;
+  enabled: boolean;
+  streamMode?: StreamMode | StreamMode[];
+  appendStreamEvent: (event: RemoteAgentStreamEvent) => void;
+  onEvent: () => void;
+  onSettled: () => void;
+}) {
+  const lastEventIdsRef = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    if (!enabled || !runtimeClient || !threadId) {
+      return;
+    }
+
+    let cancelled = false;
+    let retryTimerId: number | null = null;
+    let eventSequence = 0;
+    let controller: AbortController | null = null;
+
+    const clearRetryTimer = () => {
+      if (retryTimerId === null) return;
+      window.clearTimeout(retryTimerId);
+      retryTimerId = null;
+    };
+
+    const scheduleJoin = (delayMs: number) => {
+      if (cancelled) return;
+      clearRetryTimer();
+      retryTimerId = window.setTimeout(() => {
+        retryTimerId = null;
+        void joinLatestRuntimeRun();
+      }, delayMs);
+    };
+
+    const joinLatestRuntimeRun = async () => {
+      try {
+        const runs = await runtimeClient.runs.list(threadId, { limit: 10 });
+        if (cancelled) return;
+
+        const activeRun = latestActiveRuntimeRun(runs);
+        if (!activeRun) {
+          onSettled();
+          scheduleJoin(1_000);
+          return;
+        }
+
+        const runId = activeRun.run_id;
+        const lastEventId = lastEventIdsRef.current.get(runId) ?? "-1";
+        controller = new AbortController();
+
+        for await (const event of runtimeClient.runs.joinStream(
+          threadId,
+          runId,
+          {
+            signal: controller.signal,
+            lastEventId,
+            streamMode,
+          }
+        )) {
+          if (cancelled) return;
+
+          const rawEvent = String(event.event);
+          const { mode, namespace } = splitStreamEventName(rawEvent);
+          const eventId =
+            event.id ?? `${Date.now()}-${eventSequence++}`;
+          if (event.id) {
+            lastEventIdsRef.current.set(runId, event.id);
+          }
+
+          appendStreamEvent({
+            id: `runtime:${runId}:${eventId}`,
+            at: Date.now(),
+            threadId,
+            rawEvent,
+            mode,
+            namespace: ["remote_runtime_direct", ...(namespace ?? [])],
+            data: event.data,
+          });
+          onEvent();
+        }
+
+        onSettled();
+        scheduleJoin(1_000);
+      } catch (error) {
+        if (cancelled || isAbortError(error)) {
+          return;
+        }
+        console.warn("Runtime live stream failed; falling back to snapshot polling", error);
+        scheduleJoin(2_000);
+      }
+    };
+
+    void joinLatestRuntimeRun();
+
+    return () => {
+      cancelled = true;
+      clearRetryTimer();
+      controller?.abort();
+    };
+  }, [
+    appendStreamEvent,
+    enabled,
+    onEvent,
+    onSettled,
+    runtimeClient,
+    streamMode,
+    threadId,
+  ]);
+}
 
 function threadToState(
   threadId: string,
@@ -212,6 +360,32 @@ function pendingRunToState(
       checkpoint_map: {},
     },
     parent_checkpoint: null,
+  });
+}
+
+function mergePendingRunState(
+  threadId: string,
+  primaryState: ThreadState<StateType> | null,
+  preview: PendingRunInputPreview
+): ThreadState<StateType> {
+  const pendingState = pendingRunToState(threadId, preview);
+  return primaryState
+    ? mergeStateSnapshot(primaryState, pendingState)
+    : pendingState;
+}
+
+function attachPendingRunMetadata(
+  threadId: string,
+  state: ThreadState<StateType>,
+  preview: PendingRunInputPreview
+): ThreadState<StateType> {
+  const pendingState = pendingRunToState(threadId, preview);
+  return sanitizeThreadState({
+    ...state,
+    metadata: {
+      ...(state.metadata || {}),
+      ...(pendingState.metadata || {}),
+    },
   });
 }
 
@@ -574,19 +748,31 @@ async function loadThreadSnapshot({
     return [emptyThreadState(threadId)];
   }
 
-  const pendingRunPreview = await loadPendingRunInputPreview(client, threadId);
-  if (pendingRunPreview) {
-    const pendingState = pendingRunToState(threadId, pendingRunPreview);
-    return [
-      primaryState
-        ? mergeStateSnapshot(primaryState, pendingState)
-        : pendingState,
-    ];
-  }
-
-  if (stateHasMessages(primaryState)) {
+  if (hasMainStateMessages && stateHasMessages(primaryState)) {
     return [sanitizeThreadState(primaryState)];
   }
+
+  const pendingRunPreview = await loadPendingRunInputPreview(client, threadId);
+  if (pendingRunPreview?.status === "error") {
+    return [mergePendingRunState(threadId, primaryState, pendingRunPreview)];
+  }
+
+  if (!pendingRunPreview && stateHasMessages(primaryState)) {
+    return [sanitizeThreadState(primaryState)];
+  }
+
+  const hasTrustedPrimaryMessages = () =>
+    hasMainStateMessages && stateHasMessages(primaryState);
+  const mergeRuntimeState = (runtimeState: ThreadState<StateType>) => {
+    const mergedState = primaryState
+      ? mergeStateSnapshot(primaryState, runtimeState, {
+          preservePrimaryMessages: hasTrustedPrimaryMessages(),
+        })
+      : sanitizeThreadState(runtimeState);
+    return pendingRunPreview
+      ? attachPendingRunMetadata(threadId, mergedState, pendingRunPreview)
+      : mergedState;
+  };
 
   if (runtimeClient) {
     try {
@@ -594,13 +780,7 @@ async function loadThreadSnapshot({
         await runtimeClient.threads.getState<StateType>(threadId)
       );
       if (stateHasMessages(runtimeState)) {
-        return [
-          primaryState
-            ? mergeStateSnapshot(primaryState, runtimeState, {
-                preservePrimaryMessages: stateHasMessages(primaryState),
-              })
-            : runtimeState,
-        ];
+        return [mergeRuntimeState(runtimeState)];
       }
       if (!primaryState) {
         primaryState = runtimeState;
@@ -615,13 +795,7 @@ async function loadThreadSnapshot({
       );
       const runtimeState = threadToState(threadId, runtimeThread);
       if (stateHasMessages(runtimeState)) {
-        return [
-          primaryState
-            ? mergeStateSnapshot(primaryState, runtimeState, {
-                preservePrimaryMessages: stateHasMessages(primaryState),
-              })
-            : sanitizeThreadState(runtimeState),
-        ];
+        return [mergeRuntimeState(runtimeState)];
       }
     } catch {
       // Runtime may not know about every main-service thread.
@@ -634,17 +808,19 @@ async function loadThreadSnapshot({
       );
       const runtimeStateWithMessages = findStateWithMessages(runtimeHistory);
       if (runtimeStateWithMessages) {
-        return [
-          primaryState
-            ? mergeStateSnapshot(primaryState, runtimeStateWithMessages, {
-                preservePrimaryMessages: stateHasMessages(primaryState),
-              })
-            : sanitizeThreadState(runtimeStateWithMessages),
-        ];
+        return [mergeRuntimeState(runtimeStateWithMessages)];
       }
     } catch {
       // Keep the primary snapshot below if runtime history is unavailable.
     }
+  }
+
+  if (pendingRunPreview) {
+    return [mergePendingRunState(threadId, primaryState, pendingRunPreview)];
+  }
+
+  if (stateHasMessages(primaryState)) {
+    return [sanitizeThreadState(primaryState)];
   }
 
   if (primaryState) {
@@ -1190,6 +1366,7 @@ export function useChat({
   const previousThreadIdRef = useRef<string | null>(threadId ?? null);
   const pendingNewThreadTitleRef = useRef<string | null>(null);
   const pendingNewThreadTitleThreadIdRef = useRef<string | null>(null);
+  const runtimeStreamRefreshTimerRef = useRef<number | null>(null);
   const remoteAgent = useRemoteAgent();
   const client = remoteAgent.client;
   const runtimeClient = useMemo(
@@ -1406,9 +1583,65 @@ export function useChat({
   });
 
   const shouldPollThreadSnapshot =
-    Boolean(threadId) && (stream.isLoading || runLifecycle.status === "running");
+    Boolean(threadId) &&
+    (stream.isLoading ||
+      runLifecycle.status === "running" ||
+      snapshotHasActiveRun);
 
   const mutateThreadSnapshot = threadSnapshot?.mutate;
+
+  const refreshThreadSnapshotNow = useCallback(() => {
+    if (!threadId || !mutateThreadSnapshot) {
+      return;
+    }
+    if (runtimeStreamRefreshTimerRef.current !== null) {
+      window.clearTimeout(runtimeStreamRefreshTimerRef.current);
+      runtimeStreamRefreshTimerRef.current = null;
+    }
+    void mutateThreadSnapshot(threadId).catch(() => undefined);
+  }, [mutateThreadSnapshot, threadId]);
+
+  const refreshThreadSnapshotSoon = useCallback(() => {
+    if (!threadId || !mutateThreadSnapshot) {
+      return;
+    }
+    if (runtimeStreamRefreshTimerRef.current !== null) {
+      return;
+    }
+    runtimeStreamRefreshTimerRef.current = window.setTimeout(() => {
+      runtimeStreamRefreshTimerRef.current = null;
+      void mutateThreadSnapshot(threadId).catch(() => undefined);
+    }, 500);
+  }, [mutateThreadSnapshot, threadId]);
+
+  useEffect(() => {
+    return () => {
+      if (runtimeStreamRefreshTimerRef.current === null) {
+        return;
+      }
+      window.clearTimeout(runtimeStreamRefreshTimerRef.current);
+      runtimeStreamRefreshTimerRef.current = null;
+    };
+  }, [threadId]);
+
+  const shouldSubscribeRuntimeLiveStream =
+    Boolean(threadId) &&
+    Boolean(runtimeClient) &&
+    runLifecycle.status !== "stopped" &&
+    (stream.isLoading ||
+      localRunInFlight ||
+      runLifecycle.status === "running" ||
+      snapshotHasActiveRun);
+
+  useRuntimeLiveStream({
+    runtimeClient,
+    threadId: threadId ?? null,
+    enabled: shouldSubscribeRuntimeLiveStream,
+    streamMode: streamSubmitOptions.streamMode,
+    appendStreamEvent: streamEventLayer.appendStreamEvent,
+    onEvent: refreshThreadSnapshotSoon,
+    onSettled: refreshThreadSnapshotNow,
+  });
 
   useEffect(() => {
     if (!shouldPollThreadSnapshot || !mutateThreadSnapshot || !threadId) {

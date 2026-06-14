@@ -66,8 +66,8 @@ export function useStreamEventLayer(
 ) {
   const [streamEvents, setStreamEvents] = useState<StreamEventRecord[]>([]);
 
-  useEffect(() => {
-    return agent.subscribe((event) => {
+  const appendStreamEvent = useCallback(
+    (event: RemoteAgentStreamEvent) => {
       if (
         currentThreadId &&
         event.threadId &&
@@ -88,8 +88,13 @@ export function useStreamEventLayer(
       };
 
       setStreamEvents((prev) => [...prev, record].slice(-MAX_STREAM_EVENTS));
-    });
-  }, [agent, currentThreadId]);
+    },
+    [currentThreadId]
+  );
+
+  useEffect(() => {
+    return agent.subscribe(appendStreamEvent);
+  }, [agent, appendStreamEvent]);
 
   const clearStreamEvents = useCallback(() => {
     setStreamEvents([]);
@@ -111,6 +116,7 @@ export function useStreamEventLayer(
 
   return {
     streamEvents,
+    appendStreamEvent,
     clearStreamEvents,
     interrupt,
     lastUpdateNamespace,

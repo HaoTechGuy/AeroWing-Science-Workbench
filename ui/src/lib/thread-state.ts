@@ -61,6 +61,7 @@ export async function resolveThreadListValues({
   threadValues,
   loadMainStateValues,
   loadPendingValues,
+  preferRuntimeValuesBeforePending,
   loadRuntimeStateValues,
   loadRuntimeThreadValues,
   loadRuntimeHistoryValues,
@@ -68,6 +69,7 @@ export async function resolveThreadListValues({
   threadValues: unknown;
   loadMainStateValues?: () => Promise<unknown>;
   loadPendingValues?: () => Promise<unknown>;
+  preferRuntimeValuesBeforePending?: () => boolean;
   loadRuntimeStateValues?: () => Promise<unknown>;
   loadRuntimeThreadValues?: () => Promise<unknown>;
   loadRuntimeHistoryValues?: () => Promise<unknown[]>;
@@ -78,11 +80,20 @@ export async function resolveThreadListValues({
   }
 
   const pendingValues = await loadValues(loadPendingValues);
-  if (pendingValues && typeof pendingValues === "object") {
+  const hasPendingValues = Boolean(
+    pendingValues && typeof pendingValues === "object"
+  );
+  const shouldPreferRuntimeValues =
+    hasPendingValues && Boolean(preferRuntimeValuesBeforePending?.());
+
+  if (hasPendingValues && !shouldPreferRuntimeValues) {
     return pendingValues;
   }
 
-  if (messagesFromValues(threadValues).length > 0) {
+  if (
+    !shouldPreferRuntimeValues &&
+    messagesFromValues(threadValues).length > 0
+  ) {
     return threadValues;
   }
 
@@ -104,6 +115,14 @@ export async function resolveThreadListValues({
   );
   if (runtimeHistoryState) {
     return runtimeHistoryState;
+  }
+
+  if (hasPendingValues) {
+    return pendingValues;
+  }
+
+  if (messagesFromValues(threadValues).length > 0) {
+    return threadValues;
   }
 
   return threadValues;
