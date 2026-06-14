@@ -823,6 +823,28 @@ function formatAttachmentAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
+function workspaceRuntimePath(value: string): string {
+  return value.replace(/^\/+/, "") || ".";
+}
+
+function workspacePathAttributes(
+  logicalName: string,
+  runtimeName: string,
+  value?: string
+): string {
+  if (!value) {
+    return "";
+  }
+  return ` ${logicalName}="${formatAttachmentAttribute(
+    value
+  )}" ${runtimeName}="${formatAttachmentAttribute(workspaceRuntimePath(value))}"`;
+}
+
+function describeWorkspacePath(label: string, value: string): string {
+  const runtimePath = workspaceRuntimePath(value);
+  return `${label}: use ${value} with file tools; use ${runtimePath} in shell commands or inside scripts.`;
+}
+
 function attachmentMetadata(attachments: ChatAttachment[]) {
   return attachments.map((attachment) => ({
     id: attachment.id,
@@ -882,14 +904,16 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
     }
 
     if (attachment.kind === "pdf") {
-      const pathHint = attachment.workspacePath
-        ? ` path="${formatAttachmentAttribute(attachment.workspacePath)}"`
-        : "";
-      const extractedPathHint = attachment.extractedWorkspacePath
-        ? ` extracted_path="${formatAttachmentAttribute(
-            attachment.extractedWorkspacePath
-          )}"`
-        : "";
+      const pathHint = workspacePathAttributes(
+        "logical_path",
+        "runtime_path",
+        attachment.workspacePath
+      );
+      const extractedPathHint = workspacePathAttributes(
+        "extracted_logical_path",
+        "extracted_runtime_path",
+        attachment.extractedWorkspacePath
+      );
       const pagesHint = attachment.pageCount
         ? ` pages="${attachment.pageCount}"`
         : "";
@@ -898,12 +922,19 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
         : "";
       const extractionError = attachment.extractionError?.trim();
       const extractedText = attachment.text?.trim();
+      const originalPdfLocation = attachment.workspacePath
+        ? describeWorkspacePath("Original PDF", attachment.workspacePath)
+        : "";
+      const extractedTextLocation = attachment.extractedWorkspacePath
+        ? describeWorkspacePath(
+            "Extracted text file",
+            attachment.extractedWorkspacePath
+          )
+        : "";
       const body = attachment.extractedWorkspacePath
         ? [
-            `[PDF uploaded and processed locally. Use the extracted text file at ${attachment.extractedWorkspacePath} first for reading, summarization, and question answering.`,
-            attachment.workspacePath
-              ? `The original PDF is available at ${attachment.workspacePath}.`
-              : "",
+            `[PDF uploaded and processed locally. ${extractedTextLocation} Use the extracted text file first for reading, summarization, and question answering.`,
+            originalPdfLocation,
             attachment.truncated
               ? "The extracted text is truncated; use the original PDF only when additional pages, layout, figures, or tables are needed."
               : "Use the original PDF only when layout, figures, or tables are needed.",
@@ -916,13 +947,15 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
             .join(" ")
         : extractedText
         ? attachment.truncated
-          ? `${extractedText}\n\n[PDF text truncated before sending. The original PDF is available at ${
-              attachment.workspacePath || "the workspace path above"
-            }.]`
+          ? `${extractedText}\n\n[PDF text truncated before sending. ${
+              originalPdfLocation ||
+              "Use the workspace path above for the original PDF."
+            }]`
           : extractedText
-        : `[PDF uploaded. The original file is available at ${
-            attachment.workspacePath || "the workspace path above"
-          }. ${
+        : `[PDF uploaded. ${
+            originalPdfLocation ||
+            "Use the workspace path above for the original PDF."
+          } ${
             extractionError
               ? `Local text extraction failed: ${extractionError}`
               : "No extractable text was found in the uploaded PDF."
@@ -944,19 +977,24 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
       continue;
     }
 
-    const pathHint = attachment.workspacePath
-      ? ` path="${formatAttachmentAttribute(attachment.workspacePath)}"`
-      : "";
-    const readablePathHint = attachment.extractedWorkspacePath
-      ? ` readable_path="${formatAttachmentAttribute(
-          attachment.extractedWorkspacePath
-        )}"`
-      : "";
+    const pathHint = workspacePathAttributes(
+      "logical_path",
+      "runtime_path",
+      attachment.workspacePath
+    );
+    const readablePathHint = workspacePathAttributes(
+      "readable_logical_path",
+      "readable_runtime_path",
+      attachment.extractedWorkspacePath
+    );
     const fileLocation = attachment.workspacePath
-      ? `The original file is available at ${attachment.workspacePath}.`
+      ? describeWorkspacePath("Original file", attachment.workspacePath)
       : "No workspace path is available for this file.";
     const readableLocation = attachment.extractedWorkspacePath
-      ? `A readable summary is available at ${attachment.extractedWorkspacePath}.`
+      ? describeWorkspacePath(
+          "Readable summary file",
+          attachment.extractedWorkspacePath
+        )
       : "";
     const readableSummary = attachment.text?.trim();
     const extractionError = attachment.extractionError?.trim();
@@ -976,7 +1014,11 @@ function buildMessageContent(content: string, attachments: ChatAttachment[]) {
                 attachment.truncated
                   ? " The summary shown in this message is truncated."
                   : ""
-              }${extractionError ? ` Local extraction reported: ${extractionError}` : ""}]`,
+              }${
+                extractionError
+                  ? ` Local extraction reported: ${extractionError}`
+                  : ""
+              }]`,
               "",
               readableSummary,
             ].join("\n")

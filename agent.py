@@ -685,10 +685,15 @@ def _agent_system_prompt(base_prompt: str, agent_config: dict[str, Any]) -> str:
 
 def _logical_path_prompt() -> str:
     return (
-        "Paths shown to you are logical paths. Use '/file.py' or '/src/file.py' "
-        "for workspace files, and 'skill://<skill>/SKILL.md' or "
-        "'skill://<skill>/scripts/...' for active skill files. The local backend "
-        "maps these paths to real filesystem paths."
+        "Paths shown to you are logical workspace paths. Use '/file.py' or "
+        "'/src/file.py' with filesystem tools. Shell commands run with the "
+        "workspace as the current directory, so prefer relative paths such as "
+        "'python3 script.py', './data/input.docx', or 'data/input.docx'. When "
+        "writing code or scripts, do not hard-code logical paths like '/file.py'; "
+        "inside Python/Node/etc. those mean the host filesystem root. Use relative "
+        "paths or build paths from the current working directory. Use "
+        "'skill://<skill>/SKILL.md' or 'skill://<skill>/scripts/...' for active "
+        "skill files; skills are read-only."
     )
 
 

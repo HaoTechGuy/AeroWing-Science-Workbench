@@ -95,7 +95,14 @@ test("buildOfficePreview extracts DOCX text and markdown summary", () => {
 
   assert.equal(preview.kind, "docx");
   assert.deepEqual(preview.blocks[0].lines, ["项目摘要", "关键结论"]);
-  assert.match(markdown, /Source file: \/.internagents\/uploads\/report\.docx/);
+  assert.match(
+    markdown,
+    /Source file logical path \(file tools\): \/.internagents\/uploads\/report\.docx/
+  );
+  assert.match(
+    markdown,
+    /Source file shell\/script path: \.internagents\/uploads\/report\.docx/
+  );
   assert.match(markdown, /项目摘要/);
 });
 
