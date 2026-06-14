@@ -187,7 +187,6 @@ function HomePageInner({
   const [selectedFilePath, setSelectedFilePath] = useQueryState("file");
 
   const [mutateThreads, setMutateThreads] = useState<(() => void) | null>(null);
-  const [interruptCount, setInterruptCount] = useState(0);
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
   const [chatInstanceKey, setChatInstanceKey] = useState(0);
@@ -895,11 +894,6 @@ function HomePageInner({
               同步远端智能体
             </Button>
           )}
-          {interruptCount > 0 && (
-            <div className="rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 shadow-sm shadow-orange-900/5">
-              {interruptCount} interrupted
-            </div>
-          )}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -973,7 +967,6 @@ function HomePageInner({
               onThreadSelect={handleThreadSelect}
               onNewThread={handleNewThread}
               onMutateReady={(fn) => setMutateThreads(() => fn)}
-              onInterruptCountChange={setInterruptCount}
               resourceId={activeResource.id}
               runtimeUrl={activeResource.runtimeUrl}
               assistantId={activeAssistantId}

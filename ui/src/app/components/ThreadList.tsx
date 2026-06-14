@@ -33,7 +33,7 @@ import type { ThreadItem } from "@/app/hooks/useThreads";
 import { useThreads } from "@/app/hooks/useThreads";
 
 const GROUP_LABELS = {
-  interrupted: "Requiring Attention",
+  interrupted: "需要处理",
   today: "Today",
   yesterday: "Yesterday",
   week: "This Week",
@@ -47,8 +47,46 @@ const STATUS_COLORS: Record<ThreadItem["status"], string> = {
   error: "bg-red-600",
 };
 
-function getThreadColor(status: ThreadItem["status"]): string {
-  return STATUS_COLORS[status] ?? "bg-gray-400";
+const STALE_BUSY_THREAD_MS = 10 * 60 * 1000;
+
+function isStaleBusyThread(thread: ThreadItem, now = new Date()): boolean {
+  return (
+    thread.status === "busy" &&
+    now.getTime() - thread.updatedAt.getTime() >= STALE_BUSY_THREAD_MS
+  );
+}
+
+function getThreadColor(thread: ThreadItem, now = new Date()): string {
+  if (isStaleBusyThread(thread, now)) {
+    return "bg-orange-500";
+  }
+
+  return STATUS_COLORS[thread.status] ?? "bg-gray-400";
+}
+
+function getThreadBadge(thread: ThreadItem, now = new Date()) {
+  if (isStaleBusyThread(thread, now)) {
+    return {
+      label: "可能卡住",
+      className: "border-orange-200 bg-orange-50 text-orange-700",
+    };
+  }
+
+  if (thread.status === "interrupted") {
+    return {
+      label: "需处理",
+      className: "border-orange-200 bg-orange-50 text-orange-700",
+    };
+  }
+
+  if (thread.status === "error") {
+    return {
+      label: "失败",
+      className: "border-red-200 bg-red-50 text-red-700",
+    };
+  }
+
+  return null;
 }
 
 function formatTime(date: Date, now = new Date()): string {
@@ -98,7 +136,6 @@ interface ThreadListProps {
   onMutateReady?: (mutate: () => void) => void;
   onClose?: () => void;
   onCollapse?: () => void;
-  onInterruptCountChange?: (count: number) => void;
   resourceId?: string;
   runtimeUrl?: string;
   assistantId?: string;
@@ -111,7 +148,6 @@ export function ThreadList({
   onMutateReady,
   onClose,
   onCollapse,
-  onInterruptCountChange,
   resourceId,
   runtimeUrl,
   assistantId,
@@ -169,7 +205,7 @@ export function ThreadList({
     };
 
     flattened.forEach((thread) => {
-      if (thread.status === "interrupted") {
+      if (thread.status === "interrupted" || isStaleBusyThread(thread, now)) {
         groups.interrupted.push(thread);
         return;
       }
@@ -189,10 +225,6 @@ export function ThreadList({
     });
 
     return groups;
-  }, [flattened]);
-
-  const interruptedCount = useMemo(() => {
-    return flattened.filter((t) => t.status === "interrupted").length;
   }, [flattened]);
 
   // Expose thread list revalidation to parent component
@@ -217,11 +249,6 @@ export function ThreadList({
     // Only run once on mount to avoid infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Notify parent of interrupt count changes
-  useEffect(() => {
-    onInterruptCountChange?.(interruptedCount);
-  }, [interruptedCount, onInterruptCountChange]);
 
   const archiveThread = useCallback(
     async (thread: ThreadItem, event: MouseEvent<HTMLButtonElement>) => {
@@ -351,81 +378,97 @@ export function ThreadList({
                     {GROUP_LABELS[group]}
                   </h4>
                   <div className="flex flex-col gap-0.5">
-                    {groupThreads.map((thread) => (
-                      <div
-                        key={thread.id}
-                        className={cn(
-                          "group/thread flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-md pr-1 transition-colors duration-200",
-                          "border hover:border-border hover:bg-card",
-                          currentThreadId === thread.id
-                            ? "border-primary/30 bg-primary/10 hover:bg-primary/10"
-                            : "border-transparent bg-transparent"
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onThreadSelect(thread.id)}
-                          className="w-0 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-md px-2.5 py-2 text-left"
-                          aria-current={currentThreadId === thread.id}
+                    {groupThreads.map((thread) => {
+                      const threadBadge = getThreadBadge(thread);
+
+                      return (
+                        <div
+                          key={thread.id}
+                          className={cn(
+                            "group/thread flex w-full min-w-0 items-center gap-1 overflow-hidden rounded-md pr-1 transition-colors duration-200",
+                            "border hover:border-border hover:bg-card",
+                            currentThreadId === thread.id
+                              ? "border-primary/30 bg-primary/10 hover:bg-primary/10"
+                              : "border-transparent bg-transparent"
+                          )}
                         >
-                          <div className="w-full min-w-0 overflow-hidden">
-                            {/* Title + Timestamp Row */}
-                            <div className="mb-0.5 flex min-w-0 items-center justify-between gap-2">
-                              <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-5 text-foreground">
-                                {thread.title}
-                              </h3>
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {formatTime(thread.updatedAt)}
-                              </span>
-                            </div>
-                            {/* Description + Status Row */}
-                            <div className="flex min-w-0 items-center justify-between gap-2">
-                              <p className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground">
-                                {thread.description}
-                              </p>
-                              <div className="shrink-0">
-                                <div
-                                  className={cn(
-                                    "h-1.5 w-1.5 rounded-full",
-                                    getThreadColor(thread.status)
+                          <button
+                            type="button"
+                            onClick={() => onThreadSelect(thread.id)}
+                            className="w-0 min-w-0 flex-1 cursor-pointer overflow-hidden rounded-md px-2.5 py-2 text-left"
+                            aria-current={currentThreadId === thread.id}
+                          >
+                            <div className="w-full min-w-0 overflow-hidden">
+                              {/* Title + Timestamp Row */}
+                              <div className="mb-0.5 flex min-w-0 items-center justify-between gap-2">
+                                <h3 className="min-w-0 flex-1 truncate text-sm font-semibold leading-5 text-foreground">
+                                  {thread.title}
+                                </h3>
+                                <span className="shrink-0 text-xs text-muted-foreground">
+                                  {formatTime(thread.updatedAt)}
+                                </span>
+                              </div>
+                              {/* Description + Status Row */}
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <p className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground">
+                                  {thread.description}
+                                </p>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  {threadBadge && (
+                                    <span
+                                      className={cn(
+                                        "rounded border px-1.5 py-0.5 text-[10px] font-medium leading-3",
+                                        threadBadge.className
+                                      )}
+                                    >
+                                      {threadBadge.label}
+                                    </span>
                                   )}
-                                />
+                                  <div
+                                    className={cn(
+                                      "h-1.5 w-1.5 rounded-full",
+                                      getThreadColor(thread)
+                                    )}
+                                  />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </button>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={(event) => archiveThread(thread, event)}
-                              disabled={archivingThreadId === thread.id}
-                              className={cn(
-                                "h-7 w-7 shrink-0 text-muted-foreground opacity-70 transition-opacity hover:text-primary hover:opacity-100",
-                                currentThreadId === thread.id && "opacity-100"
-                              )}
-                              aria-label={`归档会话 ${thread.title}`}
+                          </button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={(event) =>
+                                  archiveThread(thread, event)
+                                }
+                                disabled={archivingThreadId === thread.id}
+                                className={cn(
+                                  "h-7 w-7 shrink-0 text-muted-foreground opacity-70 transition-opacity hover:text-primary hover:opacity-100",
+                                  currentThreadId === thread.id && "opacity-100"
+                                )}
+                                aria-label={`归档会话 ${thread.title}`}
+                              >
+                                {archivingThreadId === thread.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Archive className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="right"
+                              align="center"
+                              sideOffset={8}
+                              className="whitespace-nowrap"
                             >
-                              {archivingThreadId === thread.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Archive className="h-3.5 w-3.5" />
-                              )}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            side="right"
-                            align="center"
-                            sideOffset={8}
-                            className="whitespace-nowrap"
-                          >
-                            归档会话
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    ))}
+                              归档会话
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );

@@ -33,8 +33,24 @@ function messagesFromInput(input: unknown): Message[] {
     return [];
   }
 
-  return input.messages.filter((message): message is Message => {
-    return isRecord(message) && typeof message.type === "string";
+  return input.messages.flatMap((message): Message[] => {
+    if (!isRecord(message)) {
+      return [];
+    }
+    if (typeof message.type === "string") {
+      return [message as Message];
+    }
+    if (typeof message.role !== "string") {
+      return [];
+    }
+
+    const type =
+      message.role === "user"
+        ? "human"
+        : message.role === "assistant"
+        ? "ai"
+        : message.role;
+    return [{ ...message, type } as Message];
   });
 }
 

@@ -68,20 +68,35 @@ type RunLifecycle = {
   runId?: string;
   threadId?: string;
 };
-export type ThreadRecoveryNotice = {
-  kind: "failed_run_input";
+type RuntimeRunSnapshot = {
   runId?: string;
   status?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
+export type ThreadRecoveryNotice =
+  | {
+      kind: "failed_run_input";
+      runId?: string;
+      status?: string;
+    }
+  | {
+      kind: "stale_active_run";
+      runId?: string;
+      status?: string;
+      updatedAt?: string;
+    };
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4_000;
 const MAX_SCP_PROMPT_CHARS = 4_000;
 const THREAD_SNAPSHOT_CACHE_MAX_ENTRIES = 40;
 const THREAD_STATUS_METADATA_KEY = "internagents_thread_status";
+const THREAD_UPDATED_AT_METADATA_KEY = "internagents_thread_updated_at";
 const PENDING_RUN_STATUS_METADATA_KEY = "internagents_pending_run_status";
 const THREAD_RECOVERY_KIND_METADATA_KEY = "internagents_recovery_kind";
 const THREAD_RECOVERY_FAILED_RUN_INPUT = "failed_run_input";
 const STREAM_RECOVERY_VISIBLE_DELAY_MS = 700;
+const STALE_ACTIVE_RUN_MS = 10 * 60 * 1000;
 const ACTIVE_RUN_STATUSES = new Set(["busy", "pending", "running"]);
 const RUNTIME_STREAM_ACTIVE_RUN_STATUSES = new Set(["pending", "running"]);
 
@@ -261,7 +276,19 @@ function useRuntimeLiveStream({
   ]);
 }
 
-function useRuntimeRunStatus({
+function runtimeRunSnapshot(run?: Run): RuntimeRunSnapshot | null {
+  if (!run) {
+    return null;
+  }
+  return {
+    runId: run.run_id,
+    status: run.status,
+    createdAt: run.created_at,
+    updatedAt: run.updated_at,
+  };
+}
+
+function useRuntimeRunSnapshot({
   runtimeClient,
   threadId,
   enabled,
@@ -269,12 +296,12 @@ function useRuntimeRunStatus({
   runtimeClient: Client<StateType> | null;
   threadId: string | null;
   enabled: boolean;
-}): string | null {
-  const [status, setStatus] = useState<string | null>(null);
+}): RuntimeRunSnapshot | null {
+  const [snapshot, setSnapshot] = useState<RuntimeRunSnapshot | null>(null);
 
   useEffect(() => {
     if (!enabled || !runtimeClient || !threadId) {
-      setStatus(null);
+      setSnapshot(null);
       return;
     }
 
@@ -287,10 +314,10 @@ function useRuntimeRunStatus({
           return;
         }
         const activeRun = latestActiveRuntimeRun(runs);
-        setStatus(activeRun?.status ?? runs[0]?.status ?? null);
+        setSnapshot(runtimeRunSnapshot(activeRun ?? runs[0]));
       } catch {
         if (!cancelled) {
-          setStatus(null);
+          setSnapshot(null);
         }
       }
     };
@@ -304,7 +331,7 @@ function useRuntimeRunStatus({
     };
   }, [enabled, runtimeClient, threadId]);
 
-  return status;
+  return snapshot;
 }
 
 function threadToState(
@@ -326,12 +353,20 @@ function threadToState(
       thread.metadata && typeof thread.metadata === "object"
         ? {
             ...(thread.metadata as Record<string, unknown>),
+            ...(typeof thread.updated_at === "string"
+              ? { [THREAD_UPDATED_AT_METADATA_KEY]: thread.updated_at }
+              : {}),
             ...(typeof thread.status === "string"
               ? { [THREAD_STATUS_METADATA_KEY]: thread.status }
               : {}),
           }
         : typeof thread.status === "string"
-        ? { [THREAD_STATUS_METADATA_KEY]: thread.status }
+        ? {
+            ...(typeof thread.updated_at === "string"
+              ? { [THREAD_UPDATED_AT_METADATA_KEY]: thread.updated_at }
+              : {}),
+            [THREAD_STATUS_METADATA_KEY]: thread.status,
+          }
         : {},
     created_at: thread.updated_at,
     checkpoint: {
@@ -490,6 +525,24 @@ function stateHasInterrupts(state?: ThreadState<StateType> | null): boolean {
       return Array.isArray(task?.interrupts) && task.interrupts.length > 0;
     }) ?? false
   );
+}
+
+function isSyntheticBreakpointInterrupt(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return record.when === "breakpoint" && !("value" in record);
+}
+
+function hasActionableInterrupt(interrupt: unknown): boolean {
+  if (!interrupt) {
+    return false;
+  }
+
+  const interrupts = Array.isArray(interrupt) ? interrupt : [interrupt];
+  return interrupts.some((item) => !isSyntheticBreakpointInterrupt(item));
 }
 
 function sanitizeThreadState(
@@ -709,6 +762,9 @@ function mergeThreadRecord(
     metadata: {
       ...(mergedState.metadata || {}),
       ...threadMetadata,
+      ...(typeof thread.updated_at === "string"
+        ? { [THREAD_UPDATED_AT_METADATA_KEY]: thread.updated_at }
+        : {}),
       ...(typeof thread.status === "string"
         ? { [THREAD_STATUS_METADATA_KEY]: thread.status }
         : {}),
@@ -1457,7 +1513,7 @@ export function useChat({
     externalThread: thread,
     cacheScope: threadSnapshotCacheScope,
   });
-  const runtimeRunStatus = useRuntimeRunStatus({
+  const runtimeRunSnapshot = useRuntimeRunSnapshot({
     runtimeClient,
     threadId: threadId ?? null,
     enabled: Boolean(threadId && runtimeClient),
@@ -1479,7 +1535,9 @@ export function useChat({
   const detectedActiveRun =
     (threadStatus ? ACTIVE_RUN_STATUSES.has(threadStatus) : false) ||
     (pendingRunStatus ? ACTIVE_RUN_STATUSES.has(pendingRunStatus) : false) ||
-    (runtimeRunStatus ? ACTIVE_RUN_STATUSES.has(runtimeRunStatus) : false);
+    (runtimeRunSnapshot?.status
+      ? ACTIVE_RUN_STATUSES.has(runtimeRunSnapshot.status)
+      : false);
   const snapshotHasActiveRun =
     runLifecycle.status !== "stopped" && detectedActiveRun;
   const snapshotHasSettledRunState =
@@ -2297,9 +2355,12 @@ export function useChat({
   const activeInterrupt = isThreadScopedStateLoading
     ? undefined
     : stream.interrupt ?? streamEventLayer.interrupt;
+  const visibleInterrupt = hasActionableInterrupt(activeInterrupt)
+    ? activeInterrupt
+    : undefined;
   const runStatus: RunLifecycleStatus = visibleError
     ? "error"
-    : activeInterrupt
+    : visibleInterrupt
     ? "interrupted"
     : isRunLoading
     ? "running"
@@ -2307,17 +2368,56 @@ export function useChat({
   const recoveryNotice = useMemo<ThreadRecoveryNotice | null>(() => {
     const recoveryKind = threadMetadata[THREAD_RECOVERY_KIND_METADATA_KEY];
     const runId = threadMetadata.internagents_pending_run_id;
-    const hasAssistantMessage = scopedMessages.some(
-      (message) => message.type === "ai"
+    const hasHumanMessage = scopedMessages.some(
+      (message) => message.type === "human"
     );
+    const hasNonHumanProgress = scopedMessages.some(
+      (message) => message.type !== "human"
+    );
+    const runtimeRunUpdatedAt = runtimeRunSnapshot?.updatedAt
+      ? Date.parse(runtimeRunSnapshot.updatedAt)
+      : NaN;
+    const threadUpdatedAt =
+      typeof threadMetadata[THREAD_UPDATED_AT_METADATA_KEY] === "string"
+        ? Date.parse(threadMetadata[THREAD_UPDATED_AT_METADATA_KEY])
+        : NaN;
+    const hasStaleRuntimeRun =
+      snapshotHasActiveRun &&
+      runtimeRunSnapshot?.status &&
+      ACTIVE_RUN_STATUSES.has(runtimeRunSnapshot.status) &&
+      Number.isFinite(runtimeRunUpdatedAt) &&
+      Date.now() - runtimeRunUpdatedAt >= STALE_ACTIVE_RUN_MS &&
+      hasHumanMessage &&
+      !hasNonHumanProgress;
+    const hasStaleCoordinatorThread =
+      snapshotHasActiveRun &&
+      threadStatus &&
+      ACTIVE_RUN_STATUSES.has(threadStatus) &&
+      Number.isFinite(threadUpdatedAt) &&
+      Date.now() - threadUpdatedAt >= STALE_ACTIVE_RUN_MS &&
+      hasHumanMessage &&
+      !hasNonHumanProgress;
+
+    if ((hasStaleRuntimeRun || hasStaleCoordinatorThread) && !visibleInterrupt) {
+      return {
+        kind: "stale_active_run",
+        runId: runtimeRunSnapshot?.runId,
+        status: runtimeRunSnapshot?.status ?? threadStatus ?? undefined,
+        updatedAt:
+          runtimeRunSnapshot?.updatedAt ??
+          (typeof threadMetadata[THREAD_UPDATED_AT_METADATA_KEY] === "string"
+            ? threadMetadata[THREAD_UPDATED_AT_METADATA_KEY]
+            : undefined),
+      };
+    }
 
     if (
       isThreadScopedStateLoading ||
       isRunLoading ||
-      activeInterrupt ||
+      visibleInterrupt ||
       recoveryKind !== THREAD_RECOVERY_FAILED_RUN_INPUT ||
       pendingRunStatus !== "error" ||
-      hasAssistantMessage
+      hasNonHumanProgress
     ) {
       return null;
     }
@@ -2328,12 +2428,15 @@ export function useChat({
       status: pendingRunStatus,
     };
   }, [
-    activeInterrupt,
     isRunLoading,
     isThreadScopedStateLoading,
     pendingRunStatus,
+    runtimeRunSnapshot,
     scopedMessages,
+    snapshotHasActiveRun,
     threadMetadata,
+    threadStatus,
+    visibleInterrupt,
   ]);
 
   return {
@@ -2359,7 +2462,7 @@ export function useChat({
     isLoading: isRunLoading,
     isStreamRecovering,
     isThreadLoading: isThreadScopedStateLoading,
-    interrupt: activeInterrupt,
+    interrupt: visibleInterrupt,
     runStatus,
     runUpdatedAt: runLifecycle.updatedAt,
     getMessagesMetadata: stream.getMessagesMetadata,

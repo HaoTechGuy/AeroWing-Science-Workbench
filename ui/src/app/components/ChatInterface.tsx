@@ -2160,6 +2160,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       );
     });
   }, [visibleMessages]);
+  const shouldShowThreadLoading =
+    isThreadLoading && messages.length === 0 && !recoveryNotice;
   const recoveredInputMessage = useMemo(() => {
     if (!recoveryNotice) {
       return null;
@@ -2174,6 +2176,47 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
     return null;
   }, [messages, recoveryNotice]);
+  const recoveredInputText = useMemo(() => {
+    return recoveredInputMessage
+      ? extractVisibleStringFromMessageContent(recoveredInputMessage).trim()
+      : "";
+  }, [recoveredInputMessage]);
+  const recoveredInputTextRef = useRef<HTMLPreElement>(null);
+  const isStaleActiveRunNotice =
+    recoveryNotice?.kind === "stale_active_run";
+
+  const selectRecoveredInputText = useCallback(() => {
+    const element = recoveredInputTextRef.current;
+    const selection = document.getSelection();
+    if (!element || !selection) {
+      return false;
+    }
+
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }, []);
+
+  const handleCopyRecoveredInput = useCallback(async () => {
+    if (!recoveredInputText) {
+      toast.error("没有可复制的原始输入。");
+      return;
+    }
+
+    try {
+      await writeTextToClipboard(recoveredInputText);
+      toast.success("已复制原始输入。");
+    } catch {
+      const selected = selectRecoveredInputText();
+      toast.error(
+        selected
+          ? "复制失败，已选中原始请求，请按 Cmd/Ctrl+C 复制。"
+          : "复制失败，请手动选择原始请求复制。"
+      );
+    }
+  }, [recoveredInputText, selectRecoveredInputText]);
 
   const handleRetryRecoveredInput = useCallback(() => {
     if (!recoveredInputMessage) {
@@ -2467,7 +2510,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           className="mx-auto w-full max-w-[1180px] px-6 pb-6 pt-4"
           ref={contentRef}
         >
-          {isThreadLoading ? (
+          {shouldShowThreadLoading ? (
             <div className="flex items-center justify-center p-8">
               <p className="text-muted-foreground">Loading...</p>
             </div>
@@ -2567,25 +2610,54 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium">
-                        本次运行失败，未保存最终结果
+                        {isStaleActiveRunNotice
+                          ? "后台任务可能已经卡住"
+                          : "本次运行失败，未保存最终结果"}
                       </div>
                       <p className="mt-1 text-sm text-amber-900/85 dark:text-amber-100/85">
-                        已恢复原始输入。子任务记录不会作为主回复显示，避免把中间 checkpoint 当成会话结果。
+                        {isStaleActiveRunNotice
+                          ? "这个会话长时间没有新进展。建议复制原始请求，归档这个会话，然后开一个新对话。"
+                          : "已恢复原始输入。子任务记录不会作为主回复显示，避免把中间 checkpoint 当成会话结果。"}
                       </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          className="h-8 gap-1.5 px-2.5 text-xs"
-                          onClick={handleRetryRecoveredInput}
-                          disabled={
-                            composerBusy || !assistant || !recoveredInputMessage
-                          }
+                      {isStaleActiveRunNotice && recoveredInputText && (
+                        <pre
+                          ref={recoveredInputTextRef}
+                          className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md border border-amber-300/60 bg-white/70 px-3 py-2 text-xs leading-5 text-amber-950 dark:border-amber-500/35 dark:bg-amber-950/25 dark:text-amber-50"
                         >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          重新运行
-                        </Button>
+                          {recoveredInputText}
+                        </pre>
+                      )}
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {isStaleActiveRunNotice && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 gap-1.5 px-2.5 text-xs"
+                            onClick={() => void handleCopyRecoveredInput()}
+                            disabled={!recoveredInputText}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            复制原始请求
+                          </Button>
+                        )}
+                        {!isStaleActiveRunNotice && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 gap-1.5 px-2.5 text-xs"
+                            onClick={handleRetryRecoveredInput}
+                            disabled={
+                              composerBusy ||
+                              !assistant ||
+                              !recoveredInputMessage
+                            }
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            重新运行
+                          </Button>
+                        )}
                         {intermediateMessages.length > 0 && (
                           <Button
                             type="button"

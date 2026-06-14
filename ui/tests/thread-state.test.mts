@@ -103,6 +103,20 @@ test("resolveThreadListValues can prefer runtime values for active pending runs"
   assert.equal(result, runtimeValues);
 });
 
+test("resolveThreadListValues falls back to run input when active runtime state is empty", async () => {
+  const result = await resolveThreadListValues({
+    threadValues: { messages: [] },
+    loadMainStateValues: async () => ({ messages: [] }),
+    loadPendingValues: async () => rootValues,
+    preferRuntimeValuesBeforePending: () => true,
+    loadRuntimeStateValues: async () => ({ messages: [] }),
+    loadRuntimeThreadValues: async () => ({ messages: [] }),
+    loadRuntimeHistoryValues: async () => [{ messages: [] }],
+  });
+
+  assert.equal(result, rootValues);
+});
+
 test("loadPendingRunInputPreview can recover input from errored runs", async () => {
   const client = {
     runs: {
@@ -125,4 +139,32 @@ test("loadPendingRunInputPreview can recover input from errored runs", async () 
 
   assert.equal(preview?.runId, "run-1");
   assert.deepEqual(preview?.messages, rootValues.messages);
+});
+
+test("loadPendingRunInputPreview accepts role-based run input messages", async () => {
+  const client = {
+    runs: {
+      list: async () => [
+        {
+          run_id: "run-1",
+          status: "running",
+          kwargs: {
+            input: {
+              messages: [
+                {
+                  role: "user",
+                  content: "调研一下大模型",
+                },
+              ],
+            },
+          },
+        },
+      ],
+    },
+  } as any;
+
+  const preview = await loadPendingRunInputPreview(client, "thread-1");
+
+  assert.equal(preview?.messages[0]?.type, "human");
+  assert.equal(preview?.messages[0]?.content, "调研一下大模型");
 });

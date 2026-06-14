@@ -229,24 +229,34 @@ async function countThreadsByStatus(
   url: string,
   status: "busy" | "interrupted"
 ): Promise<number> {
-  const response = await fetch(`${url}/threads/search`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      limit: 1,
-      offset: 0,
-      status,
-      select: ["thread_id", "status"],
-    }),
-    cache: "no-store",
-  });
+  const pageSize = 100;
+  let offset = 0;
+  let count = 0;
 
-  if (!response.ok) {
-    throw new Error(`Unable to query ${status} threads.`);
+  while (true) {
+    const response = await fetch(`${url}/threads/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        limit: pageSize,
+        offset,
+        status,
+        select: ["thread_id", "status"],
+      }),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Unable to query ${status} threads.`);
+    }
+
+    const threads = (await response.json()) as unknown[];
+    count += threads.length;
+    if (threads.length < pageSize) {
+      return count;
+    }
+    offset += threads.length;
   }
-
-  const threads = (await response.json()) as unknown[];
-  return threads.length;
 }
 
 export async function getBackendStatus(): Promise<BackendStatusResult> {
