@@ -395,6 +395,73 @@ class WebSearchToolsTest(unittest.TestCase):
         self.assertIn("Found 1 web search result", result)
         self.assertIn("Bing & Result", result)
 
+    def test_web_search_tool_falls_back_to_academic_when_general_sources_empty(
+        self,
+    ) -> None:
+        academic_results = [
+            web_search_tools.WebSearchResult(
+                title="[arXiv] Academic fallback",
+                url="https://arxiv.org/abs/2501.00001",
+                snippet="Academic fallback snippet.",
+            )
+        ]
+        with (
+            patch.object(web_search_tools, "duckduckgo_search", return_value=[]),
+            patch.object(web_search_tools, "bing_search", return_value=[]),
+            patch.object(
+                web_search_tools,
+                "academic_search",
+                return_value=academic_results,
+            ),
+        ):
+            search_tool = build_web_search_tools(
+                {"web_search": {"provider": "duckduckgo", "max_results": 1}}
+            )[0]
+            result = search_tool.invoke({"query": "multi agent"})
+
+        self.assertIn("Found 1 web search result", result)
+        self.assertIn("[arXiv] Academic fallback", result)
+        self.assertIn("URL [1]: https://arxiv.org/abs/2501.00001", result)
+
+    def test_web_search_tool_falls_back_to_academic_when_general_sources_fail(
+        self,
+    ) -> None:
+        academic_results = [
+            web_search_tools.WebSearchResult(
+                title="[Semantic Scholar] Academic fallback",
+                url="https://www.semanticscholar.org/paper/example",
+                snippet="Academic fallback snippet.",
+            )
+        ]
+        with (
+            patch.object(
+                web_search_tools,
+                "duckduckgo_search",
+                side_effect=OSError("ddg blocked"),
+            ),
+            patch.object(
+                web_search_tools,
+                "bing_search",
+                side_effect=OSError("bing blocked"),
+            ),
+            patch.object(
+                web_search_tools,
+                "academic_search",
+                return_value=academic_results,
+            ),
+        ):
+            search_tool = build_web_search_tools(
+                {"web_search": {"provider": "duckduckgo", "max_results": 1}}
+            )[0]
+            result = search_tool.invoke({"query": "multi agent"})
+
+        self.assertIn("Found 1 web search result", result)
+        self.assertIn("[Semantic Scholar] Academic fallback", result)
+        self.assertIn(
+            "URL [1]: https://www.semanticscholar.org/paper/example",
+            result,
+        )
+
     def test_web_search_tool_uses_arxiv_provider(self) -> None:
         with patch.object(web_search_tools, "_fetch_url", return_value=ARXIV_ATOM):
             search_tool = build_web_search_tools(

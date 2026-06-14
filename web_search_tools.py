@@ -1109,7 +1109,7 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
             max(1, _positive_int(max_results, settings.max_results)),
         )
         if settings.provider in {"duckduckgo", "ddg"}:
-            duckduckgo_error: Exception | None = None
+            errors: list[str] = []
             try:
                 results = duckduckgo_search(
                     normalized_query,
@@ -1117,7 +1117,7 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
                     timeout_seconds=settings.timeout_seconds,
                 )
             except Exception as exc:
-                duckduckgo_error = exc
+                errors.append(f"DuckDuckGo: {exc}")
                 results = []
             if not results:
                 try:
@@ -1127,12 +1127,23 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
                         timeout_seconds=settings.timeout_seconds,
                     )
                 except Exception as exc:
-                    if duckduckgo_error is not None:
-                        return (
-                            "Web search failed with DuckDuckGo and Bing. "
-                            f"DuckDuckGo: {duckduckgo_error}; Bing: {exc}"
-                        )
-                    return f"Web search failed with Bing fallback: {exc}"
+                    errors.append(f"Bing: {exc}")
+                    results = []
+            if not results:
+                try:
+                    results = academic_search(
+                        normalized_query,
+                        max_results=requested_results,
+                        timeout_seconds=settings.timeout_seconds,
+                    )
+                except Exception as exc:
+                    errors.append(f"academic sources: {exc}")
+                    results = []
+            if not results and errors:
+                return (
+                    "Web search failed with DuckDuckGo, Bing, and academic sources. "
+                    + "; ".join(errors)
+                )
             return format_search_results(normalized_query, results)
 
         if settings.provider == "bing":
