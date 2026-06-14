@@ -22,7 +22,7 @@ export type PendingRunInputPreview = {
   metadata: Record<string, unknown>;
 };
 
-const PREVIEWABLE_RUN_STATUSES = new Set(["pending", "running"]);
+const PREVIEWABLE_RUN_STATUSES = new Set(["pending", "running", "error"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));

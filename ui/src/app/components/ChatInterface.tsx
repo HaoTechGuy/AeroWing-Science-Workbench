@@ -18,6 +18,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  AlertTriangle,
   Square,
   ArrowUp,
   AtSign,
@@ -35,6 +36,7 @@ import {
   Pencil,
   Sparkles,
   Plug,
+  RotateCcw,
   Target,
   X,
 } from "lucide-react";
@@ -1196,6 +1198,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     setFiles,
     updateThreadSkills,
     error,
+    recoveryNotice,
     isLoading,
     isStreamRecovering,
     isThreadLoading,
@@ -1204,6 +1207,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     threadTitle,
     updateThreadTitle,
     sendMessage,
+    retryMessage,
     stopStream,
     resumeInterrupt,
     threadId,
@@ -2147,6 +2151,29 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     thinkingPlaceholderMessage,
     visibleMessages,
   ]);
+  const recoveredInputMessage = useMemo(() => {
+    if (!recoveryNotice) {
+      return null;
+    }
+
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.type === "human") {
+        return message;
+      }
+    }
+
+    return null;
+  }, [messages, recoveryNotice]);
+
+  const handleRetryRecoveredInput = useCallback(() => {
+    if (!recoveredInputMessage) {
+      toast.error("没有可重新运行的原始输入。");
+      return;
+    }
+
+    retryMessage(recoveredInputMessage, { previousMessages: [] });
+  }, [recoveredInputMessage, retryMessage]);
 
   const completedAiMessage = useMemo<Message | null>(() => {
     if (
@@ -2488,6 +2515,51 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   />
                 );
               })}
+              {recoveryNotice && (
+                <div
+                  className="ml-10 mt-4 rounded-md border border-amber-400/35 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950 shadow-sm shadow-black/[0.025] dark:border-amber-500/30 dark:bg-amber-950/25 dark:text-amber-100"
+                  role="status"
+                >
+                  <div className="flex gap-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium">
+                        本次运行失败，未保存最终结果
+                      </div>
+                      <p className="mt-1 text-sm text-amber-900/85 dark:text-amber-100/85">
+                        已恢复原始输入。子任务记录不会作为主回复显示，避免把中间 checkpoint 当成会话结果。
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 gap-1.5 px-2.5 text-xs"
+                          onClick={handleRetryRecoveredInput}
+                          disabled={
+                            composerBusy || !assistant || !recoveredInputMessage
+                          }
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          重新运行
+                        </Button>
+                        {intermediateMessages.length > 0 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1.5 px-2.5 text-xs text-amber-950 hover:text-amber-950 dark:text-amber-100 dark:hover:text-amber-100"
+                            onClick={() => setShowIntermediateResults(true)}
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            查看中间过程
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {intermediateMessages.length > 0 && (
                 <div className="ml-10 mt-4 overflow-hidden rounded-md border border-border/30 bg-muted/5 text-muted-foreground/70">
                   <button

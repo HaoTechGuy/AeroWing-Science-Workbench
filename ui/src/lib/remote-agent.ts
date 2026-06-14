@@ -84,14 +84,10 @@ function splitRawEvent(rawEvent: string): {
   };
 }
 
-function shouldForwardEventToUseStream(rawEvent: string): boolean {
-  const { mode, namespace } = splitRawEvent(rawEvent);
-  if (!namespace?.length) {
-    return true;
-  }
-
-  // Keep subgraph message chunks in streamEvents, but out of the top-level chat reducer.
-  return mode !== "messages" && mode !== "messages-tuple";
+export function shouldForwardEventToUseStream(rawEvent: string): boolean {
+  const { namespace } = splitRawEvent(rawEvent);
+  // Keep all subgraph events in streamEvents, but out of the top-level chat reducer.
+  return !namespace?.length;
 }
 
 export class WebRemoteAgent {

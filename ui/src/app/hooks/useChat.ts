@@ -33,6 +33,12 @@ import {
   loadPendingRunInputPreview,
   type PendingRunInputPreview,
 } from "@/lib/pending-run-input";
+import {
+  findStateWithMessages,
+  mergeValuesWithMessages,
+  messagesFromValues,
+  stateHasMessages,
+} from "@/lib/thread-state";
 
 type RunConfig = Record<string, any>;
 type ParsedGoalCommand = {
@@ -59,12 +65,19 @@ type RunLifecycle = {
   runId?: string;
   threadId?: string;
 };
+export type ThreadRecoveryNotice = {
+  kind: "failed_run_input";
+  runId?: string;
+  status?: string;
+};
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4_000;
 const MAX_SCP_PROMPT_CHARS = 4_000;
 const THREAD_SNAPSHOT_CACHE_MAX_ENTRIES = 40;
 const THREAD_STATUS_METADATA_KEY = "internagents_thread_status";
 const PENDING_RUN_STATUS_METADATA_KEY = "internagents_pending_run_status";
+const THREAD_RECOVERY_KIND_METADATA_KEY = "internagents_recovery_kind";
+const THREAD_RECOVERY_FAILED_RUN_INPUT = "failed_run_input";
 const STREAM_RECOVERY_VISIBLE_DELAY_MS = 700;
 const ACTIVE_RUN_STATUSES = new Set(["busy", "pending", "running"]);
 
@@ -167,6 +180,7 @@ function pendingRunToState(
   preview: PendingRunInputPreview
 ): ThreadState<StateType> {
   const now = new Date().toISOString();
+  const isFailedRunInputRecovery = preview.status === "error";
 
   return sanitizeThreadState({
     values: {
@@ -183,6 +197,12 @@ function pendingRunToState(
       ...preview.metadata,
       internagents_pending_run_id: preview.runId,
       internagents_pending_run_status: preview.status,
+      ...(isFailedRunInputRecovery
+        ? {
+            [THREAD_RECOVERY_KIND_METADATA_KEY]:
+              THREAD_RECOVERY_FAILED_RUN_INPUT,
+          }
+        : {}),
     },
     created_at: preview.updatedAt ?? preview.createdAt ?? now,
     checkpoint: {
@@ -234,26 +254,6 @@ function isThreadNotFoundError(error: unknown): boolean {
     message.includes("not found") ||
     message.includes("thread not found")
   );
-}
-
-function messagesFromValues(values: unknown): Message[] {
-  if (!values || typeof values !== "object") {
-    return [];
-  }
-  const messages = (values as Partial<StateType>).messages;
-  return Array.isArray(messages) ? messages : [];
-}
-
-function stateHasMessages(
-  state?: ThreadState<StateType> | null
-): state is ThreadState<StateType> {
-  return messagesFromValues(state?.values).length > 0;
-}
-
-function findStateWithMessages(
-  states: ThreadState<StateType>[]
-): ThreadState<StateType> | undefined {
-  return states.find((state) => stateHasMessages(state));
 }
 
 function stateHasInterrupts(state?: ThreadState<StateType> | null): boolean {
@@ -438,47 +438,33 @@ function hasUsableCheckpoint(
 
 function mergeStateValues(
   state: ThreadState<StateType>,
-  values: unknown
+  values: unknown,
+  options: { preservePrimaryMessages?: boolean } = {}
 ): ThreadState<StateType> {
-  const incomingValues =
-    values && typeof values === "object" ? (values as Partial<StateType>) : {};
-  const nextValues = {
-    ...state.values,
-    ...incomingValues,
-  };
-
   return sanitizeThreadState({
     ...state,
-    values: {
-      ...nextValues,
-      messages: Array.isArray(nextValues.messages) ? nextValues.messages : [],
-    } as StateType,
+    values: mergeValuesWithMessages<StateType>(state.values, values, options),
   });
 }
 
 function mergeStateSnapshot(
   primaryState: ThreadState<StateType>,
-  snapshotState: ThreadState<StateType>
+  snapshotState: ThreadState<StateType>,
+  options: { preservePrimaryMessages?: boolean } = {}
 ): ThreadState<StateType> {
-  const primaryValues =
-    primaryState.values && typeof primaryState.values === "object"
-      ? (primaryState.values as Partial<StateType>)
-      : {};
-  const snapshotValues =
-    snapshotState.values && typeof snapshotState.values === "object"
-      ? (snapshotState.values as Partial<StateType>)
-      : {};
-  const snapshotMessages = messagesFromValues(snapshotState.values);
-  const primaryMessages = messagesFromValues(primaryState.values);
+  const preservePrimaryMessages =
+    options.preservePrimaryMessages && stateHasMessages(primaryState);
+  const baseState = preservePrimaryMessages ? primaryState : snapshotState;
 
   return sanitizeThreadState({
-    ...snapshotState,
-    values: {
-      ...primaryValues,
-      ...snapshotValues,
-      messages:
-        snapshotMessages.length > 0 ? snapshotMessages : primaryMessages,
-    } as StateType,
+    ...baseState,
+    values: mergeValuesWithMessages<StateType>(
+      primaryState.values,
+      snapshotState.values,
+      {
+        preservePrimaryMessages,
+      }
+    ),
     metadata: {
       ...(primaryState.metadata || {}),
       ...(snapshotState.metadata || {}),
@@ -490,7 +476,9 @@ function mergeThreadRecord(
   state: ThreadState<StateType>,
   thread: Thread<StateType>
 ): ThreadState<StateType> {
-  const mergedState = mergeStateValues(state, thread.values);
+  const mergedState = mergeStateValues(state, thread.values, {
+    preservePrimaryMessages: stateHasMessages(state),
+  });
   const threadMetadata =
     thread.metadata && typeof thread.metadata === "object"
       ? (thread.metadata as Record<string, unknown>)
@@ -540,12 +528,14 @@ async function loadThreadSnapshot({
 }): Promise<ThreadState<StateType>[]> {
   let primaryState: ThreadState<StateType> | null = null;
   let primaryError: unknown;
+  let hasMainStateMessages = false;
 
   try {
     const mainState = sanitizeThreadState(
       await client.threads.getState<StateType>(threadId)
     );
     primaryState = mainState;
+    hasMainStateMessages = stateHasMessages(mainState);
   } catch (error) {
     primaryError = error;
   }
@@ -555,16 +545,12 @@ async function loadThreadSnapshot({
     const threadState = primaryState
       ? mergeThreadRecord(primaryState, threadRecord)
       : threadToState(threadId, threadRecord);
-    if (stateHasMessages(threadState)) {
+    if (hasMainStateMessages && stateHasMessages(threadState)) {
       return [sanitizeThreadState(threadState)];
     }
     primaryState = threadState;
   } catch (error) {
     primaryError ??= error;
-  }
-
-  if (stateHasMessages(primaryState)) {
-    return [sanitizeThreadState(primaryState)];
   }
 
   try {
@@ -598,6 +584,10 @@ async function loadThreadSnapshot({
     ];
   }
 
+  if (stateHasMessages(primaryState)) {
+    return [sanitizeThreadState(primaryState)];
+  }
+
   if (runtimeClient) {
     try {
       const runtimeState = sanitizeThreadState(
@@ -606,7 +596,9 @@ async function loadThreadSnapshot({
       if (stateHasMessages(runtimeState)) {
         return [
           primaryState
-            ? mergeStateSnapshot(primaryState, runtimeState)
+            ? mergeStateSnapshot(primaryState, runtimeState, {
+                preservePrimaryMessages: stateHasMessages(primaryState),
+              })
             : runtimeState,
         ];
       }
@@ -625,7 +617,9 @@ async function loadThreadSnapshot({
       if (stateHasMessages(runtimeState)) {
         return [
           primaryState
-            ? mergeStateSnapshot(primaryState, runtimeState)
+            ? mergeStateSnapshot(primaryState, runtimeState, {
+                preservePrimaryMessages: stateHasMessages(primaryState),
+              })
             : sanitizeThreadState(runtimeState),
         ];
       }
@@ -642,7 +636,9 @@ async function loadThreadSnapshot({
       if (runtimeStateWithMessages) {
         return [
           primaryState
-            ? mergeStateSnapshot(primaryState, runtimeStateWithMessages)
+            ? mergeStateSnapshot(primaryState, runtimeStateWithMessages, {
+                preservePrimaryMessages: stateHasMessages(primaryState),
+              })
             : sanitizeThreadState(runtimeStateWithMessages),
         ];
       }
@@ -1391,8 +1387,13 @@ export function useChat({
     const snapshotValues = threadSnapshot?.data?.[0]?.values;
     const currentMessages = messagesFromValues(currentValues);
     const snapshotMessages = messagesFromValues(snapshotValues);
+    const shouldUseSnapshotMessages =
+      snapshotMessages.length > 0 &&
+      (!stream.isLoading ||
+        currentMessages.length === 0 ||
+        snapshotMessages.length > currentMessages.length);
 
-    if (snapshotMessages.length <= currentMessages.length) {
+    if (!shouldUseSnapshotMessages) {
       return currentValues;
     }
 
@@ -1408,7 +1409,7 @@ export function useChat({
       ...snapshotRecord,
       messages: snapshotMessages,
     } as StateType;
-  }, [stream.values, threadSnapshot?.data]);
+  }, [stream.isLoading, stream.values, threadSnapshot?.data]);
 
   const streamScopeKey = useMemo(
     () =>
@@ -1964,6 +1965,37 @@ export function useChat({
     : isRunLoading
     ? "running"
     : runLifecycle.status;
+  const recoveryNotice = useMemo<ThreadRecoveryNotice | null>(() => {
+    const recoveryKind = threadMetadata[THREAD_RECOVERY_KIND_METADATA_KEY];
+    const runId = threadMetadata.internagents_pending_run_id;
+    const hasAssistantMessage = scopedMessages.some(
+      (message) => message.type === "ai"
+    );
+
+    if (
+      isThreadScopedStateLoading ||
+      isRunLoading ||
+      activeInterrupt ||
+      recoveryKind !== THREAD_RECOVERY_FAILED_RUN_INPUT ||
+      pendingRunStatus !== "error" ||
+      hasAssistantMessage
+    ) {
+      return null;
+    }
+
+    return {
+      kind: THREAD_RECOVERY_FAILED_RUN_INPUT,
+      runId: typeof runId === "string" ? runId : undefined,
+      status: pendingRunStatus,
+    };
+  }, [
+    activeInterrupt,
+    isRunLoading,
+    isThreadScopedStateLoading,
+    pendingRunStatus,
+    scopedMessages,
+    threadMetadata,
+  ]);
 
   return {
     stream,
@@ -1984,6 +2016,7 @@ export function useChat({
     setFiles,
     messages: scopedMessages,
     error: visibleError,
+    recoveryNotice,
     isLoading: isRunLoading,
     isStreamRecovering,
     isThreadLoading: isThreadScopedStateLoading,

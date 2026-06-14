@@ -10,6 +10,10 @@ import {
   loadPendingRunInputPreview,
   pendingRunValues,
 } from "@/lib/pending-run-input";
+import {
+  messagesFromValues,
+  resolveThreadListValues,
+} from "@/lib/thread-state";
 
 export interface ThreadItem {
   id: string;
@@ -24,73 +28,47 @@ export interface ThreadItem {
 
 const DEFAULT_PAGE_SIZE = 20;
 
-function messagesFromValues(values: unknown): any[] {
-  if (!values || typeof values !== "object") {
-    return [];
-  }
-  const messages = (values as { messages?: unknown }).messages;
-  return Array.isArray(messages) ? messages : [];
-}
-
 async function resolveThreadValues(
   thread: Thread,
   client: Client,
   runtimeClient: Client | null
 ): Promise<unknown> {
-  if (messagesFromValues(thread.values).length > 0) {
-    return thread.values;
-  }
-
-  const pendingRunPreview = await loadPendingRunInputPreview(
-    client,
-    thread.thread_id
-  );
-  if (pendingRunPreview) {
-    return {
-      ...(thread.values && typeof thread.values === "object"
-        ? thread.values
-        : {}),
-      ...pendingRunValues(pendingRunPreview),
-    };
-  }
-
-  if (runtimeClient) {
-    try {
-      const runtimeState = await runtimeClient.threads.getState(
+  return resolveThreadListValues({
+    threadValues: thread.values,
+    loadMainStateValues: async () =>
+      (await client.threads.getState(thread.thread_id)).values,
+    loadPendingValues: async () => {
+      const pendingRunPreview = await loadPendingRunInputPreview(
+        client,
         thread.thread_id
       );
-      if (messagesFromValues(runtimeState.values).length > 0) {
-        return runtimeState.values;
-      }
-    } catch {
-      // Runtime state may be absent for queued runs that have not started.
-    }
-
-    try {
-      const runtimeThread = await runtimeClient.threads.get(thread.thread_id);
-      if (messagesFromValues(runtimeThread.values).length > 0) {
-        return runtimeThread.values;
-      }
-    } catch {
-      // Main service history remains the source of truth when runtime is absent.
-    }
-
-    try {
-      const history = await runtimeClient.threads.getHistory(thread.thread_id, {
-        limit: 80,
-      });
-      const stateWithMessages = history.find(
-        (state) => messagesFromValues(state.values).length > 0
-      );
-      if (stateWithMessages) {
-        return stateWithMessages.values;
-      }
-    } catch {
-      // Keep the original thread record if runtime history cannot be read.
-    }
-  }
-
-  return thread.values;
+      if (!pendingRunPreview) return undefined;
+      return {
+        ...(thread.values && typeof thread.values === "object"
+          ? thread.values
+          : {}),
+        ...pendingRunValues(pendingRunPreview),
+      };
+    },
+    loadRuntimeStateValues: runtimeClient
+      ? async () =>
+          (await runtimeClient.threads.getState(thread.thread_id)).values
+      : undefined,
+    loadRuntimeThreadValues: runtimeClient
+      ? async () => (await runtimeClient.threads.get(thread.thread_id)).values
+      : undefined,
+    loadRuntimeHistoryValues: runtimeClient
+      ? async () => {
+          const history = await runtimeClient.threads.getHistory(
+            thread.thread_id,
+            {
+              limit: 80,
+            }
+          );
+          return history.map((state) => state.values);
+        }
+      : undefined,
+  });
 }
 
 export function useThreads(props: {
