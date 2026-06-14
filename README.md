@@ -78,6 +78,23 @@ Runtime logs are written to:
 .internagents/logs/ui.log
 ```
 
+## Skill Catalogs
+
+InternAgents looks for local skills in shared user-level catalogs first, then
+falls back to project-level catalogs:
+
+```text
+~/.internagents/myskills
+~/.internagents/imported-skills
+skills
+.internagents/imported-skills
+```
+
+The configuration page writes selected skill paths into `deepagent.config.json`.
+Local and cloud imports are copied into `~/.internagents/imported-skills` so the
+same skill can be reused across projects; each project keeps only its selected
+skill list and active symlinks under `.internagents/active-skills`.
+
 LangGraph dev persistence is isolated by process role so the coordinator and
 local runtime do not write the same checkpoint files:
 

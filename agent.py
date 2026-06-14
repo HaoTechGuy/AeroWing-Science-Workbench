@@ -26,6 +26,12 @@ from langgraph.config import get_config
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
+DEFAULT_SKILL_CATALOG_PATHS = [
+    "~/.internagents/myskills",
+    "~/.internagents/imported-skills",
+    "skills",
+    ".internagents/imported-skills",
+]
 LOCKED_GATEWAY_URL = "http://43.106.18.167/jisi"
 LOCKED_GATEWAY_API_BASE_URL = f"{LOCKED_GATEWAY_URL}/v1"
 BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
@@ -411,7 +417,7 @@ def _load_agent_config() -> dict[str, Any]:
 def _resolve_config_path(value: str | None, default: Path) -> Path:
     if not value:
         return default
-    path = Path(value)
+    path = Path(value).expanduser()
     if path == Path("."):
         return ROOT_DIR
     if not path.is_absolute():
@@ -472,9 +478,13 @@ def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
     if not isinstance(selected, list) or not selected:
         return None
 
-    catalog_paths = skills_config.get("catalog_paths") or skills_config.get("catalogPaths") or ["skills"]
+    catalog_paths = (
+        skills_config.get("catalog_paths")
+        or skills_config.get("catalogPaths")
+        or DEFAULT_SKILL_CATALOG_PATHS
+    )
     if not isinstance(catalog_paths, list):
-        catalog_paths = ["skills"]
+        catalog_paths = DEFAULT_SKILL_CATALOG_PATHS
 
     catalog_roots = [
         _resolve_config_path(path, ROOT_DIR).resolve()
@@ -579,7 +589,7 @@ def _skill_read_only_roots(
             or []
         )
         if not isinstance(catalog_paths, list) or not catalog_paths:
-            catalog_paths = ["skills", ".internagents/imported-skills"]
+            catalog_paths = DEFAULT_SKILL_CATALOG_PATHS
         roots.extend(
             _resolve_config_path(source, ROOT_DIR).resolve()
             for source in catalog_paths
@@ -588,7 +598,7 @@ def _skill_read_only_roots(
     else:
         roots.extend(
             _resolve_config_path(source, ROOT_DIR).resolve()
-            for source in ("skills", ".internagents/imported-skills")
+            for source in DEFAULT_SKILL_CATALOG_PATHS
         )
 
     deduped: list[Path] = []
@@ -615,7 +625,7 @@ def _thread_skill_catalog_paths(config: dict[str, Any]) -> list[str]:
         if isinstance(path, str) and path.strip()
     ]
     if not paths:
-        paths = ["skills", ".internagents/imported-skills"]
+        paths = DEFAULT_SKILL_CATALOG_PATHS
     return list(dict.fromkeys(paths))
 
 

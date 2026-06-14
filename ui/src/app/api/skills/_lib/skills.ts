@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import { execFile } from "child_process";
+import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { getWorkspaceRoot } from "@/app/api/workspace/_lib/workspace";
@@ -15,10 +16,18 @@ import type {
 } from "@/app/skills/types";
 
 const execFileAsync = promisify(execFile);
-const IMPORTED_SKILLS_PATH = ".internagents/imported-skills";
+const GLOBAL_SKILLS_PATH = "~/.internagents/myskills";
+const GLOBAL_IMPORTED_SKILLS_PATH = "~/.internagents/imported-skills";
+const LEGACY_IMPORTED_SKILLS_PATH = ".internagents/imported-skills";
 const IMPORT_TMP_PATH = ".internagents/tmp";
 const CLOUD_CLONE_TIMEOUT_MS = 120_000;
 const MAX_IMPORTED_SKILLS = 50;
+const DEFAULT_CATALOG_PATHS = [
+  GLOBAL_SKILLS_PATH,
+  GLOBAL_IMPORTED_SKILLS_PATH,
+  "skills",
+  LEGACY_IMPORTED_SKILLS_PATH,
+];
 
 interface AgentConfig {
   skills?: unknown;
@@ -35,7 +44,7 @@ interface SkillSettings {
 
 const DEFAULT_SKILL_SETTINGS: SkillSettings = {
   enabled: false,
-  catalogPaths: ["skills"],
+  catalogPaths: DEFAULT_CATALOG_PATHS,
   activePath: ".internagents/active-skills",
   selected: [],
   label: "InternAgents",
@@ -60,6 +69,26 @@ function readString(value: unknown, fallback: string): string {
 
 function appendUnique(values: string[], value: string): string[] {
   return values.includes(value) ? values : [...values, value];
+}
+
+function expandHomePath(value: string): string {
+  if (value === "~") {
+    return os.homedir();
+  }
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
+}
+
+function isSameOrInside(childPath: string, parentPath: string): boolean {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return (
+    relative === "" ||
+    (Boolean(relative) &&
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative))
+  );
 }
 
 function normalizeSkillSettings(config: AgentConfig): SkillSettings {
@@ -100,6 +129,30 @@ function resolveWorkspaceChild(root: string, relativePath: string): string {
 
 function toWorkspacePath(root: string, absolutePath: string): string {
   return path.relative(root, absolutePath).split(path.sep).join("/");
+}
+
+function resolveConfiguredPath(root: string, configuredPath: string): string {
+  const expanded = expandHomePath(configuredPath.trim());
+  if (path.isAbsolute(expanded)) {
+    return path.resolve(expanded);
+  }
+  return resolveWorkspaceChild(root, expanded);
+}
+
+function toConfiguredPath(root: string, absolutePath: string): string {
+  const resolved = path.resolve(absolutePath);
+  const workspaceRoot = path.resolve(root);
+  if (isSameOrInside(resolved, workspaceRoot)) {
+    return toWorkspacePath(workspaceRoot, resolved);
+  }
+
+  const home = path.resolve(os.homedir());
+  if (isSameOrInside(resolved, home)) {
+    const relative = path.relative(home, resolved).split(path.sep).join("/");
+    return relative ? `~/${relative}` : "~";
+  }
+
+  return resolved;
 }
 
 function slugify(value: string, fallback = "skill"): string {
@@ -254,7 +307,7 @@ async function copySkillIntoImportedCatalog(
   root: string,
   sourceDirectory: string
 ): Promise<string> {
-  const importedRoot = resolveWorkspaceChild(root, IMPORTED_SKILLS_PATH);
+  const importedRoot = resolveConfiguredPath(root, GLOBAL_IMPORTED_SKILLS_PATH);
   await fs.mkdir(importedRoot, { recursive: true });
 
   const sourceResolved = path.resolve(sourceDirectory);
@@ -266,7 +319,7 @@ async function copySkillIntoImportedCatalog(
     if (await pathExists(skillFile)) {
       await normalizeSkillFile(skillFile);
     }
-    return toWorkspacePath(root, sourceResolved);
+    return toConfiguredPath(root, sourceResolved);
   }
 
   const destination = await nextAvailableDirectory(
@@ -278,7 +331,7 @@ async function copySkillIntoImportedCatalog(
     recursive: true,
   });
   await normalizeSkillFile(path.join(destination, "SKILL.md"));
-  return toWorkspacePath(root, destination);
+  return toConfiguredPath(root, destination);
 }
 
 async function normalizeSkillFile(skillFile: string): Promise<void> {
@@ -293,7 +346,7 @@ async function addImportedCatalogToConfig(root: string): Promise<void> {
   const config = await readAgentConfig(root);
   const current = normalizeSkillSettings(config);
 
-  if (current.catalogPaths.includes(IMPORTED_SKILLS_PATH)) {
+  if (current.catalogPaths.includes(GLOBAL_IMPORTED_SKILLS_PATH)) {
     return;
   }
 
@@ -301,7 +354,7 @@ async function addImportedCatalogToConfig(root: string): Promise<void> {
     ...config,
     skills: {
       enabled: current.enabled,
-      catalog_paths: appendUnique(current.catalogPaths, IMPORTED_SKILLS_PATH),
+      catalog_paths: appendUnique(current.catalogPaths, GLOBAL_IMPORTED_SKILLS_PATH),
       active_path: current.activePath,
       selected: current.selected,
       label: current.label,
@@ -537,7 +590,7 @@ async function importRawSkill(root: string, rawUrl: string): Promise<string[]> {
     throw new Error("云端 SKILL.md 内容为空。");
   }
 
-  const importedRoot = resolveWorkspaceChild(root, IMPORTED_SKILLS_PATH);
+  const importedRoot = resolveConfiguredPath(root, GLOBAL_IMPORTED_SKILLS_PATH);
   await fs.mkdir(importedRoot, { recursive: true });
   const url = new URL(rawUrl);
   const parentName =
@@ -551,7 +604,7 @@ async function importRawSkill(root: string, rawUrl: string): Promise<string[]> {
     "utf8"
   );
 
-  return [toWorkspacePath(root, destination)];
+  return [toConfiguredPath(root, destination)];
 }
 
 async function importSkillDirectories(
@@ -577,7 +630,7 @@ async function discoverSkills(
   const skills: SkillEntry[] = [];
 
   for (const sourcePath of settings.catalogPaths) {
-    const sourceAbsolute = resolveWorkspaceChild(root, sourcePath);
+    const sourceAbsolute = resolveConfiguredPath(root, sourcePath);
     let entries;
 
     try {
@@ -608,7 +661,7 @@ async function discoverSkills(
       }
 
       const frontmatter = parseSkillFrontmatter(markdown);
-      const relativePath = toWorkspacePath(root, skillDirectory);
+      const relativePath = toConfiguredPath(root, skillDirectory);
       const key = relativePath;
       const name =
         typeof frontmatter.name === "string" && frontmatter.name.trim()
@@ -654,7 +707,10 @@ async function syncActiveSkills(
 ): Promise<void> {
   const activeAbsolute = resolveWorkspaceChild(root, settings.activePath);
   const internagentsRoot = resolveWorkspaceChild(root, ".internagents");
-  const importedRoot = resolveWorkspaceChild(root, IMPORTED_SKILLS_PATH);
+  const importedRoots = [
+    resolveConfiguredPath(root, GLOBAL_IMPORTED_SKILLS_PATH),
+    resolveWorkspaceChild(root, LEGACY_IMPORTED_SKILLS_PATH),
+  ];
 
   if (
     activeAbsolute !== internagentsRoot &&
@@ -676,12 +732,9 @@ async function syncActiveSkills(
       continue;
     }
 
-    const source = resolveWorkspaceChild(root, skill.relativePath);
+    const source = resolveConfiguredPath(root, skill.relativePath);
     const sourceResolved = path.resolve(source);
-    if (
-      sourceResolved === importedRoot ||
-      sourceResolved.startsWith(`${importedRoot}${path.sep}`)
-    ) {
+    if (importedRoots.some((importedRoot) => isSameOrInside(sourceResolved, importedRoot))) {
       await normalizeSkillFile(path.join(source, "SKILL.md"));
     }
 

@@ -8,6 +8,8 @@
   "skills": {
     "enabled": true,
     "catalog_paths": [
+      "~/.internagents/myskills",
+      "~/.internagents/imported-skills",
       "skills",
       ".internagents/imported-skills"
     ],

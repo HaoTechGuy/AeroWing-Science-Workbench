@@ -136,7 +136,12 @@ const SCIENCE_CATEGORY_BY_ID = new Map(
 function emptyResponse(): SkillsConfigResponse {
   return {
     enabled: false,
-    catalogPaths: ["skills"],
+    catalogPaths: [
+      "~/.internagents/myskills",
+      "~/.internagents/imported-skills",
+      "skills",
+      ".internagents/imported-skills",
+    ],
     activePath: ".internagents/active-skills",
     selected: [],
     skills: [],

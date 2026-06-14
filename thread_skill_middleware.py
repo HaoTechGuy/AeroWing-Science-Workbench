@@ -292,7 +292,7 @@ class ThreadSkillMiddleware(AgentMiddleware):
         for catalog_path in self.catalog_paths:
             if not isinstance(catalog_path, str) or not catalog_path.strip():
                 continue
-            path = Path(catalog_path)
+            path = Path(catalog_path).expanduser()
             if not path.is_absolute():
                 path = self.root_dir / path
             catalog_roots.append(path.resolve())
@@ -326,7 +326,7 @@ class ThreadSkillMiddleware(AgentMiddleware):
         )
         if raw_path is None:
             return None
-        path = Path(raw_path)
+        path = Path(raw_path).expanduser()
         if not path.is_absolute():
             path = self.root_dir / path
         try:
