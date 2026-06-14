@@ -37,6 +37,9 @@ const standaloneCopyLinkOptions = {
   dereference: !canCreatePortableSymlinks,
 };
 
+// Keep this as an explicit runtime allowlist. Development-only docs such as
+// AGENTS.md, README.md, and docs/ stay in Git but out of packaged apps.
+// Bundled imported skills are copied separately from .internagents/imported-skills.
 const runtimeEntries = [
   ".env.example",
   "agent.py",
@@ -98,6 +101,7 @@ async function copyIfExists(source, destination, options = {}) {
   if (!existsSync(source)) {
     return;
   }
+  await fs.mkdir(path.dirname(destination), { recursive: true });
   await fs.cp(source, destination, {
     recursive: true,
     force: true,
@@ -407,6 +411,39 @@ async function prepareRuntimeTemplate() {
     path.join(desktopTemplateDir, "deepagent.config.json"),
     path.join(templateDir, "deepagent.config.json")
   );
+  await prepareBundledImportedSkills();
+}
+
+async function prepareBundledImportedSkills() {
+  const sourceRoot = path.join(rootDir, ".internagents", "imported-skills");
+  const destinationRoot = path.join(templateDir, ".internagents", "imported-skills");
+  if (!existsSync(sourceRoot)) {
+    return;
+  }
+
+  const entries = await fs.readdir(sourceRoot, { withFileTypes: true });
+  let copied = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const sourcePath = path.join(sourceRoot, entry.name);
+    if (!existsSync(path.join(sourcePath, "SKILL.md"))) {
+      continue;
+    }
+
+    const destinationPath = path.join(destinationRoot, entry.name);
+    await fs.rm(destinationPath, { recursive: true, force: true });
+    await copyIfExists(sourcePath, destinationPath, {
+      dereference: true,
+    });
+    copied += 1;
+  }
+
+  if (copied > 0) {
+    console.log(`Bundled ${copied} imported skill(s).`);
+  }
 }
 
 function pythonBuildBinary() {

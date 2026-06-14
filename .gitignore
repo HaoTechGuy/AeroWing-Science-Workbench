@@ -6,7 +6,14 @@ internagent.resources.local.json
 .venv/
 .desktop-python-runtime/
 .langgraph_api/
-.internagents/
+.internagents/*
+!.internagents/imported-skills/
+!.internagents/imported-skills/**
+.internagents/imported-skills/**/.env*
+.internagents/imported-skills/**/*.key
+.internagents/imported-skills/**/*.pem
+.internagents/imported-skills/**/*.p12
+.internagents/imported-skills/**/*.pfx
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -30,7 +37,6 @@ mcp/**/node_modules/
 # OMX/Codex local runtime artifacts
 .omx/
 .codex/
-AGENTS.md
 tmp/
 
 # Local backup files

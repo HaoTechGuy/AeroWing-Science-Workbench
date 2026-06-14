@@ -209,6 +209,15 @@ async function copyRuntimeTemplate(source, destination) {
       continue;
     }
     if (entry.isDirectory()) {
+      if (entry.name === ".internagents") {
+        await fsp.mkdir(destinationPath, { recursive: true });
+        await fsp.cp(sourcePath, destinationPath, {
+          recursive: true,
+          force: true,
+          verbatimSymlinks: false,
+        });
+        continue;
+      }
       await fsp.rm(destinationPath, { recursive: true, force: true });
       await fsp.cp(sourcePath, destinationPath, {
         recursive: true,
