@@ -7,7 +7,13 @@ cd "$ROOT_DIR"
 
 HOST="127.0.0.1"
 BACKEND_PORT="${INTERNAGENTS_BACKEND_PORT:-2024}"
-LOCAL_RUNTIME_PORT="${INTERNAGENTS_LOCAL_RUNTIME_PORT:-22024}"
+DEFAULT_LOCAL_RUNTIME_PORT="${INTERNAGENTS_LOCAL_RUNTIME_PORT_START:-22024}"
+LOCAL_RUNTIME_PORT="${INTERNAGENTS_LOCAL_RUNTIME_PORT:-$DEFAULT_LOCAL_RUNTIME_PORT}"
+LOCAL_RUNTIME_PORT_EXPLICIT=0
+if [ -n "${INTERNAGENTS_LOCAL_RUNTIME_PORT:-}" ]; then
+  LOCAL_RUNTIME_PORT_EXPLICIT=1
+fi
+LOCAL_RUNTIME_PORT_SCAN_COUNT="${INTERNAGENTS_LOCAL_RUNTIME_PORT_SCAN_COUNT:-32}"
 UI_PORT="${INTERNAGENTS_UI_PORT:-3000}"
 OPEN_BROWSER="${INTERNAGENTS_OPEN_BROWSER:-1}"
 SKIP_INSTALL="${INTERNAGENTS_SKIP_INSTALL:-0}"
@@ -67,6 +73,15 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
+is_uint() {
+  [[ "$1" =~ ^[0-9]+$ ]]
+}
+
+set_local_runtime_port() {
+  LOCAL_RUNTIME_PORT="$1"
+  LOCAL_RUNTIME_URL="http://$HOST:$LOCAL_RUNTIME_PORT"
+}
+
 ensure_langgraph_state_dir() {
   local state_dir="$1"
   mkdir -p "$state_dir"
@@ -116,6 +131,41 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
     sock.settimeout(0.5)
     sys.exit(0 if sock.connect_ex((host, port)) == 0 else 1)
 PY
+}
+
+select_local_runtime_port() {
+  is_uint "$LOCAL_RUNTIME_PORT" || die "Invalid local runtime port: $LOCAL_RUNTIME_PORT"
+  is_uint "$LOCAL_RUNTIME_PORT_SCAN_COUNT" || die "Invalid local runtime port scan count: $LOCAL_RUNTIME_PORT_SCAN_COUNT"
+
+  if [ "$LOCAL_RUNTIME_PORT_EXPLICIT" = "1" ]; then
+    set_local_runtime_port "$LOCAL_RUNTIME_PORT"
+    return 0
+  fi
+
+  local start="$LOCAL_RUNTIME_PORT"
+  local count="$LOCAL_RUNTIME_PORT_SCAN_COUNT"
+  local end=$((start + count - 1))
+  local port
+  for ((port = start; port <= end; port++)); do
+    local url="http://$HOST:$port"
+    if url_ok "$url/ok"; then
+      set_local_runtime_port "$port"
+      if [ "$port" != "$start" ]; then
+        log "Selected existing healthy local runtime: $LOCAL_RUNTIME_URL"
+      fi
+      return 0
+    fi
+    if ! port_open "$port"; then
+      set_local_runtime_port "$port"
+      if [ "$port" != "$start" ]; then
+        log "Selected free local runtime port: $LOCAL_RUNTIME_PORT"
+      fi
+      return 0
+    fi
+    log "Skipping occupied local runtime port: $port"
+  done
+
+  die "No available local runtime port in range $start-$end."
 }
 
 wait_for_url() {
@@ -243,6 +293,7 @@ prepare_environment() {
 
   require_command curl
   require_command npm
+  select_local_runtime_port
 }
 
 start_local_runtime() {
@@ -263,6 +314,7 @@ start_local_runtime() {
     INTERNAGENTS_GRAPH_ROOT="$ROOT_DIR" \
     INTERNAGENT_PROCESS_ROLE=runtime \
     INTERNAGENT_RUNTIME_ID=local \
+    INTERNAGENTS_LOCAL_RUNTIME_PORT="$LOCAL_RUNTIME_PORT" \
       "$PYTHON_BIN" -m langgraph_cli dev \
         --host "$HOST" \
         --port "$LOCAL_RUNTIME_PORT" \
@@ -294,6 +346,7 @@ start_backend() {
   (
     cd "$BACKEND_STATE_DIR"
     INTERNAGENTS_GRAPH_ROOT="$ROOT_DIR" \
+    INTERNAGENTS_LOCAL_RUNTIME_PORT="$LOCAL_RUNTIME_PORT" \
     "$PYTHON_BIN" -m langgraph_cli dev \
       --host "$HOST" \
       --port "$BACKEND_PORT" \

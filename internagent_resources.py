@@ -88,14 +88,27 @@ def _as_bool(value: Any, default: bool = True) -> bool:
     return bool(value)
 
 
+def _local_runtime_url_from_env() -> str | None:
+    port = os.getenv("INTERNAGENTS_LOCAL_RUNTIME_PORT")
+    if not port:
+        return None
+    port = port.strip()
+    if not port.isdigit():
+        raise ValueError(f"Invalid INTERNAGENTS_LOCAL_RUNTIME_PORT: {port!r}")
+    return f"http://127.0.0.1:{int(port)}"
+
+
 def load_resource_config() -> tuple[str, dict[str, ResourceConfig]]:
     path = _resource_file()
+    local_runtime_url = _local_runtime_url_from_env()
     if not path.exists():
         default = ResourceConfig(
             id="local",
             label="Current Machine",
             backend="local_shell",
             workspace=".",
+            remote_url=local_runtime_url,
+            remote_assistant_id="agent" if local_runtime_url else None,
         )
         return default.id, {default.id: default}
 
@@ -114,6 +127,7 @@ def load_resource_config() -> tuple[str, dict[str, ResourceConfig]]:
             raise ValueError(f"Unsupported backend {backend!r} for resource {resource_id!r}")
         if backend == "ssh_shell" and not str(item.get("ssh_command", "")).strip():
             raise ValueError(f"ssh_shell resource {resource_id!r} requires ssh_command")
+        env_remote_url = local_runtime_url if resource_id == "local" else None
         resources[resource_id] = ResourceConfig(
             id=resource_id,
             label=str(item.get("label") or resource_id),
@@ -122,7 +136,8 @@ def load_resource_config() -> tuple[str, dict[str, ResourceConfig]]:
             ssh_command=(str(item.get("ssh_command")).strip() if item.get("ssh_command") else None),
             kb_path=(str(item.get("kb_path")).strip() if item.get("kb_path") else None),
             kb_command=str(item.get("kb_command") or "kb"),
-            remote_url=(str(item.get("remote_url")).strip() if item.get("remote_url") else None),
+            remote_url=env_remote_url
+            or (str(item.get("remote_url")).strip() if item.get("remote_url") else None),
             remote_runtime_port=(
                 int(item.get("remote_runtime_port"))
                 if item.get("remote_runtime_port")
@@ -131,6 +146,8 @@ def load_resource_config() -> tuple[str, dict[str, ResourceConfig]]:
             remote_assistant_id=(
                 str(item.get("remote_assistant_id")).strip()
                 if item.get("remote_assistant_id")
+                else "agent"
+                if env_remote_url
                 else None
             ),
             remote_backend_release_tag=(
