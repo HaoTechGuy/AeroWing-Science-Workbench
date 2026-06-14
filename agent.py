@@ -67,7 +67,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
 
-from dynamic_local_backend import DynamicLocalShellBackendFactory
+from dynamic_local_backend import DynamicLocalShellBackend, DynamicLocalShellBackendFactory
 from date_middleware import RuntimeDateContextMiddleware
 from goal_middleware import GoalContextMiddleware, goal_system_prompt
 from goal_state import normalize_goal_state, update_goal_status
@@ -683,14 +683,38 @@ def _agent_system_prompt(base_prompt: str, agent_config: dict[str, Any]) -> str:
     return goal_system_prompt(base_prompt)
 
 
-def _create_backend_for_resource(resource: ResourceConfig):  # noqa: ANN201
+def _logical_path_prompt() -> str:
+    return (
+        "Paths shown to you are logical paths. Use '/file.py' or '/src/file.py' "
+        "for workspace files, and 'skill://<skill>/SKILL.md' or "
+        "'skill://<skill>/scripts/...' for active skill files. The local backend "
+        "maps these paths to real filesystem paths."
+    )
+
+
+def _remote_workspace_path_prompt() -> str:
+    return (
+        "Use workspace-virtual file paths such as '/file.py' or '/src/file.py' "
+        "with filesystem tools. Do not use host absolute paths such as '/Users/...'. "
+        "When using shell commands, the command already runs in the workspace; "
+        "use relative paths such as 'python3 file.py' rather than virtual paths "
+        "like '/file.py'."
+    )
+
+
+def _create_backend_for_resource(
+    resource: ResourceConfig,
+    read_only_roots: list[Path] | None = None,
+):  # noqa: ANN201
     if resource.backend == "local_shell":
-        return LocalShellBackend(
-            root_dir=_resolve_workspace(resource.workspace),
+        return DynamicLocalShellBackend(
+            resource_id=resource.id,
+            fallback_root=ROOT_DIR,
             inherit_env=True,
-            virtual_mode=True,
             timeout=resource.timeout,
             max_output_bytes=resource.max_output_bytes,
+            workspace_override=resource.workspace,
+            read_only_roots=read_only_roots,
         )
     if resource.backend == "ssh_shell":
         return SshShellBackend(
@@ -752,19 +776,21 @@ def _resource_system_prompt(base_prompt: str, resource: ResourceConfig) -> str:
         if resource.kb_path
         else "KB sync is not configured for this resource."
     )
+    path_prompt = (
+        _logical_path_prompt()
+        if resource.backend == "local_shell"
+        else _remote_workspace_path_prompt()
+    )
     return (
         f"{base_prompt}\n\n"
         "You are running in a resource-bound InternAgents session.\n"
         f"Resource id: {resource.id}\n"
         f"Resource label: {resource.label}\n"
-        f"Workspace: {resource.workspace}\n"
+        "Workspace logical root: /\n"
         f"{kb_line}\n"
         "Do not change server network settings, firewall settings, SSH daemon settings, or cloud security-group settings. "
         "If such a change seems necessary, stop and ask the user. "
-        "Use workspace-virtual file paths such as '/file.py' or '/src/file.py' with filesystem tools, "
-        "not host absolute paths such as '/Users/...'. "
-        "When using shell commands, the command already runs in the workspace; use relative paths "
-        "such as 'python3 file.py' rather than virtual paths like '/file.py'."
+        f"{path_prompt}"
     )
 
 
@@ -1350,7 +1376,10 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             "代码理解、研究方案设计和本地科研项目开发。请尽可能使用中文回答用户。"
         ),
     )
-    backend = _create_backend_for_resource(resource)
+    backend = _create_backend_for_resource(
+        resource,
+        read_only_roots=_skill_read_only_roots(agent_config, None),
+    )
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
@@ -1405,16 +1434,18 @@ def create_runtime_agent():  # noqa: ANN201
         "If such a change seems necessary, stop and ask the user."
     )
     if runtime_resource is not None:
+        path_prompt = (
+            _logical_path_prompt()
+            if runtime_resource.backend == "local_shell"
+            else _remote_workspace_path_prompt()
+        )
         system_prompt += (
             f"\nConfigured resource id: {runtime_resource.id}\n"
-            f"Configured workspace at startup: {runtime_resource.workspace}\n"
+            "Configured workspace logical root: /\n"
             "For local resources, the active workspace can be hot-switched from the UI; "
             "filesystem and shell tools use the selected run workspace when provided, "
             "and fall back to the latest resource workspace. "
-            "Use workspace-virtual file paths such as '/file.py' or '/src/file.py' with filesystem tools, "
-            "not host absolute paths such as '/Users/...'. "
-            "When using shell commands, the command already runs in the workspace; use relative paths "
-            "such as 'python3 file.py' rather than virtual paths like '/file.py'.\n"
+            f"{path_prompt}\n"
             + (
                 f"KB sync is enabled at {runtime_resource.kb_path}."
                 if runtime_resource.kb_path

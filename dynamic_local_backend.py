@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import shlex
 import uuid
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,26 @@ from deepagents.backends.protocol import (
 )
 
 from internagent_resources import ResourceConfig, load_resource_config
+
+SKILL_URI_PREFIX = "skill://"
+SHELL_PATH_STOP_CHARS = set(" \t\r\n'\";|&<>()")
+HOST_ROOTS = {
+    "Applications",
+    "Library",
+    "System",
+    "Users",
+    "Volumes",
+    "bin",
+    "dev",
+    "etc",
+    "opt",
+    "private",
+    "proc",
+    "sbin",
+    "tmp",
+    "usr",
+    "var",
+}
 
 
 class DynamicLocalShellBackend(SandboxBackendProtocol):
@@ -107,6 +129,74 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
     def _workspace_root(self) -> Path:
         return self._resolve_workspace(self._resource())
 
+    def _skill_name_from_markdown(self, skill_dir: Path) -> str | None:
+        skill_md = skill_dir / "SKILL.md"
+        try:
+            text = skill_md.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return None
+        match = re.search(r"(?m)^name:\s*[\"']?([^\"'\n#]+)", text[:4096])
+        if not match:
+            return None
+        name = match.group(1).strip()
+        return name or None
+
+    def _skill_aliases(self, skill_dir: Path) -> set[str]:
+        aliases = {skill_dir.name}
+        parsed_name = self._skill_name_from_markdown(skill_dir)
+        if parsed_name:
+            aliases.add(parsed_name)
+        return aliases
+
+    def _iter_skill_dirs(self):
+        seen: set[Path] = set()
+        for root in self.read_only_roots:
+            candidates = [root]
+            try:
+                if root.is_dir():
+                    candidates.extend(child for child in root.iterdir() if child.is_dir())
+            except OSError:
+                pass
+            for candidate in candidates:
+                try:
+                    resolved = candidate.resolve(strict=False)
+                except OSError:
+                    continue
+                if resolved in seen or not (resolved / "SKILL.md").is_file():
+                    continue
+                seen.add(resolved)
+                yield resolved
+
+    def _find_skill_dir(self, alias: str) -> Path | None:
+        for skill_dir in self._iter_skill_dirs():
+            if alias in self._skill_aliases(skill_dir):
+                return skill_dir
+        return None
+
+    def _resolve_skill_path(self, file_path: str) -> tuple[Path | None, str | None]:
+        if not file_path.startswith(SKILL_URI_PREFIX):
+            return None, None
+
+        remainder = file_path[len(SKILL_URI_PREFIX) :]
+        skill_name, separator, subpath = remainder.partition("/")
+        if not skill_name:
+            return None, "Skill path must include a skill name, e.g. skill://docx/SKILL.md."
+
+        if "~" in subpath or ".." in Path(subpath).parts:
+            return None, "Path traversal is not allowed in skill paths."
+
+        skill_dir = self._find_skill_dir(skill_name)
+        if skill_dir is None:
+            return None, f"Skill {skill_name!r} was not found in the configured skill catalogs."
+
+        target = skill_dir if not separator else skill_dir / subpath
+        try:
+            resolved = target.resolve(strict=False)
+            resolved.relative_to(skill_dir)
+        except (OSError, ValueError):
+            return None, "Skill path is outside the resolved skill directory."
+        return resolved, None
+
     def _read_only_path(self, file_path: str) -> str | None:
         path = Path(file_path).expanduser()
         if not path.is_absolute() or ".." in path.parts:
@@ -155,35 +245,28 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
                 return "/", None
             return f"/{relative.as_posix()}", None
 
-        host_roots = {
-            "Applications",
-            "Library",
-            "System",
-            "Users",
-            "Volumes",
-            "bin",
-            "etc",
-            "opt",
-            "private",
-            "sbin",
-            "tmp",
-            "usr",
-            "var",
-        }
         parts = path.parts
-        if len(parts) > 1 and parts[1] in host_roots:
+        if len(parts) > 1 and parts[1] in HOST_ROOTS:
             return (
                 None,
                 (
                     "Path is outside the selected workspace. "
-                    f"Use a workspace-relative absolute path under {root}, "
-                    "for example '/file.py' or '/subdir/file.py'."
+                    "Use a logical workspace path such as '/file.py' or "
+                    "a logical skill path such as 'skill://docx/SKILL.md'."
                 ),
             )
 
         return file_path, None
 
     def ls(self, path: str):
+        skill_path, skill_error = self._resolve_skill_path(path)
+        if skill_error:
+            from deepagents.backends.protocol import LsResult
+
+            return LsResult(error=skill_error, entries=[])
+        if skill_path is not None:
+            return self._external_read_backend().ls(str(skill_path))
+
         read_only_path = self._read_only_path(path)
         if read_only_path:
             return self._external_read_backend().ls(read_only_path)
@@ -196,6 +279,12 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         return self._backend().ls(normalized or path)
 
     def read(self, file_path: str, offset: int = 0, limit: int = 2000):
+        skill_path, skill_error = self._resolve_skill_path(file_path)
+        if skill_error:
+            return ReadResult(error=skill_error)
+        if skill_path is not None:
+            return self._external_read_backend().read(str(skill_path), offset, limit)
+
         read_only_path = self._read_only_path(file_path)
         if read_only_path:
             return self._external_read_backend().read(read_only_path, offset, limit)
@@ -207,6 +296,14 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
 
     def grep(self, pattern: str, path: str | None = None, glob: str | None = None):
         if path is not None:
+            skill_path, skill_error = self._resolve_skill_path(path)
+            if skill_error:
+                from deepagents.backends.protocol import GrepResult
+
+                return GrepResult(error=skill_error, matches=[])
+            if skill_path is not None:
+                return self._external_read_backend().grep(pattern, str(skill_path), glob)
+
             read_only_path = self._read_only_path(path)
             if read_only_path:
                 return self._external_read_backend().grep(pattern, read_only_path, glob)
@@ -220,6 +317,14 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         return self._backend().grep(pattern, path, glob)
 
     def glob(self, pattern: str, path: str = "/"):
+        skill_path, skill_error = self._resolve_skill_path(path)
+        if skill_error:
+            from deepagents.backends.protocol import GlobResult
+
+            return GlobResult(error=skill_error, matches=[])
+        if skill_path is not None:
+            return self._external_read_backend().glob(pattern, str(skill_path))
+
         read_only_path = self._read_only_path(path)
         if read_only_path:
             return self._external_read_backend().glob(pattern, read_only_path)
@@ -232,6 +337,8 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         return self._backend().glob(pattern, normalized or path)
 
     def write(self, file_path: str, content: str):
+        if file_path.startswith(SKILL_URI_PREFIX):
+            return WriteResult(error="Skills are read-only. Write workspace files under '/...'.")
         normalized, error = self._normalize_path(file_path)
         if error:
             return WriteResult(error=error)
@@ -244,6 +351,8 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         new_string: str,
         replace_all: bool = False,
     ):
+        if file_path.startswith(SKILL_URI_PREFIX):
+            return EditResult(error="Skills are read-only. Edit workspace files under '/...'.")
         normalized, error = self._normalize_path(file_path)
         if error:
             return EditResult(error=error)
@@ -288,8 +397,72 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
             responses.extend(self._backend().download_files(normalized_paths))
         return responses
 
+    def _workspace_shell_path(self, token: str) -> str | None:
+        if not token.startswith("/") or token.startswith("//"):
+            return None
+        parts = Path(token).parts
+        if len(parts) > 1 and parts[1] in HOST_ROOTS:
+            return None
+        if "~" in token or ".." in parts:
+            return None
+        root = self._workspace_root()
+        target = (root / token.lstrip("/")).resolve(strict=False)
+        try:
+            target.relative_to(root)
+        except ValueError:
+            return None
+        relative = token.lstrip("/")
+        return "." if not relative else f"./{relative.rstrip('/')}"
+
+    def _logical_shell_path(self, token: str) -> str | None:
+        if token.startswith(SKILL_URI_PREFIX):
+            resolved, error = self._resolve_skill_path(token)
+            if error or resolved is None:
+                return None
+            return str(resolved)
+        return self._workspace_shell_path(token)
+
+    def _translate_logical_paths_in_command(self, command: str) -> str:
+        translated: list[str] = []
+        index = 0
+        quote: str | None = None
+        length = len(command)
+
+        while index < length:
+            char = command[index]
+            if char in {"'", '"'}:
+                quote = None if quote == char else char if quote is None else quote
+                translated.append(char)
+                index += 1
+                continue
+
+            starts_skill = command.startswith(SKILL_URI_PREFIX, index)
+            starts_workspace = char == "/" and not (
+                index > 0 and command[index - 1].isalnum()
+            )
+            if not starts_skill and not starts_workspace:
+                translated.append(char)
+                index += 1
+                continue
+
+            end = index
+            while end < length and command[end] not in SHELL_PATH_STOP_CHARS:
+                end += 1
+            token = command[index:end]
+            replacement = self._logical_shell_path(token)
+            if replacement is None:
+                translated.append(token)
+            elif quote is None:
+                translated.append(shlex.quote(replacement))
+            else:
+                translated.append(replacement)
+            index = end
+
+        return "".join(translated)
+
     def execute(self, command: str, *, timeout: int | None = None):
-        return self._backend().execute(command, timeout=timeout)
+        translated = self._translate_logical_paths_in_command(command)
+        return self._backend().execute(translated, timeout=timeout)
 
 
 def workspace_override_from_runtime(runtime: Any) -> str | None:

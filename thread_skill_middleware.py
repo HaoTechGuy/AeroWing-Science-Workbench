@@ -301,7 +301,7 @@ class ThreadSkillMiddleware(AgentMiddleware):
         self._catalog_roots = tuple(catalog_roots)
         self._prompt = SkillsMiddleware(
             backend=self.backend,
-            sources=[(root.as_posix(), self.label) for root in self._catalog_roots],
+            sources=[("skill://", self.label)],
         )
 
     def _get_backend(self, state: dict[str, Any], runtime: Any) -> BackendProtocol:
@@ -320,12 +320,36 @@ class ThreadSkillMiddleware(AgentMiddleware):
             return resolved
         return self.backend
 
+    def _skill_lookup_aliases(self, skill: ThreadSkillItem) -> list[str]:
+        aliases: list[str] = []
+        for field in ("name", "folderName", "relativePath", "key"):
+            value = _clean_string(skill.get(field))
+            if not value:
+                continue
+            path_name = Path(value).name
+            for alias in (value, path_name):
+                if alias and alias not in aliases:
+                    aliases.append(alias)
+        return aliases
+
+    def _resolve_skill_by_alias(self, skill: ThreadSkillItem) -> Path | None:
+        for alias in self._skill_lookup_aliases(skill):
+            for catalog_root in self._catalog_roots:
+                candidate = (catalog_root / alias).resolve(strict=False)
+                try:
+                    candidate.relative_to(catalog_root)
+                except ValueError:
+                    continue
+                if (candidate / "SKILL.md").is_file():
+                    return candidate
+        return None
+
     def _resolve_skill_dir(self, skill: ThreadSkillItem) -> Path | None:
         raw_path = _clean_string(skill.get("relativePath")) or _clean_string(
             skill.get("key")
         )
         if raw_path is None:
-            return None
+            return self._resolve_skill_by_alias(skill)
         path = Path(raw_path).expanduser()
         if not path.is_absolute():
             path = self.root_dir / path
@@ -337,10 +361,11 @@ class ThreadSkillMiddleware(AgentMiddleware):
         for catalog_root in self._catalog_roots:
             try:
                 resolved.relative_to(catalog_root)
-                return resolved
+                if (resolved / "SKILL.md").is_file():
+                    return resolved
             except ValueError:
                 continue
-        return None
+        return self._resolve_skill_by_alias(skill)
 
     def _load_skills(
         self,
@@ -382,6 +407,8 @@ class ThreadSkillMiddleware(AgentMiddleware):
             if metadata is None:
                 errors.append(f"Cannot parse skill metadata from {skill_md_path}.")
                 continue
+            metadata = dict(metadata)
+            metadata["path"] = f"skill://{metadata['name']}/SKILL.md"
             loaded[metadata["name"]] = metadata
 
         return list(loaded.values()), errors
