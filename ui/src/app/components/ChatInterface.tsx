@@ -2084,6 +2084,50 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
   ]);
 
   const showRuntimeDetails = isLoading || Boolean(interrupt);
+  const terminalToolIssueMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    const runHasSettled =
+      !isLoading &&
+      !isStreamRecovering &&
+      !interrupt &&
+      ["completed", "error", "idle", "interrupted", "stopped"].includes(
+        runStatus
+      );
+    if (!runHasSettled) {
+      return ids;
+    }
+
+    for (let index = processedMessages.length - 1; index >= 0; index -= 1) {
+      const data = processedMessages[index];
+      if (
+        data.message.type !== "ai" ||
+        messageHasVisibleContent(data.message) ||
+        !hasTerminalToolIssue(data.toolCalls)
+      ) {
+        continue;
+      }
+
+      const hasLaterAssistantAnswer = processedMessages
+        .slice(index + 1)
+        .some(
+          (laterData) =>
+            laterData.message.type === "ai" &&
+            messageHasVisibleContent(laterData.message)
+        );
+      if (!hasLaterAssistantAnswer && data.message.id) {
+        ids.add(data.message.id);
+        break;
+      }
+    }
+
+    return ids;
+  }, [
+    interrupt,
+    isLoading,
+    isStreamRecovering,
+    processedMessages,
+    runStatus,
+  ]);
   const visibleMessages = useMemo(() => {
     if (showRuntimeDetails) {
       return processedMessages;
@@ -2095,38 +2139,19 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       }
       return (
         messageHasVisibleContent(data.message) ||
-        hasTerminalToolIssue(data.toolCalls)
+        Boolean(
+          data.message.id && terminalToolIssueMessageIds.has(data.message.id)
+        )
       );
     });
-  }, [processedMessages, showRuntimeDetails]);
+  }, [processedMessages, showRuntimeDetails, terminalToolIssueMessageIds]);
 
   const shouldShowThinkingPlaceholder = useMemo(() => {
-    if (runStatus !== "running" || interrupt || error) {
-      return false;
-    }
-
-    const lastHumanIndex = visibleMessages.findLastIndex(
-      (data) => data.message.type === "human"
-    );
-    if (lastHumanIndex === -1) {
-      return false;
-    }
-
-    return true;
-  }, [error, interrupt, runStatus, visibleMessages]);
-
-  const thinkingPlaceholderMessage = useMemo(
-    () =>
-      ({
-        id: "__internagents-thinking-placeholder__",
-        type: "ai",
-        content: "正在思考中...",
-      } as Message),
-    []
-  );
+    return runStatus === "running" || isLoading || isStreamRecovering;
+  }, [isLoading, isStreamRecovering, runStatus]);
 
   const displayMessages = useMemo(() => {
-    const displayableMessages = visibleMessages.filter((data) => {
+    return visibleMessages.filter((data) => {
       if (data.message.type !== "ai") {
         return true;
       }
@@ -2134,23 +2159,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         messageHasVisibleContent(data.message) || data.toolCalls.length > 0
       );
     });
-
-    if (!shouldShowThinkingPlaceholder) {
-      return displayableMessages;
-    }
-
-    return [
-      ...displayableMessages,
-      {
-        message: thinkingPlaceholderMessage,
-        toolCalls: [] as ToolCall[],
-      },
-    ];
-  }, [
-    shouldShowThinkingPlaceholder,
-    thinkingPlaceholderMessage,
-    visibleMessages,
-  ]);
+  }, [visibleMessages]);
   const recoveredInputMessage = useMemo(() => {
     if (!recoveryNotice) {
       return null;
@@ -2221,9 +2230,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
     return processedMessages.filter(
       (data) =>
-        data.toolCalls.length > 0 && !hasTerminalToolIssue(data.toolCalls)
+        data.toolCalls.length > 0 &&
+        !(
+          data.message.id && terminalToolIssueMessageIds.has(data.message.id)
+        )
     );
-  }, [processedMessages, showRuntimeDetails]);
+  }, [processedMessages, showRuntimeDetails, terminalToolIssueMessageIds]);
 
   const shouldShowTodosComplete =
     runStatus === "completed" ||
@@ -2251,15 +2263,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
   const hasScpInvocation = Boolean(scpInvocation?.prompt);
   const terminalToolIssueCalls = useMemo(
     () =>
-      processedMessages.flatMap((data) =>
-        data.toolCalls.filter(
-          (toolCall) =>
-            Boolean(toolCall.result) &&
-            (toolCall.status === "error" ||
-              toolCall.status === "interrupted")
+      processedMessages
+        .filter(
+          (data) =>
+            data.message.id && terminalToolIssueMessageIds.has(data.message.id)
         )
-      ),
-    [processedMessages]
+        .flatMap((data) =>
+          data.toolCalls.filter(
+            (toolCall) =>
+              Boolean(toolCall.result) &&
+              (toolCall.status === "error" ||
+                toolCall.status === "interrupted")
+          )
+        ),
+    [processedMessages, terminalToolIssueMessageIds]
   );
   const scpDisplay = useMemo(() => {
     const status = scpInvocation?.status ?? "active";
@@ -2492,8 +2509,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   index > 0 ? displayMessages[index - 1].message : null;
                 const messageKey =
                   data.message.id ?? `${data.message.type}-${index}`;
+                const showTerminalToolIssueNotice = Boolean(
+                  data.message.id &&
+                    terminalToolIssueMessageIds.has(data.message.id)
+                );
                 const showInlineToolCalls =
-                  showRuntimeDetails || hasTerminalToolIssue(data.toolCalls);
+                  showRuntimeDetails || showTerminalToolIssueNotice;
                 return (
                   <ChatMessage
                     key={messageKey}
@@ -2511,10 +2532,32 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     stream={stream}
                     onResumeInterrupt={resumeInterrupt}
                     graphId={assistant?.graph_id}
+                    showTerminalToolIssueNotice={showTerminalToolIssueNotice}
                     onOpenAttachment={openAttachmentPreview}
                   />
                 );
               })}
+              {shouldShowThinkingPlaceholder && (
+                <div
+                  className="mt-4 flex w-full max-w-full gap-3"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="flex h-7 w-7 shrink-0 items-start justify-center">
+                    <div
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/20 bg-primary text-xs font-semibold tracking-wide text-primary-foreground shadow-sm shadow-black/[0.035]"
+                      title="InternAgents"
+                      aria-label="InternAgents"
+                    >
+                      IA
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>正在思考中...</span>
+                  </div>
+                </div>
+              )}
               {recoveryNotice && (
                 <div
                   className="ml-10 mt-4 rounded-md border border-amber-400/35 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950 shadow-sm shadow-black/[0.025] dark:border-amber-500/30 dark:bg-amber-950/25 dark:text-amber-100"

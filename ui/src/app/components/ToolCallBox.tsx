@@ -27,6 +27,7 @@ interface ToolCallBoxProps {
   onResume?: (value: any) => void;
   isLoading?: boolean;
   muted?: boolean;
+  autoExpandDetails?: boolean;
 }
 
 export const ToolCallBox = React.memo<ToolCallBoxProps>(
@@ -40,14 +41,14 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     onResume,
     isLoading,
     muted,
+    autoExpandDetails,
   }) => {
     const useMutedStyle = Boolean(isLoading || muted) && !actionRequest;
+    const shouldAutoExpandDetails = Boolean(
+      uiComponent || actionRequest || autoExpandDetails
+    );
     const [isExpanded, setIsExpanded] = useState(
-      () =>
-        !!uiComponent ||
-        !!actionRequest ||
-        toolCall.status === "error" ||
-        toolCall.status === "interrupted"
+      () => shouldAutoExpandDetails
     );
     const [expandedArgs, setExpandedArgs] = useState<Record<string, boolean>>(
       {}
@@ -64,10 +65,10 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     }, [toolCall]);
 
     useEffect(() => {
-      if (status === "error" || status === "interrupted") {
+      if (shouldAutoExpandDetails) {
         setIsExpanded(true);
       }
-    }, [status]);
+    }, [shouldAutoExpandDetails]);
 
     const statusLabel = useMemo(() => {
       switch (status) {

@@ -261,6 +261,52 @@ function useRuntimeLiveStream({
   ]);
 }
 
+function useRuntimeRunStatus({
+  runtimeClient,
+  threadId,
+  enabled,
+}: {
+  runtimeClient: Client<StateType> | null;
+  threadId: string | null;
+  enabled: boolean;
+}): string | null {
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || !runtimeClient || !threadId) {
+      setStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const refresh = async () => {
+      try {
+        const runs = await runtimeClient.runs.list(threadId, { limit: 10 });
+        if (cancelled) {
+          return;
+        }
+        const activeRun = latestActiveRuntimeRun(runs);
+        setStatus(activeRun?.status ?? runs[0]?.status ?? null);
+      } catch {
+        if (!cancelled) {
+          setStatus(null);
+        }
+      }
+    };
+
+    void refresh();
+    const intervalId = window.setInterval(refresh, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [enabled, runtimeClient, threadId]);
+
+  return status;
+}
+
 function threadToState(
   threadId: string,
   thread: Thread<StateType>
@@ -752,7 +798,11 @@ async function loadThreadSnapshot({
     return [sanitizeThreadState(primaryState)];
   }
 
-  const pendingRunPreview = await loadPendingRunInputPreview(client, threadId);
+  const pendingRunPreview =
+    (await loadPendingRunInputPreview(client, threadId)) ??
+    (runtimeClient
+      ? await loadPendingRunInputPreview(runtimeClient, threadId)
+      : null);
   if (pendingRunPreview?.status === "error") {
     return [mergePendingRunState(threadId, primaryState, pendingRunPreview)];
   }
@@ -1407,6 +1457,11 @@ export function useChat({
     externalThread: thread,
     cacheScope: threadSnapshotCacheScope,
   });
+  const runtimeRunStatus = useRuntimeRunStatus({
+    runtimeClient,
+    threadId: threadId ?? null,
+    enabled: Boolean(threadId && runtimeClient),
+  });
   const threadMetadata = useMemo(() => {
     const metadata = threadSnapshot?.data?.[0]?.metadata;
     return metadata && typeof metadata === "object"
@@ -1421,9 +1476,12 @@ export function useChat({
     typeof threadMetadata[PENDING_RUN_STATUS_METADATA_KEY] === "string"
       ? threadMetadata[PENDING_RUN_STATUS_METADATA_KEY]
       : null;
-  const snapshotHasActiveRun =
+  const detectedActiveRun =
     (threadStatus ? ACTIVE_RUN_STATUSES.has(threadStatus) : false) ||
-    (pendingRunStatus ? ACTIVE_RUN_STATUSES.has(pendingRunStatus) : false);
+    (pendingRunStatus ? ACTIVE_RUN_STATUSES.has(pendingRunStatus) : false) ||
+    (runtimeRunStatus ? ACTIVE_RUN_STATUSES.has(runtimeRunStatus) : false);
+  const snapshotHasActiveRun =
+    runLifecycle.status !== "stopped" && detectedActiveRun;
   const snapshotHasSettledRunState =
     Boolean(threadStatus) && !snapshotHasActiveRun;
 
@@ -1990,8 +2048,10 @@ export function useChat({
       (stream.isThreadLoading ||
         (threadSnapshot?.isLoading && !threadSnapshot.data))
   );
+  const hasScopedFallbackMessages =
+    messagesFromValues(effectiveStreamValues).length > 0;
   const scopedValues = useMemo<StateType>(() => {
-    if (!isThreadScopedStateLoading) {
+    if (!isThreadScopedStateLoading || hasScopedFallbackMessages) {
       return effectiveStreamValues;
     }
 
@@ -2003,10 +2063,14 @@ export function useChat({
       scpInvocation: null,
       threadSkills: null,
     };
-  }, [effectiveStreamValues, isThreadScopedStateLoading]);
+  }, [
+    effectiveStreamValues,
+    hasScopedFallbackMessages,
+    isThreadScopedStateLoading,
+  ]);
   const scopedMessages = useMemo(
-    () => (isThreadScopedStateLoading ? [] : messagesFromValues(scopedValues)),
-    [isThreadScopedStateLoading, scopedValues]
+    () => messagesFromValues(scopedValues),
+    [scopedValues]
   );
   const activeGoal = scopedValues.goal ?? null;
   const scpInvocation = scopedValues.scpInvocation ?? null;
@@ -2222,7 +2286,7 @@ export function useChat({
   }, [stream]);
 
   const isRunLoading =
-    stream.isLoading && (localRunInFlight || snapshotHasActiveRun);
+    snapshotHasActiveRun || (stream.isLoading && localRunInFlight);
   const shouldShowStreamRecovery =
     stream.isLoading && !isRunLoading && !snapshotHasSettledRunState;
   const isStreamRecovering = useDelayedBoolean(

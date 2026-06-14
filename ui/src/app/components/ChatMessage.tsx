@@ -32,6 +32,7 @@ interface ChatMessageProps {
   onResumeInterrupt?: (value: any) => void;
   graphId?: string;
   runtimeMuted?: boolean;
+  showTerminalToolIssueNotice?: boolean;
   onOpenAttachment?: (path: string) => void;
 }
 
@@ -48,6 +49,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     onResumeInterrupt,
     graphId,
     runtimeMuted,
+    showTerminalToolIssueNotice,
     onOpenAttachment,
   }) => {
     const isUser = message.type === "human";
@@ -104,13 +106,13 @@ export const ChatMessage = React.memo<ChatMessageProps>(
       Record<string, boolean>
     >({});
     const isSubAgentExpanded = useCallback(
-      (id: string) => expandedSubAgents[id] ?? true,
+      (id: string) => expandedSubAgents[id] ?? false,
       [expandedSubAgents]
     );
     const toggleSubAgent = useCallback((id: string) => {
       setExpandedSubAgents((prev) => ({
         ...prev,
-        [id]: prev[id] === undefined ? false : !prev[id],
+        [id]: !(prev[id] ?? false),
       }));
     }, []);
 
@@ -205,11 +207,14 @@ export const ChatMessage = React.memo<ChatMessageProps>(
               ))}
             </div>
           )}
-          {!isUser && !hasContent && hasTerminalToolIssue && (
-            <div className="mt-4 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-foreground">
-              本次运行已结束，但没有生成最终回答。下面是停止位置：
-            </div>
-          )}
+          {!isUser &&
+            !hasContent &&
+            hasTerminalToolIssue &&
+            showTerminalToolIssueNotice && (
+              <div className="mt-4 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-foreground">
+                本次运行已结束，但没有生成最终回答。下面是停止位置：
+              </div>
+            )}
           {hasToolCalls && (
             <div className="mt-4 flex w-full flex-col">
               {toolCalls.map((toolCall: ToolCall) => {
