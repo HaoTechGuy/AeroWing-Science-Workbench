@@ -12,9 +12,12 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
     PrivateStateAttr,
+    ToolCallRequest,
 )
+from langchain_core.messages import ToolMessage
 from langgraph.config import get_config
 from langgraph.prebuilt import ToolRuntime
+from langgraph.types import Command
 
 from deepagents.backends.protocol import BackendProtocol
 from deepagents.middleware.skills import (
@@ -271,6 +274,39 @@ def _thread_skill_signature(thread_skills: ThreadSkills) -> str:
     return "|".join(sorted(set(identities)))
 
 
+def _strip_thread_skills_update(update: Any) -> Any:
+    if isinstance(update, dict):
+        if "threadSkills" not in update:
+            return update
+        return {key: value for key, value in update.items() if key != "threadSkills"}
+
+    if isinstance(update, list):
+        filtered = [
+            item
+            for item in update
+            if not (
+                isinstance(item, tuple)
+                and len(item) == 2
+                and item[0] == "threadSkills"
+            )
+        ]
+        return update if len(filtered) == len(update) else filtered
+
+    if isinstance(update, tuple):
+        filtered = tuple(
+            item
+            for item in update
+            if not (
+                isinstance(item, tuple)
+                and len(item) == 2
+                and item[0] == "threadSkills"
+            )
+        )
+        return update if len(filtered) == len(update) else filtered
+
+    return update
+
+
 @dataclass
 class ThreadSkillMiddleware(AgentMiddleware):
     """Expose skills selected for the current thread to model calls."""
@@ -460,6 +496,44 @@ class ThreadSkillMiddleware(AgentMiddleware):
             or state.get("skills_metadata")
             or state.get("skills_load_errors")
         )
+
+    def _strip_task_thread_skills(
+        self,
+        result: ToolMessage | Command[Any],
+    ) -> ToolMessage | Command[Any]:
+        if not isinstance(result, Command) or result.update is None:
+            return result
+
+        update = _strip_thread_skills_update(result.update)
+        if update is result.update:
+            return result
+
+        return Command(
+            graph=result.graph,
+            update=update,
+            resume=result.resume,
+            goto=result.goto,
+        )
+
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
+    ) -> ToolMessage | Command[Any]:
+        result = handler(request)
+        if request.tool_call.get("name") != "task":
+            return result
+        return self._strip_task_thread_skills(result)
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        result = await handler(request)
+        if request.tool_call.get("name") != "task":
+            return result
+        return self._strip_task_thread_skills(result)
 
     def wrap_model_call(
         self,
