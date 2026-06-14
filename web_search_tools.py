@@ -9,6 +9,7 @@ import os
 import socket
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
@@ -25,11 +26,37 @@ DEFAULT_TIMEOUT_SECONDS = 10
 JINA_MIN_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_FETCH_CHARS = 12000
 MAX_RESULTS_LIMIT = 10
-DEFAULT_MAX_WEB_SEARCH_CALLS_PER_RUN = 1
+DEFAULT_MAX_WEB_SEARCH_CALLS_PER_RUN = 20
 DUCKDUCKGO_HTML_URL = "https://duckduckgo.com/html/"
 BING_SEARCH_URL = "https://www.bing.com/search"
-JINA_SEARCH_URL = "https://s.jina.ai/"
+ARXIV_SEARCH_URL = "https://export.arxiv.org/api/query"
+SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+PUBMED_ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+PUBMED_ESUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 JINA_READER_URL = "https://r.jina.ai/"
+ACADEMIC_PROVIDERS = ("semantic_scholar", "openalex", "arxiv", "pubmed")
+SUPPORTED_WEB_SEARCH_PROVIDERS = (
+    "duckduckgo",
+    "bing",
+    "academic",
+    "arxiv",
+    "semantic_scholar",
+    "pubmed",
+    "openalex",
+)
+PROVIDER_ALIASES = {
+    "ddg": "duckduckgo",
+    "semantic-scholar": "semantic_scholar",
+    "semanticscholar": "semantic_scholar",
+    "semantic_scholar": "semantic_scholar",
+    "s2": "semantic_scholar",
+    "ncbi": "pubmed",
+    "open_alex": "openalex",
+    "open-alex": "openalex",
+    "papers": "academic",
+    "scholar": "academic",
+}
 WEB_SEARCH_REFERENCE_INSTRUCTIONS = (
     "When you use information from web_search results, include the relevant source "
     "URL in the final answer body near the claim it supports. Prefer inline links "
@@ -62,7 +89,6 @@ class WebSearchSettings:
     max_results: int
     timeout_seconds: int
     max_fetch_chars: int
-    jina_api_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -498,6 +524,11 @@ def _positive_int(value: Any, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
+def _normalize_provider(value: str) -> str:
+    normalized = value.strip().lower().replace(" ", "_")
+    return PROVIDER_ALIASES.get(normalized, normalized)
+
+
 def web_search_settings(config: dict[str, Any] | None = None) -> WebSearchSettings:
     config = config or {}
     raw_settings = config.get("web_search")
@@ -507,10 +538,10 @@ def web_search_settings(config: dict[str, Any] | None = None) -> WebSearchSettin
         or settings.get("enabled"),
         True,
     )
-    provider = (
+    provider = _normalize_provider(
         _env_value("INTERNAGENTS_WEB_SEARCH_PROVIDER")
         or str(settings.get("provider") or DEFAULT_PROVIDER)
-    ).strip().lower()
+    )
     max_results = min(
         MAX_RESULTS_LIMIT,
         _positive_int(
@@ -535,11 +566,6 @@ def web_search_settings(config: dict[str, Any] | None = None) -> WebSearchSettin
         max_results=max_results,
         timeout_seconds=timeout_seconds,
         max_fetch_chars=max_fetch_chars,
-        jina_api_key=(
-            _env_value("INTERNAGENTS_WEB_SEARCH_JINA_API_KEY")
-            or _env_value("JINA_API_KEY")
-            or _env_value("JINA_AUTH_TOKEN")
-        ),
     )
 
 
@@ -609,25 +635,119 @@ def bing_search(
     return parser.results[:max_results]
 
 
-def jina_search(
+def _snippet(*parts: str, max_chars: int = 500) -> str:
+    text = _clean_text(" ".join(part for part in parts if part))
+    return text[:max_chars].rstrip()
+
+
+def _source_title(source: str, title: str) -> str:
+    clean_title = _clean_text(title)
+    return f"[{source}] {clean_title}" if clean_title else f"[{source}] Untitled"
+
+
+def _author_names(authors: Any, *, limit: int = 5) -> str:
+    names: list[str] = []
+    if isinstance(authors, list):
+        for author in authors:
+            name = ""
+            if isinstance(author, dict):
+                raw_name = author.get("name")
+                if raw_name is None and isinstance(author.get("author"), dict):
+                    raw_name = author["author"].get("display_name")
+                name = str(raw_name or "")
+            else:
+                name = str(author or "")
+            if name.strip():
+                names.append(_clean_text(name))
+            if len(names) >= limit:
+                break
+    return ", ".join(names)
+
+
+def _dedupe_results(results: list[WebSearchResult]) -> list[WebSearchResult]:
+    seen: set[str] = set()
+    deduped: list[WebSearchResult] = []
+    for result in results:
+        key = result.url.strip().lower() or result.title.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(result)
+    return deduped
+
+
+def arxiv_search(
     query: str,
     *,
     max_results: int,
     timeout_seconds: int,
-    api_key: str,
 ) -> list[WebSearchResult]:
-    params = urllib.parse.urlencode({"q": query})
-    payload = json.loads(
-        _fetch_url(
-            f"{JINA_SEARCH_URL}?{params}",
-            max(timeout_seconds, JINA_MIN_TIMEOUT_SECONDS),
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {api_key}",
-                "User-Agent": "InternAgents-WebSearch",
-            },
-        )
+    params = urllib.parse.urlencode(
+        {
+            "search_query": f"all:{query}",
+            "start": 0,
+            "max_results": max_results,
+            "sortBy": "relevance",
+        }
     )
+    payload = _fetch_url(f"{ARXIV_SEARCH_URL}?{params}", timeout_seconds)
+    root = ET.fromstring(payload.strip())
+    ns = {
+        "atom": "http://www.w3.org/2005/Atom",
+        "arxiv": "http://arxiv.org/schemas/atom",
+    }
+    results: list[WebSearchResult] = []
+    for entry in root.findall("atom:entry", ns):
+        title = _clean_text(entry.findtext("atom:title", default="", namespaces=ns))
+        summary = _clean_text(entry.findtext("atom:summary", default="", namespaces=ns))
+        source_url = _clean_text(entry.findtext("atom:id", default="", namespaces=ns))
+        for link in entry.findall("atom:link", ns):
+            if link.attrib.get("rel") in {"alternate", None} and link.attrib.get("href"):
+                source_url = _clean_text(link.attrib["href"])
+                break
+        authors = _author_names(
+            [
+                author.findtext("atom:name", default="", namespaces=ns)
+                for author in entry.findall("atom:author", ns)
+            ]
+        )
+        published = _clean_text(
+            entry.findtext("atom:published", default="", namespaces=ns)
+        )
+        doi = _clean_text(entry.findtext("arxiv:doi", default="", namespaces=ns))
+        details = []
+        if authors:
+            details.append(f"Authors: {authors}.")
+        if published:
+            details.append(f"Published: {published[:10]}.")
+        if doi:
+            details.append(f"DOI: {doi}.")
+        details.append(summary)
+        if title and source_url:
+            results.append(
+                WebSearchResult(
+                    title=_source_title("arXiv", title),
+                    url=source_url,
+                    snippet=_snippet(*details),
+                )
+            )
+    return results[:max_results]
+
+
+def semantic_scholar_search(
+    query: str,
+    *,
+    max_results: int,
+    timeout_seconds: int,
+) -> list[WebSearchResult]:
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "limit": max_results,
+            "fields": "title,url,abstract,year,authors,venue,externalIds",
+        }
+    )
+    payload = json.loads(_fetch_url(f"{SEMANTIC_SCHOLAR_SEARCH_URL}?{params}", timeout_seconds))
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         return []
@@ -637,18 +757,200 @@ def jina_search(
             continue
         title = _clean_text(str(item.get("title") or ""))
         url = _clean_text(str(item.get("url") or ""))
+        external_ids = item.get("externalIds")
+        if not url and isinstance(external_ids, dict):
+            doi = _clean_text(str(external_ids.get("DOI") or ""))
+            arxiv_id = _clean_text(str(external_ids.get("ArXiv") or ""))
+            pmid = _clean_text(str(external_ids.get("PubMed") or ""))
+            if doi:
+                url = f"https://doi.org/{doi}"
+            elif arxiv_id:
+                url = f"https://arxiv.org/abs/{arxiv_id}"
+            elif pmid:
+                url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
         if not title or not url:
             continue
-        description = _clean_text(str(item.get("description") or ""))
-        content = _clean_text(str(item.get("content") or ""))
+        authors = _author_names(item.get("authors"))
+        venue = _clean_text(str(item.get("venue") or ""))
+        year = str(item.get("year") or "")
+        abstract = _clean_text(str(item.get("abstract") or ""))
         results.append(
             WebSearchResult(
-                title=title,
+                title=_source_title("Semantic Scholar", title),
                 url=url,
-                snippet=description or content[:500],
+                snippet=_snippet(
+                    f"Authors: {authors}." if authors else "",
+                    f"Venue: {venue}." if venue else "",
+                    f"Year: {year}." if year else "",
+                    abstract,
+                ),
             )
         )
     return results[:max_results]
+
+
+def pubmed_search(
+    query: str,
+    *,
+    max_results: int,
+    timeout_seconds: int,
+) -> list[WebSearchResult]:
+    search_params = urllib.parse.urlencode(
+        {
+            "db": "pubmed",
+            "term": query,
+            "retmode": "json",
+            "retmax": max_results,
+            "sort": "relevance",
+        }
+    )
+    search_payload = json.loads(_fetch_url(f"{PUBMED_ESEARCH_URL}?{search_params}", timeout_seconds))
+    id_list = (
+        search_payload.get("esearchresult", {}).get("idlist", [])
+        if isinstance(search_payload, dict)
+        else []
+    )
+    ids = [str(item) for item in id_list if str(item).strip()]
+    if not ids:
+        return []
+    summary_params = urllib.parse.urlencode(
+        {
+            "db": "pubmed",
+            "id": ",".join(ids[:max_results]),
+            "retmode": "json",
+        }
+    )
+    summary_payload = json.loads(_fetch_url(f"{PUBMED_ESUMMARY_URL}?{summary_params}", timeout_seconds))
+    result = summary_payload.get("result") if isinstance(summary_payload, dict) else None
+    if not isinstance(result, dict):
+        return []
+    uids = result.get("uids") if isinstance(result.get("uids"), list) else ids
+    results: list[WebSearchResult] = []
+    for uid in uids:
+        item = result.get(str(uid))
+        if not isinstance(item, dict):
+            continue
+        title = _clean_text(str(item.get("title") or ""))
+        if not title:
+            continue
+        authors = _author_names(item.get("authors"))
+        journal = _clean_text(
+            str(item.get("fulljournalname") or item.get("source") or "")
+        )
+        pubdate = _clean_text(str(item.get("pubdate") or ""))
+        doi = ""
+        article_ids = item.get("articleids")
+        if isinstance(article_ids, list):
+            for article_id in article_ids:
+                if (
+                    isinstance(article_id, dict)
+                    and str(article_id.get("idtype") or "").lower() == "doi"
+                ):
+                    doi = _clean_text(str(article_id.get("value") or ""))
+                    break
+        details = [
+            f"Authors: {authors}." if authors else "",
+            f"Journal: {journal}." if journal else "",
+            f"Published: {pubdate}." if pubdate else "",
+            f"DOI: {doi}." if doi else "",
+        ]
+        results.append(
+            WebSearchResult(
+                title=_source_title("PubMed", title),
+                url=f"https://pubmed.ncbi.nlm.nih.gov/{uid}/",
+                snippet=_snippet(*details),
+            )
+        )
+    return results[:max_results]
+
+
+def _openalex_abstract(inverted_index: Any) -> str:
+    if not isinstance(inverted_index, dict):
+        return ""
+    positions: list[tuple[int, str]] = []
+    for word, indexes in inverted_index.items():
+        if not isinstance(indexes, list):
+            continue
+        for index in indexes:
+            if isinstance(index, int):
+                positions.append((index, str(word)))
+    return " ".join(word for _, word in sorted(positions))
+
+
+def openalex_search(
+    query: str,
+    *,
+    max_results: int,
+    timeout_seconds: int,
+) -> list[WebSearchResult]:
+    params = urllib.parse.urlencode({"search": query, "per-page": max_results})
+    payload = json.loads(_fetch_url(f"{OPENALEX_WORKS_URL}?{params}", timeout_seconds))
+    data = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return []
+    results: list[WebSearchResult] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        title = _clean_text(str(item.get("display_name") or ""))
+        doi = _clean_text(str(item.get("doi") or ""))
+        source_url = doi or _clean_text(str(item.get("id") or ""))
+        if not title or not source_url:
+            continue
+        authors = _author_names(item.get("authorships"))
+        year = str(item.get("publication_year") or "")
+        source = ""
+        primary_location = item.get("primary_location")
+        if isinstance(primary_location, dict):
+            source_obj = primary_location.get("source")
+            if isinstance(source_obj, dict):
+                source = _clean_text(str(source_obj.get("display_name") or ""))
+        abstract = _openalex_abstract(item.get("abstract_inverted_index"))
+        results.append(
+            WebSearchResult(
+                title=_source_title("OpenAlex", title),
+                url=source_url,
+                snippet=_snippet(
+                    f"Authors: {authors}." if authors else "",
+                    f"Source: {source}." if source else "",
+                    f"Year: {year}." if year else "",
+                    abstract,
+                ),
+            )
+        )
+    return results[:max_results]
+
+
+def academic_search(
+    query: str,
+    *,
+    max_results: int,
+    timeout_seconds: int,
+) -> list[WebSearchResult]:
+    searchers = {
+        "semantic_scholar": semantic_scholar_search,
+        "openalex": openalex_search,
+        "arxiv": arxiv_search,
+        "pubmed": pubmed_search,
+    }
+    per_source = max(1, (max_results + len(ACADEMIC_PROVIDERS) - 1) // len(ACADEMIC_PROVIDERS))
+    results: list[WebSearchResult] = []
+    errors: list[str] = []
+    for provider in ACADEMIC_PROVIDERS:
+        try:
+            results.extend(
+                searchers[provider](
+                    query,
+                    max_results=per_source,
+                    timeout_seconds=timeout_seconds,
+                )
+            )
+        except Exception as exc:
+            errors.append(f"{provider}: {exc}")
+    deduped = _dedupe_results(results)
+    if not deduped and errors:
+        raise RuntimeError("; ".join(errors))
+    return deduped[:max_results]
 
 
 def _is_blocked_host(hostname: str) -> bool:
@@ -705,19 +1007,15 @@ def jina_fetch_url(
     url: str,
     *,
     timeout_seconds: int,
-    api_key: str | None,
     max_chars: int,
 ) -> str:
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": "InternAgents-WebFetch",
-    }
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
     payload = _fetch_url(
         f"{JINA_READER_URL}{urllib.parse.quote(url, safe=':/?&=%[]@!$&()*+,;-._~')}",
         max(timeout_seconds, JINA_MIN_TIMEOUT_SECONDS),
-        headers=headers,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "InternAgents-WebFetch",
+        },
     )
 
     title = ""
@@ -848,28 +1146,39 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
                 return f"Web search failed with Bing: {exc}"
             return format_search_results(normalized_query, results)
 
-        if settings.provider == "jina":
-            if not settings.jina_api_key:
-                return (
-                    "Jina web search requires INTERNAGENTS_WEB_SEARCH_JINA_API_KEY "
-                    "or JINA_API_KEY."
-                )
+        if settings.provider == "academic":
             try:
-                results = jina_search(
+                results = academic_search(
                     normalized_query,
                     max_results=requested_results,
                     timeout_seconds=settings.timeout_seconds,
-                    api_key=settings.jina_api_key,
                 )
             except Exception as exc:
-                return f"Web search failed with Jina: {exc}"
+                return f"Web search failed with academic sources: {exc}"
+            return format_search_results(normalized_query, results)
+
+        academic_searchers = {
+            "arxiv": arxiv_search,
+            "semantic_scholar": semantic_scholar_search,
+            "pubmed": pubmed_search,
+            "openalex": openalex_search,
+        }
+        if settings.provider in academic_searchers:
+            try:
+                results = academic_searchers[settings.provider](
+                    normalized_query,
+                    max_results=requested_results,
+                    timeout_seconds=settings.timeout_seconds,
+                )
+            except Exception as exc:
+                return f"Web search failed with {settings.provider}: {exc}"
             return format_search_results(normalized_query, results)
 
         return json.dumps(
             {
                 "error": "unsupported_web_search_provider",
                 "provider": settings.provider,
-                "supported_providers": ["duckduckgo", "bing", "jina"],
+                "supported_providers": list(SUPPORTED_WEB_SEARCH_PROVIDERS),
             },
             ensure_ascii=False,
         )
@@ -879,7 +1188,8 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
         """Fetch a public web URL and return readable page text via Jina Reader.
 
         Use this after web_search when a specific result URL needs more detail.
-        Do not use file-reading tools for http or https URLs.
+        This tool does not search; it only parses the exact URL provided. Do not
+        use file-reading tools for http or https URLs.
 
         Args:
             url: Public http or https URL to fetch.
@@ -894,7 +1204,6 @@ def web_search_tools(config: dict[str, Any] | None = None) -> list[Any]:
             return jina_fetch_url(
                 normalized_url,
                 timeout_seconds=settings.timeout_seconds,
-                api_key=settings.jina_api_key,
                 max_chars=requested_chars,
             )
         except Exception as exc:

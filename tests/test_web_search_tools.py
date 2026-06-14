@@ -10,10 +10,14 @@ import web_search_tools
 from web_search_tools import (
     WebSearchSettings,
     WebSearchBudgetMiddleware,
+    academic_search,
+    arxiv_search,
     bing_search,
     duckduckgo_search,
     jina_fetch_url,
-    jina_search,
+    openalex_search,
+    pubmed_search,
+    semantic_scholar_search,
     validate_fetch_web_url,
     web_search_reference_prompt,
     web_search_settings,
@@ -51,22 +55,73 @@ BING_HTML = """
 </html>
 """
 
-JINA_JSON = """
+ARXIV_ATOM = """
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>https://arxiv.org/abs/2501.00001v1</id>
+    <title>Arxiv Paper Title</title>
+    <summary>Arxiv abstract text.</summary>
+    <published>2025-01-01T00:00:00Z</published>
+    <author><name>Alice Author</name></author>
+    <arxiv:doi>10.1234/arxiv-test</arxiv:doi>
+  </entry>
+</feed>
+"""
+
+SEMANTIC_SCHOLAR_JSON = """
 {
-  "code": 200,
-  "status": 200,
   "data": [
     {
-      "title": "Jina Result",
-      "url": "https://example.com/jina-a",
-      "description": "First Jina snippet.",
-      "content": "# Jina Result\\n\\nLong page content."
-    },
+      "title": "Semantic Scholar Paper",
+      "url": "https://www.semanticscholar.org/paper/example",
+      "abstract": "Semantic Scholar abstract.",
+      "year": 2024,
+      "venue": "ACL",
+      "authors": [{"name": "Sam Scholar"}],
+      "externalIds": {"DOI": "10.1000/test"}
+    }
+  ]
+}
+"""
+
+PUBMED_ESEARCH_JSON = """
+{
+  "esearchresult": {
+    "idlist": ["123456"]
+  }
+}
+"""
+
+PUBMED_ESUMMARY_JSON = """
+{
+  "result": {
+    "uids": ["123456"],
+    "123456": {
+      "title": "PubMed Paper Title",
+      "fulljournalname": "Journal of Tests",
+      "pubdate": "2024",
+      "authors": [{"name": "Pat Pubmed"}],
+      "articleids": [{"idtype": "doi", "value": "10.2000/pubmed-test"}]
+    }
+  }
+}
+"""
+
+OPENALEX_JSON = """
+{
+  "results": [
     {
-      "title": "Second Jina Result",
-      "url": "https://example.org/jina-b",
-      "description": "",
-      "content": "Second Jina content with enough fallback snippet text."
+      "display_name": "OpenAlex Paper Title",
+      "doi": "https://doi.org/10.3000/openalex-test",
+      "publication_year": 2023,
+      "authorships": [{"author": {"display_name": "Olivia Open"}}],
+      "primary_location": {"source": {"display_name": "Open Journal"}},
+      "abstract_inverted_index": {
+        "OpenAlex": [0],
+        "abstract": [1],
+        "text.": [2]
+      }
     }
   ]
 }
@@ -114,23 +169,90 @@ class WebSearchToolsTest(unittest.TestCase):
         self.assertEqual(results[0].snippet, "First Bing snippet.")
         self.assertEqual(results[1].url, "https://example.org/bing-b")
 
-    def test_jina_json_results_are_parsed(self) -> None:
-        with patch.object(web_search_tools, "_fetch_url", return_value=JINA_JSON) as fetch:
-            results = jina_search(
-                "internagents",
+    def test_arxiv_results_are_parsed(self) -> None:
+        with patch.object(web_search_tools, "_fetch_url", return_value=ARXIV_ATOM):
+            results = arxiv_search(
+                "multi agent",
                 max_results=2,
                 timeout_seconds=3,
-                api_key="jina_test",
             )
 
-        self.assertEqual(fetch.call_args.args[1], 30)
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0].title, "Jina Result")
-        self.assertEqual(results[0].url, "https://example.com/jina-a")
-        self.assertEqual(results[0].snippet, "First Jina snippet.")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title, "[arXiv] Arxiv Paper Title")
+        self.assertEqual(results[0].url, "https://arxiv.org/abs/2501.00001v1")
+        self.assertIn("Arxiv abstract text", results[0].snippet)
+
+    def test_semantic_scholar_results_are_parsed(self) -> None:
+        with patch.object(
+            web_search_tools, "_fetch_url", return_value=SEMANTIC_SCHOLAR_JSON
+        ):
+            results = semantic_scholar_search(
+                "multi agent",
+                max_results=2,
+                timeout_seconds=3,
+            )
+
+        self.assertEqual(len(results), 1)
         self.assertEqual(
-            results[1].snippet,
-            "Second Jina content with enough fallback snippet text.",
+            results[0].title, "[Semantic Scholar] Semantic Scholar Paper"
+        )
+        self.assertEqual(
+            results[0].url, "https://www.semanticscholar.org/paper/example"
+        )
+        self.assertIn("Semantic Scholar abstract", results[0].snippet)
+
+    def test_pubmed_results_are_parsed(self) -> None:
+        with patch.object(
+            web_search_tools,
+            "_fetch_url",
+            side_effect=[PUBMED_ESEARCH_JSON, PUBMED_ESUMMARY_JSON],
+        ):
+            results = pubmed_search(
+                "multi agent",
+                max_results=2,
+                timeout_seconds=3,
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title, "[PubMed] PubMed Paper Title")
+        self.assertEqual(results[0].url, "https://pubmed.ncbi.nlm.nih.gov/123456/")
+        self.assertIn("Journal of Tests", results[0].snippet)
+
+    def test_openalex_results_are_parsed(self) -> None:
+        with patch.object(web_search_tools, "_fetch_url", return_value=OPENALEX_JSON):
+            results = openalex_search(
+                "multi agent",
+                max_results=2,
+                timeout_seconds=3,
+            )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].title, "[OpenAlex] OpenAlex Paper Title")
+        self.assertEqual(results[0].url, "https://doi.org/10.3000/openalex-test")
+        self.assertIn("OpenAlex abstract text", results[0].snippet)
+
+    def test_academic_results_are_aggregated(self) -> None:
+        with patch.object(
+            web_search_tools,
+            "_fetch_url",
+            side_effect=[
+                SEMANTIC_SCHOLAR_JSON,
+                OPENALEX_JSON,
+                ARXIV_ATOM,
+                PUBMED_ESEARCH_JSON,
+                PUBMED_ESUMMARY_JSON,
+            ],
+        ):
+            results = academic_search(
+                "multi agent",
+                max_results=4,
+                timeout_seconds=3,
+            )
+
+        self.assertEqual(len(results), 4)
+        self.assertEqual(
+            [result.title.split("]", 1)[0] + "]" for result in results],
+            ["[Semantic Scholar]", "[OpenAlex]", "[arXiv]", "[PubMed]"],
         )
 
     def test_settings_use_config_and_environment_overrides(self) -> None:
@@ -156,38 +278,23 @@ class WebSearchToolsTest(unittest.TestCase):
             settings,
             WebSearchSettings(
                 enabled=True,
-                provider="ddg",
+                provider="duckduckgo",
                 max_results=10,
                 timeout_seconds=7,
                 max_fetch_chars=12000,
             ),
         )
 
-    def test_settings_read_jina_key_from_environment(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "INTERNAGENTS_WEB_SEARCH_PROVIDER": "jina",
-                "INTERNAGENTS_WEB_SEARCH_JINA_API_KEY": "jina_test",
-            },
-            clear=False,
-        ):
-            settings = web_search_settings({})
-
-        self.assertEqual(settings.provider, "jina")
-        self.assertEqual(settings.jina_api_key, "jina_test")
-
     def test_jina_reader_fetches_and_formats_content(self) -> None:
         with patch.object(web_search_tools, "_fetch_url", return_value=JINA_READER_JSON) as fetch:
             result = jina_fetch_url(
                 "https://example.com/article",
                 timeout_seconds=3,
-                api_key="jina_test",
                 max_chars=40,
             )
 
         self.assertEqual(fetch.call_args.args[1], 30)
-        self.assertIn("Authorization", fetch.call_args.kwargs["headers"])
+        self.assertNotIn("Authorization", fetch.call_args.kwargs["headers"])
         self.assertIn("Fetched web page: Example Page", result)
         self.assertIn("URL: https://example.com/article", result)
         self.assertIn("# Example Page", result)
@@ -201,14 +308,9 @@ class WebSearchToolsTest(unittest.TestCase):
 
     def test_fetch_web_url_tool_uses_jina_reader(self) -> None:
         with patch.object(web_search_tools, "_fetch_url", return_value=JINA_READER_JSON):
-            with patch.dict(
-                os.environ,
-                {"INTERNAGENTS_WEB_SEARCH_JINA_API_KEY": "jina_test"},
-                clear=False,
-            ):
-                tools = build_web_search_tools({"web_search": {"provider": "jina"}})
-                fetch_tool = next(tool for tool in tools if tool.name == "fetch_web_url")
-                result = fetch_tool.invoke({"url": "https://example.com/article"})
+            tools = build_web_search_tools({})
+            fetch_tool = next(tool for tool in tools if tool.name == "fetch_web_url")
+            result = fetch_tool.invoke({"url": "https://example.com/article"})
 
         self.assertIn("Fetched web page: Example Page", result)
         self.assertIn("This is readable page content", result)
@@ -293,41 +395,16 @@ class WebSearchToolsTest(unittest.TestCase):
         self.assertIn("Found 1 web search result", result)
         self.assertIn("Bing & Result", result)
 
-    def test_web_search_tool_uses_jina_provider(self) -> None:
-        with patch.object(web_search_tools, "_fetch_url", return_value=JINA_JSON):
-            with patch.dict(
-                os.environ,
-                {"INTERNAGENTS_WEB_SEARCH_JINA_API_KEY": "jina_test"},
-                clear=False,
-            ):
-                search_tool = build_web_search_tools(
-                    {
-                        "web_search": {
-                            "provider": "jina",
-                            "max_results": 1,
-                        }
-                    }
-                )[0]
-                result = search_tool.invoke({"query": "internagents"})
+    def test_web_search_tool_uses_arxiv_provider(self) -> None:
+        with patch.object(web_search_tools, "_fetch_url", return_value=ARXIV_ATOM):
+            search_tool = build_web_search_tools(
+                {"web_search": {"provider": "arxiv", "max_results": 1}}
+            )[0]
+            result = search_tool.invoke({"query": "multi agent"})
 
         self.assertIn("Found 1 web search result", result)
-        self.assertIn("Jina Result", result)
-        self.assertIn("URL [1]: https://example.com/jina-a", result)
-
-    def test_web_search_tool_reports_missing_jina_key(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "INTERNAGENTS_WEB_SEARCH_JINA_API_KEY": "",
-                "JINA_API_KEY": "",
-                "JINA_AUTH_TOKEN": "",
-            },
-            clear=False,
-        ):
-            search_tool = build_web_search_tools({"web_search": {"provider": "jina"}})[0]
-            result = search_tool.invoke({"query": "internagents"})
-
-        self.assertIn("Jina web search requires", result)
+        self.assertIn("[arXiv] Arxiv Paper Title", result)
+        self.assertIn("URL [1]: https://arxiv.org/abs/2501.00001v1", result)
 
     def test_web_search_budget_middleware_blocks_repeated_searches(self) -> None:
         request = ToolCallRequest(
@@ -503,6 +580,16 @@ class WebSearchToolsTest(unittest.TestCase):
 
         self.assertIn("unsupported_web_search_provider", result)
         self.assertIn("brave", result)
+
+    def test_jina_search_provider_is_not_supported(self) -> None:
+        search_tool = build_web_search_tools(
+            {"web_search": {"provider": "jina"}}
+        )[0]
+
+        result = search_tool.invoke({"query": "internagents"})
+
+        self.assertIn("unsupported_web_search_provider", result)
+        self.assertIn("jina", result)
 
 
 if __name__ == "__main__":
