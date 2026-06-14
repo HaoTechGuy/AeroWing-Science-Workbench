@@ -160,7 +160,10 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                     {messageContent}
                   </p>
                 ) : hasContent ? (
-                  <MarkdownContent content={messageContent} />
+                  <MarkdownContent
+                    content={messageContent}
+                    onOpenWorkspacePath={onOpenAttachment}
+                  />
                 ) : null}
               </div>
             </div>
@@ -270,6 +273,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                         <div className="mb-4">
                           <MarkdownContent
                             content={extractSubAgentContent(subAgent.input)}
+                            onOpenWorkspacePath={onOpenAttachment}
                             className={cn(
                               showMutedRuntime &&
                                 "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"
@@ -288,6 +292,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                             </h4>
                             <MarkdownContent
                               content={extractSubAgentContent(subAgent.output)}
+                              onOpenWorkspacePath={onOpenAttachment}
                               className={cn(
                                 showMutedRuntime &&
                                   "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"

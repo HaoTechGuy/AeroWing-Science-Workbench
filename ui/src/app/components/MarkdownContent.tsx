@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { FileText } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
@@ -12,10 +13,97 @@ import { cn } from "@/lib/utils";
 interface MarkdownContentProps {
   content: string;
   className?: string;
+  onOpenWorkspacePath?: (path: string) => void;
+}
+
+const OUTPUT_FILE_PATTERN =
+  /((?:输出文件|输出文档|输出路径|Output file)\s*[:：]\s*)(\/[^\s`<>"'，。；;、)）\]}]+)/gi;
+const WORKSPACE_FILE_PATH_PATTERN =
+  /^\/[^\r\n]+\.(?:csv|doc|docx|html|jpeg|jpg|json|md|markdown|pdf|png|ppt|pptx|txt|xls|xlsx|xml|yaml|yml)$/i;
+
+function isPreviewableWorkspacePath(value: string): boolean {
+  return WORKSPACE_FILE_PATH_PATTERN.test(value.trim());
+}
+
+function WorkspacePathButton({
+  path,
+  onOpenWorkspacePath,
+}: {
+  path: string;
+  onOpenWorkspacePath: (path: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-primary/35 bg-primary/10 px-1.5 py-0.5 align-baseline font-mono text-[0.9em] font-medium text-primary shadow-sm shadow-black/[0.025] transition-colors hover:border-primary/60 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={`打开 ${path}`}
+      onClick={() => onOpenWorkspacePath(path)}
+    >
+      <FileText className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 break-all">{path}</span>
+      <span className="ml-0.5 shrink-0 rounded-sm bg-primary/15 px-1 py-px font-sans text-[0.7rem] font-semibold leading-none">
+        打开
+      </span>
+    </button>
+  );
+}
+
+function linkifyOutputFileText(
+  text: string,
+  onOpenWorkspacePath: (path: string) => void
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(OUTPUT_FILE_PATTERN)) {
+    const matchIndex = match.index ?? 0;
+    const prefix = match[1] ?? "";
+    const workspacePath = match[2] ?? "";
+    if (!workspacePath) {
+      continue;
+    }
+
+    if (matchIndex > lastIndex) {
+      nodes.push(text.slice(lastIndex, matchIndex));
+    }
+    nodes.push(prefix);
+    nodes.push(
+      <WorkspacePathButton
+        key={`${workspacePath}-${matchIndex}`}
+        path={workspacePath}
+        onOpenWorkspacePath={onOpenWorkspacePath}
+      />
+    );
+    lastIndex = matchIndex + match[0].length;
+  }
+
+  if (lastIndex === 0) {
+    return [text];
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function linkifyOutputFileChildren(
+  children: React.ReactNode,
+  onOpenWorkspacePath?: (path: string) => void
+): React.ReactNode {
+  if (!onOpenWorkspacePath) {
+    return children;
+  }
+
+  return React.Children.toArray(children).flatMap((child) =>
+    typeof child === "string"
+      ? linkifyOutputFileText(child, onOpenWorkspacePath)
+      : child
+  );
 }
 
 export const MarkdownContent = React.memo<MarkdownContentProps>(
-  ({ content, className = "" }) => {
+  ({ content, className = "", onOpenWorkspacePath }) => {
     return (
       <div
         className={cn(
@@ -27,18 +115,22 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
           components={{
+            p({ children }: { children?: React.ReactNode }) {
+              return (
+                <p>{linkifyOutputFileChildren(children, onOpenWorkspacePath)}</p>
+              );
+            },
             code({
-              inline,
               className,
               children,
               ...props
             }: {
-              inline?: boolean;
               className?: string;
               children?: React.ReactNode;
             }) {
+              const codeText = String(children).replace(/\n$/, "");
               const match = /language-(\w+)/.exec(className || "");
-              return !inline && match ? (
+              return match ? (
                 <SyntaxHighlighter
                   style={oneLight}
                   language={match[1]}
@@ -61,8 +153,15 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                     background: "hsl(var(--card))",
                   }}
                 >
-                  {String(children).replace(/\n$/, "")}
+                  {codeText}
                 </SyntaxHighlighter>
+              ) : !match &&
+                onOpenWorkspacePath &&
+                isPreviewableWorkspacePath(codeText) ? (
+                <WorkspacePathButton
+                  path={codeText.trim()}
+                  onOpenWorkspacePath={onOpenWorkspacePath}
+                />
               ) : (
                 <code
                   className="bg-surface rounded-sm px-1 py-0.5 font-mono text-xs"
