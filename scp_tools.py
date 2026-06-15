@@ -9,8 +9,6 @@ from typing import Any, Literal
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
 
 from scp_state import (
     ScpInvocationState,
@@ -124,6 +122,18 @@ def scp_tools() -> list[Any]:
     return [get_scp_invocation, update_scp_invocation, call_scp_tool]
 
 
+def _load_mcp_client() -> tuple[Any, Any]:
+    try:
+        from mcp import ClientSession  # noqa: PLC0415
+        from mcp.client.streamable_http import streamablehttp_client  # noqa: PLC0415
+    except Exception as exc:
+        raise RuntimeError(
+            "SCP MCP dependency is unavailable. Install a compatible mcp package "
+            "before invoking SCP tools."
+        ) from exc
+    return ClientSession, streamablehttp_client
+
+
 async def _call_scp_mcp_tool(
     *,
     endpoint: str,
@@ -131,14 +141,15 @@ async def _call_scp_mcp_tool(
     tool_name: str,
     arguments: dict[str, Any],
 ) -> Any:
+    ClientSession, streamablehttp_client = _load_mcp_client()
     transport = streamablehttp_client(
         url=endpoint,
         headers={"SCP-HUB-API-KEY": api_key},
     )
     read = None
     write = None
-    session_ctx: ClientSession | None = None
-    session: ClientSession | None = None
+    session_ctx: Any | None = None
+    session: Any | None = None
     try:
         read, write, _ = await transport.__aenter__()
         session_ctx = ClientSession(read, write)

@@ -20,15 +20,18 @@ export const runtime = "nodejs";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type ModelProvider = "gateway" | "openrouter";
-type OnboardingMissing = "gatewayEmail" | "openrouterApiKey";
+type ModelProvider = "gateway" | "openai_compatible";
+type StoredModelProvider = ModelProvider | "openai" | "openrouter";
+type OnboardingMissing = "gatewayEmail" | "openaiCompatibleApiKey";
 
 interface AgentConfig {
   interrupt_on?: Record<string, unknown>;
   authorization_mode?: AuthorizationMode;
-  model_provider?: ModelProvider;
+  model_provider?: StoredModelProvider;
   model_selection_mode?: ModelSelectionMode;
   manual_model?: string;
+  openai_compatible_model?: string;
+  openai_compatible_base_url?: string;
   openrouter_direct_enabled?: boolean;
   openrouter_model?: string;
   gateway_base_url?: string;
@@ -43,6 +46,8 @@ interface UpdateConfigRequest {
   gatewayEmail?: unknown;
   gatewayUsername?: unknown;
   gatewayInviteCode?: unknown;
+  openaiCompatibleApiKey?: unknown;
+  openaiCompatibleBaseUrl?: unknown;
   openrouterApiKey?: unknown;
   authorizationMode?: unknown;
   workspacePath?: unknown;
@@ -50,9 +55,9 @@ interface UpdateConfigRequest {
 
 const AUTO_MODEL = "jisi/auto";
 const DEFAULT_MANUAL_MODEL = "deepseek-v4-flash";
-const DEFAULT_OPENROUTER_MODEL = "deepseek-v4-flash";
+const DEFAULT_OPENAI_COMPATIBLE_MODEL = "deepseek-v4-flash";
+const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://openrouter.ai/api/v1";
 const LEGACY_OPENROUTER_AUTO_MODEL = "openrouter/auto";
-const OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1";
 
 const WRITE_TOOLS = ["write_file", "edit_file"];
 const COMMON_TOOLS = [
@@ -200,19 +205,57 @@ function normalizeModel(model: unknown, fallback = DEFAULT_MANUAL_MODEL) {
   return trimmed;
 }
 
-function normalizeOpenRouterModel(model: unknown) {
-  const normalized = normalizeModel(model, DEFAULT_OPENROUTER_MODEL);
+function normalizeOpenAiCompatibleModel(model: unknown) {
+  const normalized = normalizeModel(model, DEFAULT_OPENAI_COMPATIBLE_MODEL);
   return normalized === LEGACY_OPENROUTER_AUTO_MODEL
-    ? DEFAULT_OPENROUTER_MODEL
+    ? DEFAULT_OPENAI_COMPATIBLE_MODEL
     : normalized;
+}
+
+function normalizeOpenAiCompatibleBaseUrl(value: unknown, fallback = "") {
+  if (typeof value !== "string") {
+    if (fallback) {
+      return fallback;
+    }
+    throw new Error("请填写 OpenAI 兼容接口 Base URL。");
+  }
+
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    if (fallback) {
+      return fallback;
+    }
+    throw new Error("请填写 OpenAI 兼容接口 Base URL。");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("OpenAI 兼容接口 Base URL 格式不正确。");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("OpenAI 兼容接口 Base URL 必须是 http 或 https。");
+  }
+  return trimmed;
 }
 
 function isAuthorizationMode(value: unknown): value is AuthorizationMode {
   return value === "auto" || value === "write" || value === "all";
 }
 
-function isModelProvider(value: unknown): value is ModelProvider {
-  return value === "gateway" || value === "openrouter";
+function normalizeModelProvider(value: unknown): ModelProvider | null {
+  if (value === "gateway") {
+    return "gateway";
+  }
+  if (
+    value === "openai_compatible" ||
+    value === "openai" ||
+    value === "openrouter"
+  ) {
+    return "openai_compatible";
+  }
+  return null;
 }
 
 function normalizeEmail(value: unknown): string {
@@ -243,14 +286,16 @@ function inferModelProvider(
   config: AgentConfig,
   env: Record<string, string>
 ): ModelProvider {
-  if (isModelProvider(config.model_provider)) {
-    return config.model_provider;
+  const configProvider = normalizeModelProvider(config.model_provider);
+  if (configProvider) {
+    return configProvider;
   }
   if (config.openrouter_direct_enabled === true) {
-    return "openrouter";
+    return "openai_compatible";
   }
-  if (isModelProvider(env.INTERNAGENTS_MODEL_PROVIDER)) {
-    return env.INTERNAGENTS_MODEL_PROVIDER;
+  const envProvider = normalizeModelProvider(env.INTERNAGENTS_MODEL_PROVIDER);
+  if (envProvider) {
+    return envProvider;
   }
   return "gateway";
 }
@@ -318,18 +363,33 @@ async function normalizedResponse(config: AgentConfig) {
     config.manual_model ||
       (envModel === AUTO_MODEL ? DEFAULT_MANUAL_MODEL : envModel)
   );
-  const openrouterModel = normalizeOpenRouterModel(
-    config.openrouter_model ||
-      (envModel === AUTO_MODEL ? DEFAULT_OPENROUTER_MODEL : envModel)
+  const openaiCompatibleModel = normalizeOpenAiCompatibleModel(
+    config.openai_compatible_model ||
+      config.openrouter_model ||
+      (envModel === AUTO_MODEL ? DEFAULT_OPENAI_COMPATIBLE_MODEL : envModel)
+  );
+  const compatibleEnvBaseUrl =
+    modelProvider === "openai_compatible"
+      ? env.OPENAI_BASE_URL ||
+        env.OPENAI_API_BASE ||
+        env.OPENROUTER_API_BASE ||
+        env.OPENROUTER_BASE_URL ||
+        ""
+      : "";
+  const openaiCompatibleBaseUrl = normalizeOpenAiCompatibleBaseUrl(
+    config.openai_compatible_base_url ||
+      compatibleEnvBaseUrl ||
+      DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+    DEFAULT_OPENAI_COMPATIBLE_BASE_URL
   );
   const effectiveModel =
-    modelProvider === "gateway" ? manualModel : openrouterModel;
+    modelProvider === "gateway" ? manualModel : openaiCompatibleModel;
   const gatewayKey =
     env.INTERNAGENTS_GATEWAY_KEY ||
     (modelProvider === "gateway" ? env.OPENAI_API_KEY : "");
-  const openrouterKey =
+  const openaiCompatibleKey =
     env.OPENROUTER_API_KEY ||
-    (modelProvider === "openrouter" ? env.OPENAI_API_KEY : "");
+    (modelProvider === "openai_compatible" ? env.OPENAI_API_KEY : "");
   const gatewayEmail = env.INTERNAGENTS_USER_EMAIL || "";
   const gatewayUsername = env.INTERNAGENTS_USER_NAME || "";
   const gatewayInviteCode =
@@ -358,8 +418,8 @@ async function normalizedResponse(config: AgentConfig) {
   ) {
     missing.push("gatewayEmail");
   }
-  if (modelProvider === "openrouter" && !openrouterKey?.trim()) {
-    missing.push("openrouterApiKey");
+  if (modelProvider === "openai_compatible" && !openaiCompatibleKey?.trim()) {
+    missing.push("openaiCompatibleApiKey");
   }
   const desktopMode = isDesktopMode();
 
@@ -371,7 +431,7 @@ async function normalizedResponse(config: AgentConfig) {
     workspaceResolvedPath,
     workspaceError,
     modelProvider,
-    model: modelProvider === "gateway" ? manualModel : openrouterModel,
+    model: modelProvider === "gateway" ? manualModel : openaiCompatibleModel,
     modelSelectionMode,
     effectiveModel,
     autoModel: AUTO_MODEL,
@@ -383,9 +443,14 @@ async function normalizedResponse(config: AgentConfig) {
     gatewayApiKeyPreview: "",
     gatewayCreditRmb: env.INTERNAGENTS_GATEWAY_CREDIT_RMB || "",
     gatewayRemainingRmb: env.INTERNAGENTS_GATEWAY_REMAINING_RMB || "",
-    openrouterModel,
+    openaiCompatibleModel,
+    openaiCompatibleBaseUrl,
+    openaiCompatibleApiKey: "",
+    openaiCompatibleApiKeySet: Boolean(openaiCompatibleKey),
+    openaiCompatibleApiKeyPreview: "",
+    openrouterModel: openaiCompatibleModel,
     openrouterApiKey: "",
-    openrouterApiKeySet: Boolean(openrouterKey),
+    openrouterApiKeySet: Boolean(openaiCompatibleKey),
     openrouterApiKeyPreview: "",
     authorizationMode: inferAuthorizationMode(config),
     desktopMode,
@@ -412,14 +477,28 @@ export async function PUT(request: NextRequest) {
     const body = (await request.json()) as UpdateConfigRequest;
     const currentConfig = await readConfig();
     const currentEnv = await readEnvValues();
-    const modelProvider = isModelProvider(body.modelProvider)
-      ? body.modelProvider
-      : inferModelProvider(currentConfig, currentEnv);
+    const modelProvider =
+      normalizeModelProvider(body.modelProvider) ??
+      inferModelProvider(currentConfig, currentEnv);
     const modelSelectionMode: ModelSelectionMode = "manual";
     const model =
-      modelProvider === "openrouter"
-        ? normalizeOpenRouterModel(body.model || DEFAULT_OPENROUTER_MODEL)
+      modelProvider === "openai_compatible"
+        ? normalizeOpenAiCompatibleModel(
+            body.model || DEFAULT_OPENAI_COMPATIBLE_MODEL
+          )
         : normalizeModel(body.model || DEFAULT_MANUAL_MODEL);
+    const openaiCompatibleBaseUrl =
+      modelProvider === "openai_compatible"
+        ? normalizeOpenAiCompatibleBaseUrl(
+            body.openaiCompatibleBaseUrl ||
+              currentConfig.openai_compatible_base_url ||
+              currentEnv.OPENAI_BASE_URL ||
+              currentEnv.OPENAI_API_BASE ||
+              currentEnv.OPENROUTER_API_BASE ||
+              currentEnv.OPENROUTER_BASE_URL ||
+              DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+          )
+        : "";
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
@@ -442,12 +521,16 @@ export async function PUT(request: NextRequest) {
         modelProvider === "gateway" ? modelSelectionMode : "manual",
       manual_model: modelProvider === "gateway" ? model : DEFAULT_MANUAL_MODEL,
     };
-    if (modelProvider === "openrouter") {
-      nextConfig.openrouter_direct_enabled = true;
-      nextConfig.openrouter_model = model;
+    if (modelProvider === "openai_compatible") {
+      nextConfig.openai_compatible_model = model;
+      nextConfig.openai_compatible_base_url = openaiCompatibleBaseUrl;
+      delete nextConfig.openrouter_direct_enabled;
+      delete nextConfig.openrouter_model;
       delete nextConfig.gateway_model;
       delete nextConfig.gateway_base_url;
     } else {
+      delete nextConfig.openai_compatible_model;
+      delete nextConfig.openai_compatible_base_url;
       delete nextConfig.openrouter_direct_enabled;
       delete nextConfig.openrouter_model;
     }
@@ -465,7 +548,7 @@ export async function PUT(request: NextRequest) {
             config: nextConfig,
             env: currentEnv,
           })
-        : buildOpenRouterEnvUpdates({
+        : buildOpenAiCompatibleEnvUpdates({
             body,
             config: nextConfig,
             env: currentEnv,
@@ -612,7 +695,7 @@ async function buildGatewayEnvUpdates({
   };
 }
 
-function buildOpenRouterEnvUpdates({
+function buildOpenAiCompatibleEnvUpdates({
   body,
   config,
   env,
@@ -621,36 +704,51 @@ function buildOpenRouterEnvUpdates({
   config: AgentConfig;
   env: Record<string, string>;
 }) {
-  const existingOpenRouterKey =
+  const existingProvider = normalizeModelProvider(env.INTERNAGENTS_MODEL_PROVIDER);
+  const existingOpenAiCompatibleKey =
     env.OPENROUTER_API_KEY ||
-    (env.INTERNAGENTS_MODEL_PROVIDER === "openrouter"
-      ? env.OPENAI_API_KEY
-      : "");
+    (existingProvider === "openai_compatible" ? env.OPENAI_API_KEY : "");
   const apiKey =
-    normalizeApiKey(body.openrouterApiKey) || existingOpenRouterKey;
+    normalizeApiKey(body.openaiCompatibleApiKey) ||
+    normalizeApiKey(body.openrouterApiKey) ||
+    existingOpenAiCompatibleKey;
   if (!apiKey) {
-    throw new Error("请填写 OpenRouter API Key。");
+    throw new Error("请填写 OpenAI 兼容接口 API Key。");
   }
 
-  const model = normalizeOpenRouterModel(
-    config.openrouter_model || body.model || DEFAULT_OPENROUTER_MODEL
+  const model = normalizeOpenAiCompatibleModel(
+    config.openai_compatible_model ||
+      config.openrouter_model ||
+      body.model ||
+      DEFAULT_OPENAI_COMPATIBLE_MODEL
   );
-  config.openrouter_direct_enabled = true;
-  config.openrouter_model = model;
+  const apiBaseUrl = normalizeOpenAiCompatibleBaseUrl(
+    body.openaiCompatibleBaseUrl ||
+      config.openai_compatible_base_url ||
+      env.OPENAI_BASE_URL ||
+      env.OPENAI_API_BASE ||
+      env.OPENROUTER_API_BASE ||
+      env.OPENROUTER_BASE_URL ||
+      DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+  );
+  config.openai_compatible_model = model;
+  config.openai_compatible_base_url = apiBaseUrl;
+  delete config.openrouter_direct_enabled;
+  delete config.openrouter_model;
   delete config.gateway_base_url;
   delete config.gateway_model;
 
   return {
-    INTERNAGENTS_MODEL_PROVIDER: "openrouter",
-    LLM_PROVIDER: "openrouter",
+    INTERNAGENTS_MODEL_PROVIDER: "openai_compatible",
+    LLM_PROVIDER: "openai",
     LLM_MODEL: model,
-    DEEPAGENT_MODEL: `openrouter:${model}`,
-    OPENROUTER_API_KEY: apiKey,
-    OPENROUTER_API_BASE: OPENROUTER_API_BASE_URL,
-    OPENROUTER_BASE_URL: OPENROUTER_API_BASE_URL,
+    DEEPAGENT_MODEL: `openai:${model}`,
+    OPENROUTER_API_KEY: null,
+    OPENROUTER_API_BASE: null,
+    OPENROUTER_BASE_URL: null,
     OPENAI_API_KEY: apiKey,
-    OPENAI_BASE_URL: OPENROUTER_API_BASE_URL,
-    OPENAI_API_BASE: OPENROUTER_API_BASE_URL,
+    OPENAI_BASE_URL: apiBaseUrl,
+    OPENAI_API_BASE: apiBaseUrl,
   };
 }
 

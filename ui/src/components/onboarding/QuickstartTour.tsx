@@ -107,7 +107,7 @@ const QUICKSTART_STEPS: QuickstartStep[] = [
     route: "/config",
     target: '[data-tour="config-model"]',
     title: "模型选择",
-    body: "这里可以选择集思或 OpenRouter。使用集思时，可以在集思模型列表里更换模型，保存并应用后生效。",
+    body: "这里可以选择集思或 OpenAI 兼容接口。使用集思时，可以在集思模型列表里更换模型，保存并应用后生效。",
   },
   {
     id: "config-workspace",

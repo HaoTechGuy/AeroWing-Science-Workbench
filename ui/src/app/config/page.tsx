@@ -39,8 +39,8 @@ import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type ModelProvider = "gateway" | "openrouter";
-type OnboardingMissing = "gatewayEmail" | "openrouterApiKey";
+type ModelProvider = "gateway" | "openai_compatible";
+type OnboardingMissing = "gatewayEmail" | "openaiCompatibleApiKey";
 
 interface ConfigResponse {
   configPath: string;
@@ -61,10 +61,11 @@ interface ConfigResponse {
   gatewayApiKeyPreview: string;
   gatewayCreditRmb: string;
   gatewayRemainingRmb: string;
-  openrouterModel: string;
-  openrouterApiKey: string;
-  openrouterApiKeySet: boolean;
-  openrouterApiKeyPreview: string;
+  openaiCompatibleModel: string;
+  openaiCompatibleBaseUrl: string;
+  openaiCompatibleApiKey: string;
+  openaiCompatibleApiKeySet: boolean;
+  openaiCompatibleApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
   desktopMode: boolean;
   needsOnboarding: boolean;
@@ -127,10 +128,11 @@ const DEFAULT_CONFIG: ConfigResponse = {
   gatewayApiKeyPreview: "",
   gatewayCreditRmb: "",
   gatewayRemainingRmb: "",
-  openrouterModel: "deepseek-v4-flash",
-  openrouterApiKey: "",
-  openrouterApiKeySet: false,
-  openrouterApiKeyPreview: "",
+  openaiCompatibleModel: "deepseek-v4-flash",
+  openaiCompatibleBaseUrl: "https://openrouter.ai/api/v1",
+  openaiCompatibleApiKey: "",
+  openaiCompatibleApiKeySet: false,
+  openaiCompatibleApiKeyPreview: "",
   authorizationMode: "auto",
   desktopMode: false,
   needsOnboarding: false,
@@ -154,10 +156,10 @@ const MODEL_PROVIDER_OPTIONS: Array<{
     description: "免费，提供国产模型支持。",
   },
   {
-    id: "openrouter",
-    title: "OpenRouter",
-    subtitle: "商业收费",
-    description: "提供更丰富模型支持，需要设置代理。",
+    id: "openai_compatible",
+    title: "OpenAI 兼容",
+    subtitle: "Base URL + API Key",
+    description: "接入任意兼容 Chat Completions 的模型服务。",
   },
 ];
 
@@ -353,7 +355,9 @@ function ConfigPageContent() {
       config.gatewayEmail !== savedConfig.gatewayEmail ||
       config.gatewayUsername !== savedConfig.gatewayUsername ||
       config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
-      config.openrouterApiKey.trim() !== "" ||
+      config.openaiCompatibleApiKey.trim() !== "" ||
+      config.openaiCompatibleBaseUrl !== savedConfig.openaiCompatibleBaseUrl ||
+      config.openaiCompatibleModel !== savedConfig.openaiCompatibleModel ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode ||
@@ -367,7 +371,9 @@ function ConfigPageContent() {
     config.model,
     config.modelProvider,
     config.modelSelectionMode,
-    config.openrouterApiKey,
+    config.openaiCompatibleApiKey,
+    config.openaiCompatibleBaseUrl,
+    config.openaiCompatibleModel,
     config.workspacePath,
     savedConfig.authorizationMode,
     savedConfig.gatewayEmail,
@@ -376,6 +382,8 @@ function ConfigPageContent() {
     savedConfig.model,
     savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
+    savedConfig.openaiCompatibleBaseUrl,
+    savedConfig.openaiCompatibleModel,
     savedConfig.workspacePath,
   ]);
   const selectedJisiModel = useMemo(
@@ -388,7 +396,9 @@ function ConfigPageContent() {
       config.gatewayEmail !== savedConfig.gatewayEmail ||
       config.gatewayUsername !== savedConfig.gatewayUsername ||
       config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
-      config.openrouterApiKey.trim() !== "" ||
+      config.openaiCompatibleApiKey.trim() !== "" ||
+      config.openaiCompatibleBaseUrl !== savedConfig.openaiCompatibleBaseUrl ||
+      config.openaiCompatibleModel !== savedConfig.openaiCompatibleModel ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode
@@ -401,7 +411,9 @@ function ConfigPageContent() {
     config.model,
     config.modelProvider,
     config.modelSelectionMode,
-    config.openrouterApiKey,
+    config.openaiCompatibleApiKey,
+    config.openaiCompatibleBaseUrl,
+    config.openaiCompatibleModel,
     savedConfig.authorizationMode,
     savedConfig.gatewayEmail,
     savedConfig.gatewayInviteCode,
@@ -409,6 +421,8 @@ function ConfigPageContent() {
     savedConfig.model,
     savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
+    savedConfig.openaiCompatibleBaseUrl,
+    savedConfig.openaiCompatibleModel,
   ]);
   const hasAnyChanges = hasChanges || skillsState.hasChanges;
   const hasPendingRestart = requiresRestart || skillsState.requiresRestart;
@@ -423,7 +437,11 @@ function ConfigPageContent() {
             config.gatewayUsername.trim() &&
             config.gatewayInviteCode.trim()
         )
-      : Boolean(config.openrouterApiKey.trim() || config.openrouterApiKeySet));
+      : Boolean(
+          config.openaiCompatibleBaseUrl.trim() &&
+            (config.openaiCompatibleApiKey.trim() ||
+              config.openaiCompatibleApiKeySet)
+        ));
   const backendStatusMessage = backendStatus?.message.trim();
   const showBackendStatus = Boolean(backendStatusMessage) && !restartResult;
   const workbenchHref = useMemo(
@@ -449,7 +467,7 @@ function ConfigPageContent() {
       const nextConfig = {
         ...DEFAULT_CONFIG,
         ...payload,
-        openrouterApiKey: "",
+        openaiCompatibleApiKey: "",
       } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
@@ -479,8 +497,8 @@ function ConfigPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model:
-            config.modelProvider === "openrouter"
-              ? config.openrouterModel || "deepseek-v4-flash"
+            config.modelProvider === "openai_compatible"
+              ? config.openaiCompatibleModel || "deepseek-v4-flash"
               : config.model || "deepseek-v4-flash",
           modelProvider: config.modelProvider,
           modelSelectionMode: "manual",
@@ -496,9 +514,13 @@ function ConfigPageContent() {
             config.modelProvider === "gateway"
               ? config.gatewayInviteCode.trim() || undefined
               : undefined,
-          openrouterApiKey:
-            config.modelProvider === "openrouter"
-              ? config.openrouterApiKey.trim() || undefined
+          openaiCompatibleApiKey:
+            config.modelProvider === "openai_compatible"
+              ? config.openaiCompatibleApiKey.trim() || undefined
+              : undefined,
+          openaiCompatibleBaseUrl:
+            config.modelProvider === "openai_compatible"
+              ? config.openaiCompatibleBaseUrl.trim() || undefined
               : undefined,
           authorizationMode: config.authorizationMode,
           workspacePath: onboardingMode ? undefined : config.workspacePath,
@@ -511,7 +533,7 @@ function ConfigPageContent() {
       const nextConfig = {
         ...DEFAULT_CONFIG,
         ...payload,
-        openrouterApiKey: "",
+        openaiCompatibleApiKey: "",
       } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
@@ -691,8 +713,12 @@ function ConfigPageContent() {
         toast.error(message);
         return;
       }
-    } else if (!config.openrouterApiKey.trim() && !config.openrouterApiKeySet) {
-      const message = "请填写 OpenRouter API Key。";
+    } else if (
+      !config.openaiCompatibleBaseUrl.trim() ||
+      (!config.openaiCompatibleApiKey.trim() &&
+        !config.openaiCompatibleApiKeySet)
+    ) {
+      const message = "请填写 OpenAI 兼容接口 Base URL 和 API Key。";
       setError(message);
       toast.error(message);
       return;
@@ -717,7 +743,9 @@ function ConfigPageContent() {
       modelProvider,
       modelSelectionMode: "manual",
       model: "deepseek-v4-flash",
-      openrouterModel: "deepseek-v4-flash",
+      openaiCompatibleModel: "deepseek-v4-flash",
+      openaiCompatibleBaseUrl:
+        current.openaiCompatibleBaseUrl || "https://openrouter.ai/api/v1",
     }));
   }
 
@@ -976,7 +1004,7 @@ function ConfigPageContent() {
                 <div className="min-w-0">
                   <h2 className="text-base font-semibold">模型</h2>
                   <div className="mt-1 text-sm text-muted-foreground">
-                    使用集思或 OpenRouter 管理模型服务。
+                    使用集思或 OpenAI 兼容接口管理模型服务。
                   </div>
                 </div>
               </div>
@@ -1247,48 +1275,101 @@ function ConfigPageContent() {
                   >
                     {!onboardingMode && (
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label htmlFor="openrouter-api-key">
-                          OpenRouter API Key
+                        <Label htmlFor="openai-compatible-api-key">
+                          OpenAI 兼容接口
                         </Label>
                         <span
                           className={cn(
                             "rounded-full px-2 py-1 text-xs font-medium",
-                            config.openrouterApiKeySet
+                            config.openaiCompatibleApiKeySet
                               ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
                               : "bg-muted text-muted-foreground"
                           )}
                         >
-                          {config.openrouterApiKeySet ? "已保存" : "未保存"}
+                          {config.openaiCompatibleApiKeySet
+                            ? "已保存"
+                            : "未保存"}
                         </span>
                       </div>
                     )}
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <KeyRound className="h-3.5 w-3.5" />
-                        API Key
+                        <ServerCog className="h-3.5 w-3.5" />
+                        Base URL
                       </div>
                       <Input
-                        id="openrouter-api-key"
-                        type="password"
+                        id="openai-compatible-base-url"
+                        type="url"
                         autoComplete="off"
-                        value={config.openrouterApiKey}
+                        value={config.openaiCompatibleBaseUrl}
                         disabled={loading}
                         onChange={(event) =>
                           setConfig((current) => ({
                             ...current,
-                            openrouterApiKey: event.target.value,
+                            openaiCompatibleBaseUrl: event.target.value,
                           }))
                         }
-                        placeholder={
-                          config.openrouterApiKeySet
-                            ? "已保存，留空则继续使用当前 key"
-                            : "sk-or-..."
-                        }
+                        placeholder="https://openrouter.ai/api/v1"
                       />
                     </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <KeyRound className="h-3.5 w-3.5" />
+                          API Key
+                        </div>
+                        <Input
+                          id="openai-compatible-api-key"
+                          type="password"
+                          autoComplete="off"
+                          value={config.openaiCompatibleApiKey}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              openaiCompatibleApiKey: event.target.value,
+                            }))
+                          }
+                          placeholder={
+                            config.openaiCompatibleApiKeySet
+                              ? "已保存，留空则继续使用当前 key"
+                              : "sk-..."
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <Cpu className="h-3.5 w-3.5" />
+                          模型 ID
+                        </div>
+                        <Input
+                          id="openai-compatible-model"
+                          type="text"
+                          autoComplete="off"
+                          value={config.openaiCompatibleModel}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              model: event.target.value,
+                              openaiCompatibleModel: event.target.value,
+                            }))
+                          }
+                          placeholder="deepseek-v4-flash"
+                        />
+                      </div>
+                    </div>
                     {!onboardingMode && (
-                      <div className="text-xs text-muted-foreground">
-                        模型：{config.openrouterModel || "deepseek-v4-flash"}
+                      <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                        <div className="min-w-0 truncate">
+                          模型：
+                          {config.openaiCompatibleModel || "deepseek-v4-flash"}
+                        </div>
+                        <div className="min-w-0 truncate">
+                          Base URL：
+                          {config.openaiCompatibleBaseUrl ||
+                            "https://openrouter.ai/api/v1"}
+                        </div>
                       </div>
                     )}
                   </div>

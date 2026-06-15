@@ -263,10 +263,16 @@ function readEnvValues(filePath) {
 
 function hasInitialConfig() {
   const values = readEnvValues(envPath());
+  const provider = (values.INTERNAGENTS_MODEL_PROVIDER || "").trim();
   return Boolean(
     (values.INTERNAGENTS_GATEWAY_KEY &&
       values.INTERNAGENTS_GATEWAY_KEY.trim()) ||
-      (values.OPENROUTER_API_KEY && values.OPENROUTER_API_KEY.trim())
+      (values.OPENROUTER_API_KEY && values.OPENROUTER_API_KEY.trim()) ||
+      ((provider === "openai_compatible" ||
+        provider === "openai" ||
+        provider === "openrouter") &&
+        values.OPENAI_API_KEY &&
+        values.OPENAI_API_KEY.trim())
   );
 }
 

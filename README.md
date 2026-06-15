@@ -124,22 +124,21 @@ INTERNAGENTS_USER_EMAIL=
 INTERNAGENTS_USER_NAME=
 INTERNAGENTS_INVITE_CODE=
 INTERNAGENTS_GATEWAY_KEY=
-OPENROUTER_API_KEY=
-OPENROUTER_API_BASE=
+OPENAI_API_KEY=
+OPENAI_BASE_URL=
 DEEPAGENT_MODEL=
 ```
 
 Set `DEEPAGENT_MODEL` to override the model explicitly:
 
 ```env
-DEEPAGENT_MODEL=openrouter:deepseek-v4-flash
+DEEPAGENT_MODEL=openai:deepseek-v4-flash
 ```
 
-集思 exposes an OpenAI-compatible chat-completions endpoint, while the local
-LangChain integration uses the existing OpenRouter ChatModel path. The gateway
-origin itself is fixed by the local backend and is not a UI setting. The UI keeps
-the model mode configurable: automatic selection writes `jisi/auto`, while
-manual selection writes the chosen model ID. Real keys should stay in an
+集思 exposes a fixed OpenAI-compatible chat-completions endpoint managed by the
+local backend. For any other OpenAI-compatible provider, set
+`INTERNAGENTS_MODEL_PROVIDER=openai_compatible`, `OPENAI_BASE_URL`, and
+`OPENAI_API_KEY`, then use the provider's model ID. Real keys should stay in an
 untracked `.env` or in the desktop app's Application Support runtime directory;
 they should not be committed.
 

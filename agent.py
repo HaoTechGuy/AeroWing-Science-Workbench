@@ -34,6 +34,12 @@ DEFAULT_SKILL_CATALOG_PATHS = [
 ]
 LOCKED_GATEWAY_URL = "http://43.106.18.167/jisi"
 LOCKED_GATEWAY_API_BASE_URL = f"{LOCKED_GATEWAY_URL}/v1"
+OPENAI_COMPATIBLE_PROVIDER = "openai_compatible"
+OPENAI_COMPATIBLE_PROVIDER_ALIASES = {
+    OPENAI_COMPATIBLE_PROVIDER,
+    "openai",
+    "openrouter",
+}
 BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
     sys.path.insert(0, str(BUNDLED_DEEPAGENTS))
@@ -147,20 +153,30 @@ def _config_model_provider(config: dict[str, Any] | None = None) -> str | None:
     return provider.strip() if isinstance(provider, str) and provider.strip() else None
 
 
+def _normalize_model_provider(provider: str | None) -> str | None:
+    if provider == "gateway":
+        return "gateway"
+    if provider in OPENAI_COMPATIBLE_PROVIDER_ALIASES:
+        return OPENAI_COMPATIBLE_PROVIDER
+    return None
+
+
 def _effective_model_provider(config: dict[str, Any] | None = None) -> str | None:
     if config is None:
         config = _read_config_for_model()
 
     config_provider = _config_model_provider(config)
-    if config_provider in {"gateway", "openrouter"}:
-        return config_provider
+    normalized_config_provider = _normalize_model_provider(config_provider)
+    if normalized_config_provider:
+        return normalized_config_provider
 
     if config.get("openrouter_direct_enabled") is True:
-        return "openrouter"
+        return OPENAI_COMPATIBLE_PROVIDER
 
     env_provider = _env_value("INTERNAGENTS_MODEL_PROVIDER")
-    if env_provider in {"gateway", "openrouter"}:
-        return env_provider
+    normalized_env_provider = _normalize_model_provider(env_provider)
+    if normalized_env_provider:
+        return normalized_env_provider
 
     return None
 
@@ -177,6 +193,11 @@ def _openrouter_model_spec(model: str) -> str:
     return f"openrouter:{stripped}"
 
 
+def _openai_compatible_model_spec(model: str) -> str:
+    stripped = _strip_model_provider_prefix(model)
+    return f"openai:{stripped}"
+
+
 def _config_model(config: dict[str, Any] | None = None) -> str | None:
     if config is None:
         config = _read_config_for_model()
@@ -189,8 +210,8 @@ def _config_model(config: dict[str, Any] | None = None) -> str | None:
             model = config.get("manual_model") or config.get("gateway_model")
         else:
             model = "jisi/auto"
-    elif provider == "openrouter":
-        model = config.get("openrouter_model")
+    elif provider == OPENAI_COMPATIBLE_PROVIDER:
+        model = config.get("openai_compatible_model") or config.get("openrouter_model")
     elif config.get("model_selection_mode") == "manual":
         model = config.get("manual_model")
     else:
@@ -217,6 +238,44 @@ def _lock_gateway_environment() -> None:
         os.environ["OPENROUTER_API_KEY"] = gateway_key
 
 
+def _config_openai_compatible_base_url(
+    config: dict[str, Any] | None = None,
+) -> str | None:
+    if config is None:
+        config = _read_config_for_model()
+    for key in (
+        "openai_compatible_base_url",
+        "openai_base_url",
+        "openrouter_base_url",
+        "openrouter_api_base",
+    ):
+        value = config.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _lock_openai_compatible_environment() -> None:
+    config = _read_config_for_model()
+    if _effective_model_provider(config) != OPENAI_COMPATIBLE_PROVIDER:
+        return
+
+    base_url = (
+        _config_openai_compatible_base_url(config)
+        or _env_value("OPENAI_BASE_URL")
+        or _env_value("OPENAI_API_BASE")
+        or _env_value("OPENROUTER_API_BASE")
+        or _env_value("OPENROUTER_BASE_URL")
+    )
+    if base_url:
+        os.environ["OPENAI_BASE_URL"] = base_url
+        os.environ["OPENAI_API_BASE"] = base_url
+
+    api_key = _env_value("OPENAI_API_KEY") or _env_value("OPENROUTER_API_KEY")
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+
+
 def _resolve_model() -> str:
     config = _read_config_for_model()
     provider = _effective_model_provider(config)
@@ -227,9 +286,9 @@ def _resolve_model() -> str:
         model = config_model or env_model or "jisi/auto"
         return _openrouter_model_spec(model)
 
-    if provider == "openrouter":
+    if provider == OPENAI_COMPATIBLE_PROVIDER:
         if config_model:
-            return _openrouter_model_spec(config_model)
+            return _openai_compatible_model_spec(config_model)
 
     explicit_model = _env_value("DEEPAGENT_MODEL")
     if explicit_model:
@@ -240,13 +299,15 @@ def _resolve_model() -> str:
 
     provider = _env_value("LLM_PROVIDER")
     model = _env_value("LLM_MODEL")
-    if provider == "openrouter" and model:
-        return _openrouter_model_spec(model)
+    normalized_provider = _normalize_model_provider(provider)
+    if normalized_provider == OPENAI_COMPATIBLE_PROVIDER and model:
+        return _openai_compatible_model_spec(model)
 
     return "openrouter:deepseek-v4-flash"
 
 
 _lock_gateway_environment()
+_lock_openai_compatible_environment()
 MODEL = _resolve_model()
 REASONING_OUTPUT_MODEL_ALIASES = {
     "deepseek-v4-flash",
