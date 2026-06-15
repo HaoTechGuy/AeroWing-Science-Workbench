@@ -62,7 +62,11 @@ import { RemoteConnectionDialog } from "@/app/components/RemoteConnectionDialog"
 import { WorkspacePanel } from "@/app/components/WorkspacePanel";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
-import { pageHrefWithWorkbenchReturn } from "@/app/utils/navigationContext";
+import {
+  WORKBENCH_RETURN_STORAGE_KEY,
+  pageHrefWithWorkbenchReturn,
+  workbenchHrefFromSearchParams,
+} from "@/app/utils/navigationContext";
 import { cn } from "@/lib/utils";
 
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
@@ -116,9 +120,9 @@ async function isLocalBackendReady(deploymentUrl: string): Promise<boolean> {
 async function shouldOpenOnboarding(): Promise<boolean> {
   try {
     const response = await fetch("/api/config", { cache: "no-store" });
-    const payload = (await response.json().catch(() => null)) as
-      | RuntimeConfigStatus
-      | null;
+    const payload = (await response
+      .json()
+      .catch(() => null)) as RuntimeConfigStatus | null;
     return (
       response.ok &&
       payload?.desktopMode === true &&
@@ -618,6 +622,10 @@ function HomePageInner({
     (resource) => resource.id !== "local"
   );
   const environmentLabel = activeWorkspace?.label || activeResource.label;
+  const currentWorkbenchHref = useMemo(
+    () => workbenchHrefFromSearchParams(searchParams),
+    [searchParams]
+  );
   const configHref = useMemo(
     () => pageHrefWithWorkbenchReturn("/config", searchParams),
     [searchParams]
@@ -630,6 +638,17 @@ function HomePageInner({
     () => pageHrefWithWorkbenchReturn("/about", searchParams),
     [searchParams]
   );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        WORKBENCH_RETURN_STORAGE_KEY,
+        currentWorkbenchHref
+      );
+    } catch {
+      // Ignore storage failures; explicit returnTo links still carry context.
+    }
+  }, [currentWorkbenchHref]);
 
   const chatHeaderActions = (
     <>

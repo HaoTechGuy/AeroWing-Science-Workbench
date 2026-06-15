@@ -1,30 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  Check,
   CloudDownload,
   ExternalLink,
   FolderPlus,
   Loader2,
+  MessageCircle,
+  PackageCheck,
   Plus,
   Search,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  WORKBENCH_RETURN_STORAGE_KEY,
+  safeWorkbenchHref,
+  workbenchHrefFromSearchParams,
+} from "@/app/utils/navigationContext";
+import { cn } from "@/lib/utils";
 import {
   SCIENCE_SKILL_CATEGORIES,
   SCIENCE_SKILL_SOURCE,
@@ -48,11 +57,20 @@ import type {
 
 const CHAT_COMPOSER_HASH = "chat-composer";
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
-const SKILL_CREATOR_DRAFT =
-  "@skill-creator 请帮我创建一个能够实现「......」的skill";
+const ENABLE_SKILL_QUERY_KEY = "enableSkill";
+const SKILL_CREATOR_SKILL_ID = "skill-creator";
+const SKILL_CREATOR_DRAFT = "@skill-creator请帮我创建一个能够实现「……」的skill";
 const ALL_SCIENCE_CATEGORY_ID = "all";
-const DEFAULT_SCIENCE_CATEGORY_ID =
-  SCIENCE_SKILL_CATEGORIES[0]?.id ?? ALL_SCIENCE_CATEGORY_ID;
+const DEFAULT_SCIENCE_CATEGORY_ID = ALL_SCIENCE_CATEGORY_ID;
+const SCIENCE_MARKET_TAB = "science-market";
+const INSTALLED_SKILLS_TAB = "installed-skills";
+type SkillsTab = typeof SCIENCE_MARKET_TAB | typeof INSTALLED_SKILLS_TAB;
+const UPLOAD_LOCAL_MODE = "local";
+const UPLOAD_CLOUD_MODE = "cloud";
+type UploadSkillMode = typeof UPLOAD_LOCAL_MODE | typeof UPLOAD_CLOUD_MODE;
+type SelectedSkillsUpdate =
+  | Set<string>
+  | ((currentSelected: Set<string>) => Set<string>);
 const FEATURED_SKILL_FOLDERS = [
   "skill-creator",
   "patent-disclosure-skill",
@@ -127,12 +145,17 @@ const SKILL_DISPLAY_TEXT: Record<
   },
 };
 const SCIENCE_SKILL_IDS = new Set(SCIENCE_SKILLS.map((skill) => skill.id));
+const SCIENCE_SKILL_BY_ID = new Map(
+  SCIENCE_SKILLS.map((skill) => [skill.id, skill])
+);
 const SCIENCE_SKILL_NAME_TO_ID = new Map(
   SCIENCE_SKILLS.map((skill) => [skill.name, skill.id])
 );
 const SCIENCE_CATEGORY_BY_ID = new Map(
   SCIENCE_SKILL_CATEGORIES.map((category) => [category.id, category])
 );
+const CARD_CLASS =
+  "relative flex min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-card/60 transition-[background-color,border-color] hover:border-primary/25 hover:bg-card";
 
 function emptyResponse(): SkillsConfigResponse {
   return {
@@ -154,6 +177,17 @@ function skillPath(skill: SkillEntry): string {
 }
 
 function displayTextForSkill(skill: SkillEntry) {
+  const scienceSkillId = scienceSkillIdForInstalledSkill(skill);
+  const scienceSkill = scienceSkillId
+    ? SCIENCE_SKILL_BY_ID.get(scienceSkillId)
+    : null;
+  if (scienceSkill) {
+    return scienceSkillDisplayText(
+      scienceSkill,
+      SCIENCE_CATEGORY_BY_ID.get(scienceSkill.categoryId)
+    );
+  }
+
   const translation = SKILL_DISPLAY_TEXT[skill.folderName.toLowerCase()];
   return {
     name: translation?.name ?? skill.name,
@@ -200,6 +234,10 @@ function featuredSkillRank(skill: SkillEntry): number {
   return FEATURED_SKILL_FOLDERS.findIndex((name) => name === folderName);
 }
 
+function isFeaturedSkill(skill: SkillEntry): boolean {
+  return featuredSkillRank(skill) !== -1;
+}
+
 function scienceSkillIdForInstalledSkill(skill: SkillEntry): string | null {
   if (SCIENCE_SKILL_IDS.has(skill.folderName)) {
     return skill.folderName;
@@ -225,12 +263,19 @@ function withComposerDraft(href: string, draft: string): string {
   return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
+function withEnabledSkill(href: string, skillId: string): string {
+  const parsed = new URL(href, "http://internagents.local");
+  parsed.searchParams.set(ENABLE_SKILL_QUERY_KEY, skillId);
+  parsed.hash = CHAT_COMPOSER_HASH;
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
 function SkillGlyph({ skill }: { skill: SkillEntry }) {
   const display = displayTextForSkill(skill);
   const label = display.name.trim().charAt(0).toUpperCase() || "S";
 
   return (
-    <span className="text-primary-foreground flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-semibold shadow-sm shadow-primary/10">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-primary">
       {label}
     </span>
   );
@@ -238,13 +283,16 @@ function SkillGlyph({ skill }: { skill: SkillEntry }) {
 
 function SkillSkeleton() {
   return (
-    <div className="grid gap-x-10 gap-y-8 md:grid-cols-2">
+    <div className="grid gap-3 lg:grid-cols-2">
       {Array.from({ length: 4 }).map((_, index) => (
         <div
           key={index}
-          className="flex items-start gap-4"
+          className={cn(
+            CARD_CLASS,
+            "min-h-[112px] items-start gap-4 px-4 py-4"
+          )}
         >
-          <div className="h-11 w-11 animate-pulse rounded-md bg-muted" />
+          <div className="h-10 w-10 animate-pulse rounded-md bg-muted" />
           <div className="min-w-0 flex-1 space-y-2">
             <div className="h-4 w-36 animate-pulse rounded bg-muted" />
             <div className="h-3 w-72 max-w-full animate-pulse rounded bg-muted" />
@@ -255,45 +303,82 @@ function SkillSkeleton() {
   );
 }
 
-function SkillCard({
+function InstalledSkillCard({
+  group,
   onOpenDetails,
+  onUninstall,
   skill,
+  uninstalling,
 }: {
+  group: "default" | "science" | "imported";
   onOpenDetails: (skill: SkillEntry) => void;
+  onUninstall?: (skill: SkillEntry) => void;
   skill: SkillEntry;
+  uninstalling?: boolean;
 }) {
   const display = displayTextForSkill(skill);
+  const isScienceGroup = group === "science";
+  const canUninstall = group !== "default" && typeof onUninstall === "function";
 
   return (
-    <article className="flex min-h-[76px] min-w-0 max-w-full items-start overflow-hidden rounded-lg border border-transparent px-2 py-1 transition-[background-color,border-color] hover:border-border hover:bg-card/75">
+    <article
+      className={cn(
+        CARD_CLASS,
+        "group items-start",
+        isScienceGroup ? "min-h-[120px]" : "min-h-[112px]"
+      )}
+    >
       <button
         type="button"
         onClick={() => onOpenDetails(skill)}
-        className="flex min-w-0 flex-1 cursor-pointer items-start gap-4 rounded-md px-2 py-3 text-left outline-none transition-[box-shadow] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className={cn(
+          "flex min-w-0 flex-1 cursor-pointer items-start gap-4 px-4 py-4 text-left outline-none transition-[box-shadow] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          canUninstall ? "pr-24" : "pr-4"
+        )}
         aria-label={`查看 ${display.name} 详情`}
       >
         <SkillGlyph skill={skill} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-base font-semibold leading-6">
+          <div className="truncate text-sm font-semibold leading-6">
             {display.name}
           </div>
-          <div className="mt-0.5 line-clamp-2 text-sm leading-6 text-muted-foreground">
+          <div className="mt-0.5 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
             {display.description}
           </div>
         </div>
       </button>
+      {canUninstall ? (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => onUninstall?.(skill)}
+          disabled={uninstalling}
+          className="absolute right-3 top-3 h-8 gap-1 px-2 text-xs opacity-100 transition-opacity sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover:opacity-100"
+          aria-label={`卸载 ${display.name}`}
+          title={`卸载 ${display.name}`}
+        >
+          {uninstalling ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+          <span>卸载</span>
+        </Button>
+      ) : null}
     </article>
   );
 }
 
 function ScienceSkillCard({
-  actionBusy,
+  enableHref,
+  installDisabled,
   installed,
   installing,
   onInstall,
   skill,
 }: {
-  actionBusy: boolean;
+  enableHref: string;
+  installDisabled: boolean;
   installed: boolean;
   installing: boolean;
   onInstall: (skill: ScienceSkillSnapshot) => void;
@@ -304,7 +389,9 @@ function ScienceSkillCard({
   const label = display.name.trim().charAt(0).toUpperCase() || "S";
 
   return (
-    <article className="flex min-h-[120px] min-w-0 max-w-full items-start gap-4 rounded-lg border border-border/70 bg-card/30 px-4 py-4 transition-[background-color,border-color] hover:border-border hover:bg-card/60">
+    <article
+      className={cn(CARD_CLASS, "min-h-[120px] items-start gap-4 px-4 py-4")}
+    >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-primary">
         {label}
       </span>
@@ -314,30 +401,44 @@ function ScienceSkillCard({
             <h3 className="truncate text-sm font-semibold leading-6">
               {display.name}
             </h3>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+            <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
               {display.description}
             </p>
           </div>
-          <Button
-            type="button"
-            variant={installed ? "secondary" : "outline"}
-            size="sm"
-            onClick={() => onInstall(skill)}
-            disabled={actionBusy || installed}
-            className="h-8 shrink-0 px-2"
-            title={
-              installed ? `${display.name} 已添加` : `安装 ${display.name}`
-            }
-          >
-            {installing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : installed ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <CloudDownload className="h-4 w-4" />
-            )}
-            {installed ? "已添加" : "安装"}
-          </Button>
+          {installed ? (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 px-2"
+              title={`启用 ${display.name}`}
+            >
+              <Link
+                href={enableHref}
+                aria-label={`启用 ${display.name}`}
+              >
+                <MessageCircle className="h-4 w-4" />
+                启用
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onInstall(skill)}
+              disabled={installDisabled || installing}
+              className="h-8 shrink-0 px-2"
+              title={`安装 ${display.name}`}
+            >
+              {installing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CloudDownload className="h-4 w-4" />
+              )}
+              {installing ? "安装中" : "安装"}
+            </Button>
+          )}
         </div>
         <div className="mt-3 truncate font-mono text-[11px] text-muted-foreground">
           {skill.sourcePath}
@@ -351,10 +452,18 @@ export function SkillsMarketplace() {
   const searchParams = useSearchParams();
   const [data, setData] = useState<SkillsConfigResponse>(() => emptyResponse());
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<SkillsTab>(SCIENCE_MARKET_TAB);
+  const [addSkillMenuOpen, setAddSkillMenuOpen] = useState(false);
+  const [uploadSkillDialogOpen, setUploadSkillDialogOpen] = useState(false);
+  const [uploadSkillMode, setUploadSkillMode] =
+    useState<UploadSkillMode>(UPLOAD_LOCAL_MODE);
   const [importingSkill, setImportingSkill] = useState<SkillImportType | null>(
     null
   );
-  const [installingScienceSkillId, setInstallingScienceSkillId] = useState<
+  const [installingScienceSkillIds, setInstallingScienceSkillIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const [uninstallingSkillKey, setUninstallingSkillKey] = useState<
     string | null
   >(null);
   const [pickingLocalFolder, setPickingLocalFolder] = useState(false);
@@ -370,24 +479,33 @@ export function SkillsMarketplace() {
   const [scienceCategoryId, setScienceCategoryId] = useState(
     DEFAULT_SCIENCE_CATEGORY_ID
   );
+  const [storedWorkbenchHref, setStoredWorkbenchHref] = useState<string | null>(
+    null
+  );
   const [detailSkill, setDetailSkill] = useState<SkillEntry | null>(null);
+  const addSkillMenuRef = useRef<HTMLDivElement | null>(null);
+  const selectedSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 
   const workbenchHref = useMemo(
-    () => workbenchHrefFromSearchParams(searchParams),
-    [searchParams]
+    () => storedWorkbenchHref ?? workbenchHrefFromSearchParams(searchParams),
+    [searchParams, storedWorkbenchHref]
   );
   const chatComposerHref = useMemo(
     () => withChatComposerHash(workbenchHref),
     [workbenchHref]
   );
   const skillCreatorHref = useMemo(
-    () => withComposerDraft(workbenchHref, SKILL_CREATOR_DRAFT),
+    () =>
+      withEnabledSkill(
+        withComposerDraft(workbenchHref, SKILL_CREATOR_DRAFT),
+        SKILL_CREATOR_SKILL_ID
+      ),
     [workbenchHref]
   );
   const actionBusy =
     loading ||
     importingSkill !== null ||
-    installingScienceSkillId !== null ||
+    uninstallingSkillKey !== null ||
     pickingLocalFolder ||
     checkingStatus ||
     restarting;
@@ -395,16 +513,37 @@ export function SkillsMarketplace() {
     () => prepareSearchQuery(searchQuery),
     [searchQuery]
   );
+
+  useEffect(() => {
+    const hasExplicitWorkbenchTarget =
+      Boolean(searchParams.get("returnTo")) ||
+      Boolean(searchParams.get("threadId")) ||
+      Boolean(searchParams.get("workspaceId"));
+
+    if (hasExplicitWorkbenchTarget) {
+      setStoredWorkbenchHref(null);
+      return;
+    }
+
+    try {
+      const stored = safeWorkbenchHref(
+        window.localStorage.getItem(WORKBENCH_RETURN_STORAGE_KEY)
+      );
+      setStoredWorkbenchHref(stored);
+    } catch {
+      setStoredWorkbenchHref(null);
+    }
+  }, [searchParams]);
   const featuredSkills = useMemo(
     () =>
       data.skills
-        .filter((skill) => featuredSkillRank(skill) !== -1)
+        .filter(isFeaturedSkill)
         .sort(
           (left, right) => featuredSkillRank(left) - featuredSkillRank(right)
         ),
     [data.skills]
   );
-  const filteredFeaturedSkills = useMemo(
+  const filteredDefaultSkills = useMemo(
     () =>
       filterAndRankBySearch(
         featuredSkills,
@@ -433,6 +572,47 @@ export function SkillsMarketplace() {
     }
     return ids;
   }, [data.skills, selectedSkillKeys]);
+  const selectedSkills = useMemo(
+    () => data.skills.filter((skill) => selectedSkillKeys.has(skill.key)),
+    [data.skills, selectedSkillKeys]
+  );
+  const installedScienceSkills = useMemo(
+    () =>
+      selectedSkills.filter((skill) =>
+        Boolean(scienceSkillIdForInstalledSkill(skill))
+      ),
+    [selectedSkills]
+  );
+  const importedSkills = useMemo(
+    () =>
+      selectedSkills.filter(
+        (skill) =>
+          !isFeaturedSkill(skill) && !scienceSkillIdForInstalledSkill(skill)
+      ),
+    [selectedSkills]
+  );
+  const filteredInstalledScienceSkills = useMemo(
+    () =>
+      filterAndRankBySearch(
+        installedScienceSkills,
+        preparedSearchQuery,
+        searchDocumentForSkill
+      ),
+    [installedScienceSkills, preparedSearchQuery]
+  );
+  const filteredImportedSkills = useMemo(
+    () =>
+      filterAndRankBySearch(
+        importedSkills,
+        preparedSearchQuery,
+        searchDocumentForSkill
+      ),
+    [importedSkills, preparedSearchQuery]
+  );
+  const installedSkillCount =
+    featuredSkills.length +
+    installedScienceSkills.length +
+    importedSkills.length;
   const activeScienceCategory = useMemo(
     () =>
       SCIENCE_SKILL_CATEGORIES.find(
@@ -456,28 +636,48 @@ export function SkillsMarketplace() {
     );
   }, [preparedSearchQuery, scienceCategoryId]);
 
-  async function saveSelectedSkills(nextSelected: Set<string>) {
-    const response = await fetch("/api/skills", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        enabled: nextSelected.size > 0,
-        selected: Array.from(nextSelected),
-      }),
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || "技能安装失败");
-    }
+  async function saveSelectedSkills(updateSelected: SelectedSkillsUpdate) {
+    const run = selectedSaveQueueRef.current.then(async () => {
+      const currentResponse = await fetch("/api/skills", {
+        cache: "no-store",
+      });
+      const currentPayload = await currentResponse.json();
+      if (!currentResponse.ok) {
+        throw new Error(currentPayload.error || "技能加载失败");
+      }
 
-    const nextData = payload as SkillsConfigResponse;
-    setData({
-      ...nextData,
-      requiresRestart: true,
+      const currentData = currentPayload as SkillsConfigResponse;
+      const currentSelected = new Set(currentData.selected);
+      const nextSelected =
+        typeof updateSelected === "function"
+          ? updateSelected(currentSelected)
+          : updateSelected;
+
+      const response = await fetch("/api/skills", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled: nextSelected.size > 0,
+          selected: Array.from(nextSelected),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "技能安装失败");
+      }
+
+      const nextData = payload as SkillsConfigResponse;
+      setData({
+        ...nextData,
+        requiresRestart: true,
+      });
+      setBackendStatus(null);
+      setAutoRestart(true);
+      return nextData;
     });
-    setBackendStatus(null);
-    setAutoRestart(true);
-    return nextData;
+
+    selectedSaveQueueRef.current = run.catch(() => undefined);
+    return run;
   }
 
   const loadSkills = useCallback(async () => {
@@ -551,7 +751,10 @@ export function SkillsMarketplace() {
     sourceOverride?: string,
     options: {
       clearInput?: boolean;
+      closeDialogOnSuccess?: boolean;
+      goToInstalled?: boolean;
       successMessage?: (importedCount: number) => string;
+      suppressGlobalBusy?: boolean;
     } = {}
   ) {
     const source =
@@ -567,7 +770,10 @@ export function SkillsMarketplace() {
       return;
     }
 
-    setImportingSkill(type);
+    const shouldShowGlobalBusy = !options.suppressGlobalBusy;
+    if (shouldShowGlobalBusy) {
+      setImportingSkill(type);
+    }
     setError(null);
     try {
       const response = await fetch("/api/skills/import", {
@@ -581,11 +787,16 @@ export function SkillsMarketplace() {
       }
 
       const importResult = payload as ImportSkillsResponse;
-      const nextSelected = new Set(importResult.selected);
-      for (const importedKey of importResult.imported) {
-        nextSelected.add(importedKey);
-      }
-      await saveSelectedSkills(nextSelected);
+      await saveSelectedSkills((currentSelected) => {
+        const nextSelected = new Set([
+          ...currentSelected,
+          ...importResult.selected,
+        ]);
+        for (const importedKey of importResult.imported) {
+          nextSelected.add(importedKey);
+        }
+        return nextSelected;
+      });
 
       const shouldClearInput = options.clearInput ?? !sourceOverride;
       if (type === "local" && shouldClearInput) {
@@ -600,20 +811,38 @@ export function SkillsMarketplace() {
           position: "top-center",
         }
       );
+      if (options.closeDialogOnSuccess) {
+        setUploadSkillDialogOpen(false);
+      }
+      if (options.goToInstalled) {
+        setActiveTab(INSTALLED_SKILLS_TAB);
+      }
     } catch (importError) {
       const message =
         importError instanceof Error ? importError.message : "技能安装失败";
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
-      setImportingSkill(null);
+      if (shouldShowGlobalBusy) {
+        setImportingSkill(null);
+      }
     }
   }
 
-  async function pickAndInstallLocalSkill() {
-    const typedSource = localSource.trim();
+  async function pickAndInstallLocalSkill(
+    options: {
+      closeDialogOnSuccess?: boolean;
+      forcePicker?: boolean;
+      goToInstalled?: boolean;
+    } = {}
+  ) {
+    const typedSource = options.forcePicker ? "" : localSource.trim();
     if (typedSource) {
-      await importAndInstallSkill("local", typedSource, { clearInput: true });
+      await importAndInstallSkill("local", typedSource, {
+        clearInput: true,
+        closeDialogOnSuccess: options.closeDialogOnSuccess,
+        goToInstalled: options.goToInstalled,
+      });
       return;
     }
 
@@ -640,7 +869,11 @@ export function SkillsMarketplace() {
       }
 
       setLocalSource(payload.path);
-      await importAndInstallSkill("local", payload.path, { clearInput: true });
+      await importAndInstallSkill("local", payload.path, {
+        clearInput: true,
+        closeDialogOnSuccess: options.closeDialogOnSuccess,
+        goToInstalled: options.goToInstalled,
+      });
     } catch (pickError) {
       const message =
         pickError instanceof Error
@@ -654,11 +887,18 @@ export function SkillsMarketplace() {
   }
 
   async function installScienceSkill(skill: ScienceSkillSnapshot) {
-    if (installedScienceSkillIds.has(skill.id) || actionBusy) {
+    if (
+      installedScienceSkillIds.has(skill.id) ||
+      installingScienceSkillIds.has(skill.id)
+    ) {
       return;
     }
 
-    setInstallingScienceSkillId(skill.id);
+    setInstallingScienceSkillIds((current) => {
+      const next = new Set(current);
+      next.add(skill.id);
+      return next;
+    });
     const display = scienceSkillDisplayText(
       skill,
       SCIENCE_CATEGORY_BY_ID.get(skill.categoryId)
@@ -666,16 +906,78 @@ export function SkillsMarketplace() {
     try {
       await importAndInstallSkill("cloud", skill.installUrl, {
         clearInput: false,
-        successMessage: () => `「${display.name}」已添加`,
+        suppressGlobalBusy: true,
+        successMessage: () => `已安装「${display.name}」技能`,
       });
     } finally {
-      setInstallingScienceSkillId(null);
+      setInstallingScienceSkillIds((current) => {
+        const next = new Set(current);
+        next.delete(skill.id);
+        return next;
+      });
+    }
+  }
+
+  async function uninstallSkill(skill: SkillEntry) {
+    if (actionBusy) {
+      return;
+    }
+
+    const display = displayTextForSkill(skill);
+    setUninstallingSkillKey(skill.key);
+    setError(null);
+    try {
+      await saveSelectedSkills((currentSelected) => {
+        const nextSelected = new Set(currentSelected);
+        nextSelected.delete(skill.key);
+        return nextSelected;
+      });
+      toast.success(`已卸载「${display.name}」技能`, {
+        position: "top-center",
+      });
+    } catch (uninstallError) {
+      const message =
+        uninstallError instanceof Error
+          ? uninstallError.message
+          : "技能卸载失败";
+      setError(message);
+      toast.error(message, { position: "top-center" });
+    } finally {
+      setUninstallingSkillKey(null);
     }
   }
 
   useEffect(() => {
     void loadSkills();
   }, [loadSkills]);
+
+  useEffect(() => {
+    if (!addSkillMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        addSkillMenuRef.current &&
+        !addSkillMenuRef.current.contains(event.target as Node)
+      ) {
+        setAddSkillMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAddSkillMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [addSkillMenuOpen]);
 
   useEffect(() => {
     if (!autoRestart || !data.requiresRestart || actionBusy) {
@@ -710,7 +1012,7 @@ export function SkillsMarketplace() {
 
   return (
     <div className="flex min-h-[calc(100vh-var(--app-footer-height))] flex-col overflow-x-hidden bg-background text-foreground">
-      <header className="flex h-14 items-center gap-3 border-b border-border px-6">
+      <header className="flex h-12 items-center gap-3 border-b border-border px-6">
         <Button
           asChild
           variant="ghost"
@@ -725,8 +1027,8 @@ export function SkillsMarketplace() {
         <div className="text-sm font-semibold">能力插件</div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 overflow-x-hidden px-6 py-7">
-        <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <main className="mx-auto w-full max-w-6xl flex-1 overflow-x-hidden px-6 py-4">
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-normal">技能</h1>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -744,16 +1046,51 @@ export function SkillsMarketplace() {
                 className="h-10 rounded-md pl-9"
               />
             </div>
-            <Button
-              asChild
-              variant="outline"
-              className="h-10 shrink-0 rounded-full px-4"
+            <div
+              ref={addSkillMenuRef}
+              className="relative"
             >
-              <Link href={skillCreatorHref}>
+              <Button
+                type="button"
+                variant="default"
+                className="h-10 w-full shrink-0 rounded-full px-4 sm:w-auto"
+                onClick={() => setAddSkillMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={addSkillMenuOpen}
+              >
                 <Plus className="h-4 w-4" />
-                创建技能
-              </Link>
-            </Button>
+                添加技能
+              </Button>
+
+              {addSkillMenuOpen ? (
+                <div
+                  role="menu"
+                  aria-label="添加技能"
+                  className="absolute right-0 top-12 z-30 w-48 rounded-lg border border-border bg-popover p-2 shadow-lg shadow-black/10"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex h-10 w-full items-center rounded-md px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                    onClick={() => {
+                      setUploadSkillMode(UPLOAD_LOCAL_MODE);
+                      setUploadSkillDialogOpen(true);
+                      setAddSkillMenuOpen(false);
+                    }}
+                  >
+                    上传技能
+                  </button>
+                  <Link
+                    href={skillCreatorHref}
+                    role="menuitem"
+                    className="flex h-10 w-full items-center rounded-md px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                    onClick={() => setAddSkillMenuOpen(false)}
+                  >
+                    创建技能
+                  </Link>
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -763,212 +1100,246 @@ export function SkillsMarketplace() {
           </div>
         )}
 
-        <section className="mb-8 border-b border-border pb-8">
-          <div className="mb-4 flex items-center gap-2">
-            <FolderPlus className="h-4 w-4 text-primary" />
-            <h2 className="text-base font-semibold">安装技能</h2>
-          </div>
-          <div className="space-y-3">
-            <div className="grid gap-2 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
-              <Label
-                htmlFor="skills-local-source"
-                className="text-xs text-muted-foreground"
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => setActiveTab(value as SkillsTab)}
+          className="gap-6"
+        >
+          <div className="border-b border-border">
+            <TabsList className="h-auto gap-6 rounded-none bg-transparent p-0">
+              <TabsTrigger
+                value={SCIENCE_MARKET_TAB}
+                className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
               >
-                本地目录
-              </Label>
-              <Input
-                id="skills-local-source"
-                value={localSource}
-                onChange={(event) => setLocalSource(event.target.value)}
-                placeholder="/Users/me/skills/paper-reading 或 skills/my-skill"
-                disabled={actionBusy}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void pickAndInstallLocalSkill()}
-                disabled={actionBusy}
-                title={
-                  localSource.trim()
-                    ? "安装输入框中的本地技能路径"
-                    : "打开本地文件夹选择器并安装技能"
-                }
-              >
-                {pickingLocalFolder || importingSkill === "local" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <FolderPlus className="h-4 w-4" />
-                )}
-                安装
-              </Button>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-[5rem_1fr_auto] sm:items-center">
-              <Label
-                htmlFor="skills-cloud-source"
-                className="text-xs text-muted-foreground"
-              >
-                云端地址
-              </Label>
-              <Input
-                id="skills-cloud-source"
-                value={cloudSource}
-                onChange={(event) => setCloudSource(event.target.value)}
-                placeholder="github:owner/repo/path 或 https://github.com/owner/repo"
-                disabled={actionBusy}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void importAndInstallSkill("cloud")}
-                disabled={actionBusy || !cloudSource.trim()}
-              >
-                {importingSkill === "cloud" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <CloudDownload className="h-4 w-4" />
-                )}
-                安装
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-8">
-          <div className="mb-5 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h2 className="text-base font-semibold">精选通用技能</h2>
-            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-              {featuredSkills.length}
-            </span>
-          </div>
-
-          {loading ? (
-            <SkillSkeleton />
-          ) : featuredSkills.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-              暂时没有精选技能
-            </div>
-          ) : filteredFeaturedSkills.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-              没有找到匹配的精选技能
-            </div>
-          ) : (
-            <div className="grid w-full max-w-full grid-cols-1 gap-x-8 gap-y-4 overflow-x-hidden md:grid-cols-2">
-              {filteredFeaturedSkills.map((skill) => (
-                <SkillCard
-                  key={skill.key}
-                  onOpenDetails={setDetailSkill}
-                  skill={skill}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="mb-8 border-t border-border pt-8">
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <h2 className="text-base font-semibold">
-                  InternAgents 精选科学技能
-                </h2>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                精选科学技能
+                <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
                   {SCIENCE_SKILL_SOURCE.total}
                 </span>
-              </div>
-              <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
-                快照来自 InternScience/scp，点击安装时会从 GitHub
-                下载对应技能目录。
-                <a
-                  href="https://scphub.intern-ai.org.cn/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ml-1 inline-flex items-center gap-1 font-medium text-[#2F6868] underline-offset-4 hover:underline dark:text-[hsl(var(--primary))]"
-                >
-                  SCPHub 提供了 200+ 高质量科学领域技能
-                  <ExternalLink
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
-                  />
-                </a>
-              </p>
-            </div>
-            <div className="shrink-0 truncate rounded-md bg-muted/50 px-2 py-1 font-mono text-[11px] text-muted-foreground">
-              {SCIENCE_SKILL_SOURCE.commit.slice(0, 12)}
-            </div>
-          </div>
-
-          <div
-            className="mb-5 flex flex-wrap gap-2"
-            role="tablist"
-            aria-label="科学技能分类"
-          >
-            <Button
-              type="button"
-              variant={
-                scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
-                  ? "default"
-                  : "outline"
-              }
-              size="sm"
-              className="h-8 rounded-full px-3 text-xs"
-              onClick={() => setScienceCategoryId(ALL_SCIENCE_CATEGORY_ID)}
-              role="tab"
-              aria-selected={scienceCategoryId === ALL_SCIENCE_CATEGORY_ID}
-            >
-              全部
-              <span className="ml-1 text-[11px] opacity-75">
-                {SCIENCE_SKILL_SOURCE.total}
-              </span>
-            </Button>
-            {SCIENCE_SKILL_CATEGORIES.map((category) => (
-              <Button
-                key={category.id}
-                type="button"
-                variant={
-                  scienceCategoryId === category.id ? "default" : "outline"
-                }
-                size="sm"
-                className="h-8 rounded-full px-3 text-xs"
-                onClick={() => setScienceCategoryId(category.id)}
-                role="tab"
-                aria-selected={scienceCategoryId === category.id}
+              </TabsTrigger>
+              <TabsTrigger
+                value={INSTALLED_SKILLS_TAB}
+                className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
               >
-                {category.name}
-                <span className="ml-1 text-[11px] opacity-75">
-                  {category.count}
+                已安装技能
+                <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
+                  {installedSkillCount}
                 </span>
-              </Button>
-            ))}
+              </TabsTrigger>
+            </TabsList>
           </div>
 
-          {!searchQuery.trim() && activeScienceCategory && (
-            <div className="mb-5 rounded-md border border-border/70 bg-card/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
-              {activeScienceCategory.description}
-            </div>
-          )}
+          <TabsContent value={SCIENCE_MARKET_TAB}>
+            <section className="mb-8">
+              <div className="mb-5">
+                <div className="min-w-0">
+                  <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                    快照来自 InternScience/scp，点击安装时会从 GitHub
+                    下载对应技能目录。
+                    <a
+                      href="https://scphub.intern-ai.org.cn/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="ml-1 inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      SCPHub 提供了 200+ 高质量科学领域技能
+                      <ExternalLink
+                        className="h-3.5 w-3.5"
+                        aria-hidden="true"
+                      />
+                    </a>
+                  </p>
+                </div>
+              </div>
 
-          {filteredScienceSkills.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-              没有找到匹配的科学技能
-            </div>
-          ) : (
-            <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
-              {filteredScienceSkills.map((skill) => (
-                <ScienceSkillCard
-                  key={skill.id}
-                  actionBusy={actionBusy}
-                  installed={installedScienceSkillIds.has(skill.id)}
-                  installing={installingScienceSkillId === skill.id}
-                  onInstall={installScienceSkill}
-                  skill={skill}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+              <div
+                className="mb-3 flex flex-wrap gap-2"
+                role="tablist"
+                aria-label="科学技能分类"
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-9 rounded-full border px-3 text-[13px] shadow-none transition-colors",
+                    scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
+                      ? "text-primary-foreground hover:!bg-primary/90 hover:!text-primary-foreground border-primary bg-primary"
+                      : "border-border bg-background text-muted-foreground hover:!border-foreground/20 hover:!bg-muted/70 hover:!text-foreground dark:bg-transparent dark:hover:!border-white/20 dark:hover:!bg-white/10 dark:hover:!text-white"
+                  )}
+                  onClick={() => setScienceCategoryId(ALL_SCIENCE_CATEGORY_ID)}
+                  role="tab"
+                  aria-selected={scienceCategoryId === ALL_SCIENCE_CATEGORY_ID}
+                >
+                  全部
+                  <span className="ml-1 text-[11px] opacity-75">
+                    {SCIENCE_SKILL_SOURCE.total}
+                  </span>
+                </Button>
+                {SCIENCE_SKILL_CATEGORIES.map((category) => (
+                  <Button
+                    key={category.id}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "h-9 rounded-full border px-3 text-[13px] shadow-none transition-colors",
+                      scienceCategoryId === category.id
+                        ? "text-primary-foreground hover:!bg-primary/90 hover:!text-primary-foreground border-primary bg-primary"
+                        : "border-border bg-background text-muted-foreground hover:!border-foreground/20 hover:!bg-muted/70 hover:!text-foreground dark:bg-transparent dark:hover:!border-white/20 dark:hover:!bg-white/10 dark:hover:!text-white"
+                    )}
+                    onClick={() => setScienceCategoryId(category.id)}
+                    role="tab"
+                    aria-selected={scienceCategoryId === category.id}
+                  >
+                    {category.name}
+                    <span className="ml-1 text-[11px] opacity-75">
+                      {category.count}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+
+              {!searchQuery.trim() && activeScienceCategory && (
+                <div className="mb-6 max-w-3xl border-t border-border/70 pt-3 text-sm leading-6 text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    {activeScienceCategory.name}：
+                  </span>
+                  {activeScienceCategory.description}
+                </div>
+              )}
+
+              {filteredScienceSkills.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                  没有找到匹配的科学技能
+                </div>
+              ) : (
+                <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
+                  {filteredScienceSkills.map((skill) => (
+                    <ScienceSkillCard
+                      key={skill.id}
+                      enableHref={withEnabledSkill(workbenchHref, skill.id)}
+                      installDisabled={loading}
+                      installed={installedScienceSkillIds.has(skill.id)}
+                      installing={installingScienceSkillIds.has(skill.id)}
+                      onInstall={installScienceSkill}
+                      skill={skill}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </TabsContent>
+
+          <TabsContent value={INSTALLED_SKILLS_TAB}>
+            <section className="space-y-8">
+              <div>
+                <div className="mb-4 flex items-center gap-2">
+                  <PackageCheck className="h-3.5 w-3.5 text-primary" />
+                  <h2 className="text-sm font-semibold">默认通用技能</h2>
+                  <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    默认安装
+                  </span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {featuredSkills.length}
+                  </span>
+                </div>
+
+                {loading ? (
+                  <SkillSkeleton />
+                ) : featuredSkills.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    暂时没有默认通用技能
+                  </div>
+                ) : filteredDefaultSkills.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    没有找到匹配的默认通用技能
+                  </div>
+                ) : (
+                  <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
+                    {filteredDefaultSkills.map((skill) => (
+                      <InstalledSkillCard
+                        key={skill.key}
+                        group="default"
+                        onOpenDetails={setDetailSkill}
+                        skill={skill}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-4 flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <h2 className="text-sm font-semibold">已安装科学技能</h2>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {installedScienceSkills.length}
+                  </span>
+                </div>
+
+                {loading ? (
+                  <SkillSkeleton />
+                ) : installedScienceSkills.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    还没有安装科学技能
+                  </div>
+                ) : filteredInstalledScienceSkills.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    没有找到匹配的已安装科学技能
+                  </div>
+                ) : (
+                  <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
+                    {filteredInstalledScienceSkills.map((skill) => (
+                      <InstalledSkillCard
+                        key={skill.key}
+                        group="science"
+                        onOpenDetails={setDetailSkill}
+                        onUninstall={uninstallSkill}
+                        skill={skill}
+                        uninstalling={uninstallingSkillKey === skill.key}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-4 flex items-center gap-2">
+                  <FolderPlus className="h-3.5 w-3.5 text-primary" />
+                  <h2 className="text-sm font-semibold">导入技能</h2>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {importedSkills.length}
+                  </span>
+                </div>
+
+                {loading ? (
+                  <SkillSkeleton />
+                ) : importedSkills.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    还没有导入技能
+                  </div>
+                ) : filteredImportedSkills.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                    没有找到匹配的导入技能
+                  </div>
+                ) : (
+                  <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
+                    {filteredImportedSkills.map((skill) => (
+                      <InstalledSkillCard
+                        key={skill.key}
+                        group="imported"
+                        onOpenDetails={setDetailSkill}
+                        onUninstall={uninstallSkill}
+                        skill={skill}
+                        uninstalling={uninstallingSkillKey === skill.key}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          </TabsContent>
+        </Tabs>
 
         {backendStatus?.status === "busy" && (
           <div className="mt-4 text-xs text-muted-foreground">
@@ -976,6 +1347,136 @@ export function SkillsMarketplace() {
           </div>
         )}
       </main>
+
+      <Dialog
+        open={uploadSkillDialogOpen}
+        onOpenChange={setUploadSkillDialogOpen}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>上传技能</DialogTitle>
+            <DialogDescription>
+              从本地目录或云端地址上传已有技能。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div
+              className="grid grid-cols-2 rounded-lg bg-muted p-1"
+              role="tablist"
+              aria-label="上传技能方式"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={uploadSkillMode === UPLOAD_LOCAL_MODE}
+                className={cn(
+                  "h-9 rounded-md text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-muted",
+                  uploadSkillMode === UPLOAD_LOCAL_MODE
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setUploadSkillMode(UPLOAD_LOCAL_MODE)}
+              >
+                本地上传
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={uploadSkillMode === UPLOAD_CLOUD_MODE}
+                className={cn(
+                  "h-9 rounded-md text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-muted",
+                  uploadSkillMode === UPLOAD_CLOUD_MODE
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setUploadSkillMode(UPLOAD_CLOUD_MODE)}
+              >
+                云端地址
+              </button>
+            </div>
+
+            {uploadSkillMode === UPLOAD_LOCAL_MODE ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
+                  <FolderPlus className="mx-auto h-8 w-8 text-muted-foreground" />
+                  <div className="mt-3 text-sm font-medium">
+                    选择本地技能目录
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                    目录内需要包含 SKILL.md 文件
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() =>
+                      void pickAndInstallLocalSkill({
+                        closeDialogOnSuccess: true,
+                        forcePicker: true,
+                        goToInstalled: true,
+                      })
+                    }
+                    disabled={actionBusy}
+                  >
+                    {pickingLocalFolder || importingSkill === "local" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <FolderPlus className="h-4 w-4" />
+                    )}
+                    选择目录并安装
+                  </Button>
+                </div>
+                <div className="rounded-md bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  适合已经下载到本机的技能。选择目录后会自动安装并出现在已安装技能里。
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid gap-2">
+                  <Label
+                    htmlFor="skills-cloud-source"
+                    className="text-xs text-muted-foreground"
+                  >
+                    云端地址
+                  </Label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      id="skills-cloud-source"
+                      value={cloudSource}
+                      onChange={(event) => setCloudSource(event.target.value)}
+                      placeholder="github:owner/repo/path 或 https://github.com/owner/repo"
+                      disabled={actionBusy}
+                      className="min-w-0 flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        void importAndInstallSkill("cloud", undefined, {
+                          closeDialogOnSuccess: true,
+                          goToInstalled: true,
+                        })
+                      }
+                      disabled={actionBusy || !cloudSource.trim()}
+                    >
+                      {importingSkill === "cloud" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <CloudDownload className="h-4 w-4" />
+                      )}
+                      安装
+                    </Button>
+                  </div>
+                </div>
+                <div className="rounded-md bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  支持 GitHub 仓库地址或 github:owner/repo/path 格式。
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={detailSkill !== null}

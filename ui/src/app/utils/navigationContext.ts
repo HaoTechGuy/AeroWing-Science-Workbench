@@ -2,6 +2,8 @@ type SearchParamsLike = {
   get(name: string): string | null;
 };
 
+export const WORKBENCH_RETURN_STORAGE_KEY = "internagents.lastWorkbenchHref";
+
 const WORKBENCH_QUERY_KEYS = [
   "assistantId",
   "resourceId",
@@ -11,7 +13,7 @@ const WORKBENCH_QUERY_KEYS = [
 ] as const;
 const ONE_SHOT_WORKBENCH_QUERY_KEYS = ["quickstart"] as const;
 
-function safeWorkbenchHref(value: string | null): string | null {
+export function safeWorkbenchHref(value: string | null): string | null {
   if (!value) {
     return null;
   }
