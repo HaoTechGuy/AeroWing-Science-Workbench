@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "dev:turbo": "next dev --turbopack",
+    "build": "next build --webpack",
     "start": "next start",
     "test:open-folder": "node --test --experimental-strip-types tests/open-folder.test.mts",
     "test:office-preview": "node --test --experimental-strip-types tests/office-preview.test.mts",
