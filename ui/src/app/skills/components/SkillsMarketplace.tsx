@@ -11,7 +11,6 @@ import {
   Loader2,
   MessageCircle,
   PackageCheck,
-  Plus,
   Search,
   Sparkles,
   Trash2,
@@ -56,10 +55,7 @@ import type {
 } from "@/app/skills/types";
 
 const CHAT_COMPOSER_HASH = "chat-composer";
-const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
-const SKILL_CREATOR_SKILL_ID = "skill-creator";
-const SKILL_CREATOR_DRAFT = "@skill-creator请帮我创建一个能够实现「……」的skill";
 const ALL_SCIENCE_CATEGORY_ID = "all";
 const DEFAULT_SCIENCE_CATEGORY_ID = ALL_SCIENCE_CATEGORY_ID;
 const SCIENCE_MARKET_TAB = "science-market";
@@ -157,6 +153,25 @@ const SCIENCE_CATEGORY_BY_ID = new Map(
 const CARD_CLASS =
   "relative flex min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-card/60 transition-[background-color,border-color] hover:border-primary/25 hover:bg-card";
 
+function EmptyState({
+  children,
+  compact = false,
+}: {
+  children: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border border-dashed border-border bg-muted/20 px-4 text-sm text-muted-foreground",
+        compact ? "py-3" : "py-6"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function emptyResponse(): SkillsConfigResponse {
   return {
     enabled: false,
@@ -251,18 +266,6 @@ function scienceSkillIdForInstalledSkill(skill: SkillEntry): string | null {
   return SCIENCE_SKILL_NAME_TO_ID.get(skill.name) ?? null;
 }
 
-function withChatComposerHash(href: string): string {
-  const [base] = href.split("#");
-  return `${base}#${CHAT_COMPOSER_HASH}`;
-}
-
-function withComposerDraft(href: string, draft: string): string {
-  const parsed = new URL(href, "http://internagents.local");
-  parsed.searchParams.set(COMPOSER_DRAFT_QUERY_KEY, draft);
-  parsed.hash = CHAT_COMPOSER_HASH;
-  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-}
-
 function withEnabledSkill(href: string, skillId: string): string {
   const parsed = new URL(href, "http://internagents.local");
   parsed.searchParams.set(ENABLE_SKILL_QUERY_KEY, skillId);
@@ -275,9 +278,11 @@ function SkillGlyph({ skill }: { skill: SkillEntry }) {
   const label = display.name.trim().charAt(0).toUpperCase() || "S";
 
   return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-primary">
-      {label}
-    </span>
+    <span
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-primary before:content-[attr(data-label)]"
+      data-label={label}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -392,9 +397,11 @@ function ScienceSkillCard({
     <article
       className={cn(CARD_CLASS, "min-h-[120px] items-start gap-4 px-4 py-4")}
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-primary">
-        {label}
-      </span>
+      <span
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold text-primary before:content-[attr(data-label)]"
+        data-label={label}
+        aria-hidden="true"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -452,8 +459,7 @@ export function SkillsMarketplace() {
   const searchParams = useSearchParams();
   const [data, setData] = useState<SkillsConfigResponse>(() => emptyResponse());
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<SkillsTab>(SCIENCE_MARKET_TAB);
-  const [addSkillMenuOpen, setAddSkillMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<SkillsTab>(INSTALLED_SKILLS_TAB);
   const [uploadSkillDialogOpen, setUploadSkillDialogOpen] = useState(false);
   const [uploadSkillMode, setUploadSkillMode] =
     useState<UploadSkillMode>(UPLOAD_LOCAL_MODE);
@@ -483,24 +489,11 @@ export function SkillsMarketplace() {
     null
   );
   const [detailSkill, setDetailSkill] = useState<SkillEntry | null>(null);
-  const addSkillMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
 
   const workbenchHref = useMemo(
     () => storedWorkbenchHref ?? workbenchHrefFromSearchParams(searchParams),
     [searchParams, storedWorkbenchHref]
-  );
-  const chatComposerHref = useMemo(
-    () => withChatComposerHash(workbenchHref),
-    [workbenchHref]
-  );
-  const skillCreatorHref = useMemo(
-    () =>
-      withEnabledSkill(
-        withComposerDraft(workbenchHref, SKILL_CREATOR_DRAFT),
-        SKILL_CREATOR_SKILL_ID
-      ),
-    [workbenchHref]
   );
   const actionBusy =
     loading ||
@@ -609,10 +602,6 @@ export function SkillsMarketplace() {
       ),
     [importedSkills, preparedSearchQuery]
   );
-  const installedSkillCount =
-    featuredSkills.length +
-    installedScienceSkills.length +
-    importedSkills.length;
   const activeScienceCategory = useMemo(
     () =>
       SCIENCE_SKILL_CATEGORIES.find(
@@ -952,34 +941,6 @@ export function SkillsMarketplace() {
   }, [loadSkills]);
 
   useEffect(() => {
-    if (!addSkillMenuOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (
-        addSkillMenuRef.current &&
-        !addSkillMenuRef.current.contains(event.target as Node)
-      ) {
-        setAddSkillMenuOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setAddSkillMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [addSkillMenuOpen]);
-
-  useEffect(() => {
     if (!autoRestart || !data.requiresRestart || actionBusy) {
       return;
     }
@@ -1012,85 +973,68 @@ export function SkillsMarketplace() {
 
   return (
     <div className="flex min-h-[calc(100vh-var(--app-footer-height))] flex-col overflow-x-hidden bg-background text-foreground">
-      <header className="flex h-12 items-center gap-3 border-b border-border px-6">
-        <Button
-          asChild
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2"
-        >
-          <Link href={chatComposerHref}>
-            <ArrowLeft className="h-4 w-4" />
-            对话框
-          </Link>
-        </Button>
-        <div className="text-sm font-semibold">能力插件</div>
+      <header className="flex h-16 items-center justify-between border-b border-border px-6">
+        <div className="flex min-w-0 items-center gap-4">
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2"
+          >
+            <Link href={workbenchHref}>
+              <ArrowLeft className="h-4 w-4" />
+              工作台
+            </Link>
+          </Button>
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-semibold">能力插件</h1>
+            <div className="truncate text-xs text-muted-foreground">
+              安装、导入和管理技能
+            </div>
+          </div>
+        </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 overflow-x-hidden px-6 py-4">
-        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-normal">技能</h1>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
-              赋予 InternAgents 更强大的能力
-            </p>
+      <main className="mx-auto w-full max-w-6xl flex-1 overflow-x-hidden px-6 py-6">
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={
+                activeTab === SCIENCE_MARKET_TAB
+                  ? "搜索科学技能"
+                  : "搜索通用或导入技能"
+              }
+              className="h-10 rounded-md pl-9"
+            />
           </div>
-
-          <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
-            <div className="relative w-full sm:w-80">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="搜索技能"
-                className="h-10 rounded-md pl-9"
-              />
-            </div>
-            <div
-              ref={addSkillMenuRef}
-              className="relative"
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row lg:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 w-full shrink-0 rounded-md px-4 sm:w-auto"
+              onClick={() => {
+                setUploadSkillMode(UPLOAD_LOCAL_MODE);
+                setUploadSkillDialogOpen(true);
+              }}
             >
-              <Button
-                type="button"
-                variant="default"
-                className="h-10 w-full shrink-0 rounded-full px-4 sm:w-auto"
-                onClick={() => setAddSkillMenuOpen((open) => !open)}
-                aria-haspopup="menu"
-                aria-expanded={addSkillMenuOpen}
-              >
-                <Plus className="h-4 w-4" />
-                添加技能
-              </Button>
-
-              {addSkillMenuOpen ? (
-                <div
-                  role="menu"
-                  aria-label="添加技能"
-                  className="absolute right-0 top-12 z-30 w-48 rounded-lg border border-border bg-popover p-2 shadow-lg shadow-black/10"
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex h-10 w-full items-center rounded-md px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-                    onClick={() => {
-                      setUploadSkillMode(UPLOAD_LOCAL_MODE);
-                      setUploadSkillDialogOpen(true);
-                      setAddSkillMenuOpen(false);
-                    }}
-                  >
-                    上传技能
-                  </button>
-                  <Link
-                    href={skillCreatorHref}
-                    role="menuitem"
-                    className="flex h-10 w-full items-center rounded-md px-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-                    onClick={() => setAddSkillMenuOpen(false)}
-                  >
-                    创建技能
-                  </Link>
-                </div>
-              ) : null}
-            </div>
+              <FolderPlus className="h-4 w-4" />
+              上传本地技能
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 w-full shrink-0 rounded-md px-4 sm:w-auto"
+              onClick={() => {
+                setUploadSkillMode(UPLOAD_CLOUD_MODE);
+                setUploadSkillDialogOpen(true);
+              }}
+            >
+              <CloudDownload className="h-4 w-4" />
+              导入云端技能
+            </Button>
           </div>
         </div>
 
@@ -1108,6 +1052,15 @@ export function SkillsMarketplace() {
           <div className="border-b border-border">
             <TabsList className="h-auto gap-6 rounded-none bg-transparent p-0">
               <TabsTrigger
+                value={INSTALLED_SKILLS_TAB}
+                className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
+              >
+                精选通用技能
+                <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
+                  {featuredSkills.length}
+                </span>
+              </TabsTrigger>
+              <TabsTrigger
                 value={SCIENCE_MARKET_TAB}
                 className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
               >
@@ -1116,158 +1069,11 @@ export function SkillsMarketplace() {
                   {SCIENCE_SKILL_SOURCE.total}
                 </span>
               </TabsTrigger>
-              <TabsTrigger
-                value={INSTALLED_SKILLS_TAB}
-                className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
-              >
-                已安装技能
-                <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
-                  {installedSkillCount}
-                </span>
-              </TabsTrigger>
             </TabsList>
           </div>
 
           <TabsContent value={SCIENCE_MARKET_TAB}>
-            <section className="mb-8">
-              <div className="mb-5">
-                <div className="min-w-0">
-                  <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                    快照来自 InternScience/scp，点击安装时会从 GitHub
-                    下载对应技能目录。
-                    <a
-                      href="https://scphub.intern-ai.org.cn/"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="ml-1 inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
-                    >
-                      SCPHub 提供了 200+ 高质量科学领域技能
-                      <ExternalLink
-                        className="h-3.5 w-3.5"
-                        aria-hidden="true"
-                      />
-                    </a>
-                  </p>
-                </div>
-              </div>
-
-              <div
-                className="mb-3 flex flex-wrap gap-2"
-                role="tablist"
-                aria-label="科学技能分类"
-              >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "h-9 rounded-full border px-3 text-[13px] shadow-none transition-colors",
-                    scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
-                      ? "text-primary-foreground hover:!bg-primary/90 hover:!text-primary-foreground border-primary bg-primary"
-                      : "border-border bg-background text-muted-foreground hover:!border-foreground/20 hover:!bg-muted/70 hover:!text-foreground dark:bg-transparent dark:hover:!border-white/20 dark:hover:!bg-white/10 dark:hover:!text-white"
-                  )}
-                  onClick={() => setScienceCategoryId(ALL_SCIENCE_CATEGORY_ID)}
-                  role="tab"
-                  aria-selected={scienceCategoryId === ALL_SCIENCE_CATEGORY_ID}
-                >
-                  全部
-                  <span className="ml-1 text-[11px] opacity-75">
-                    {SCIENCE_SKILL_SOURCE.total}
-                  </span>
-                </Button>
-                {SCIENCE_SKILL_CATEGORIES.map((category) => (
-                  <Button
-                    key={category.id}
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "h-9 rounded-full border px-3 text-[13px] shadow-none transition-colors",
-                      scienceCategoryId === category.id
-                        ? "text-primary-foreground hover:!bg-primary/90 hover:!text-primary-foreground border-primary bg-primary"
-                        : "border-border bg-background text-muted-foreground hover:!border-foreground/20 hover:!bg-muted/70 hover:!text-foreground dark:bg-transparent dark:hover:!border-white/20 dark:hover:!bg-white/10 dark:hover:!text-white"
-                    )}
-                    onClick={() => setScienceCategoryId(category.id)}
-                    role="tab"
-                    aria-selected={scienceCategoryId === category.id}
-                  >
-                    {category.name}
-                    <span className="ml-1 text-[11px] opacity-75">
-                      {category.count}
-                    </span>
-                  </Button>
-                ))}
-              </div>
-
-              {!searchQuery.trim() && activeScienceCategory && (
-                <div className="mb-6 max-w-3xl border-t border-border/70 pt-3 text-sm leading-6 text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    {activeScienceCategory.name}：
-                  </span>
-                  {activeScienceCategory.description}
-                </div>
-              )}
-
-              {filteredScienceSkills.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                  没有找到匹配的科学技能
-                </div>
-              ) : (
-                <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
-                  {filteredScienceSkills.map((skill) => (
-                    <ScienceSkillCard
-                      key={skill.id}
-                      enableHref={withEnabledSkill(workbenchHref, skill.id)}
-                      installDisabled={loading}
-                      installed={installedScienceSkillIds.has(skill.id)}
-                      installing={installingScienceSkillIds.has(skill.id)}
-                      onInstall={installScienceSkill}
-                      skill={skill}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-          </TabsContent>
-
-          <TabsContent value={INSTALLED_SKILLS_TAB}>
-            <section className="space-y-8">
-              <div>
-                <div className="mb-4 flex items-center gap-2">
-                  <PackageCheck className="h-3.5 w-3.5 text-primary" />
-                  <h2 className="text-sm font-semibold">默认通用技能</h2>
-                  <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    默认安装
-                  </span>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    {featuredSkills.length}
-                  </span>
-                </div>
-
-                {loading ? (
-                  <SkillSkeleton />
-                ) : featuredSkills.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                    暂时没有默认通用技能
-                  </div>
-                ) : filteredDefaultSkills.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                    没有找到匹配的默认通用技能
-                  </div>
-                ) : (
-                  <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
-                    {filteredDefaultSkills.map((skill) => (
-                      <InstalledSkillCard
-                        key={skill.key}
-                        group="default"
-                        onOpenDetails={setDetailSkill}
-                        skill={skill}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
+            <section className="mb-8 space-y-8">
               <div>
                 <div className="mb-4 flex items-center gap-2">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
@@ -1280,13 +1086,9 @@ export function SkillsMarketplace() {
                 {loading ? (
                   <SkillSkeleton />
                 ) : installedScienceSkills.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                    还没有安装科学技能
-                  </div>
+                  <EmptyState compact>还没有安装科学技能</EmptyState>
                 ) : filteredInstalledScienceSkills.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                    没有找到匹配的已安装科学技能
-                  </div>
+                  <EmptyState compact>没有找到匹配的已安装科学技能</EmptyState>
                 ) : (
                   <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
                     {filteredInstalledScienceSkills.map((skill) => (
@@ -1297,6 +1099,143 @@ export function SkillsMarketplace() {
                         onUninstall={uninstallSkill}
                         skill={skill}
                         uninstalling={uninstallingSkillKey === skill.key}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-5">
+                  <div className="min-w-0">
+                    <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                      快照来自 InternScience/scp，点击安装时会从 GitHub
+                      下载对应技能目录。
+                      <a
+                        href="https://scphub.intern-ai.org.cn/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-1 inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
+                      >
+                        SCPHub 提供了 200+ 高质量科学领域技能
+                        <ExternalLink
+                          className="h-3.5 w-3.5"
+                          aria-hidden="true"
+                        />
+                      </a>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="-mx-1 mb-3 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div
+                    className="flex min-w-max gap-2"
+                    role="tablist"
+                    aria-label="科学技能分类"
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-9 shrink-0 whitespace-nowrap rounded-full border px-3 text-[13px] shadow-none transition-colors",
+                        scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
+                          ? "text-primary-foreground hover:!bg-primary/90 hover:!text-primary-foreground border-primary bg-primary"
+                          : "border-border bg-background text-muted-foreground hover:!border-foreground/20 hover:!bg-muted/70 hover:!text-foreground dark:bg-transparent dark:hover:!border-white/20 dark:hover:!bg-white/10 dark:hover:!text-white"
+                      )}
+                      onClick={() =>
+                        setScienceCategoryId(ALL_SCIENCE_CATEGORY_ID)
+                      }
+                      role="tab"
+                      aria-selected={
+                        scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
+                      }
+                    >
+                      全部
+                      <span className="ml-1 text-[11px] opacity-75">
+                        {SCIENCE_SKILL_SOURCE.total}
+                      </span>
+                    </Button>
+                    {SCIENCE_SKILL_CATEGORIES.map((category) => (
+                      <Button
+                        key={category.id}
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className={cn(
+                          "h-9 shrink-0 whitespace-nowrap rounded-full border px-3 text-[13px] shadow-none transition-colors",
+                          scienceCategoryId === category.id
+                            ? "text-primary-foreground hover:!bg-primary/90 hover:!text-primary-foreground border-primary bg-primary"
+                            : "border-border bg-background text-muted-foreground hover:!border-foreground/20 hover:!bg-muted/70 hover:!text-foreground dark:bg-transparent dark:hover:!border-white/20 dark:hover:!bg-white/10 dark:hover:!text-white"
+                        )}
+                        onClick={() => setScienceCategoryId(category.id)}
+                        role="tab"
+                        aria-selected={scienceCategoryId === category.id}
+                      >
+                        {category.name}
+                        <span className="ml-1 text-[11px] opacity-75">
+                          {category.count}
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {!searchQuery.trim() && activeScienceCategory && (
+                  <div className="mb-6 max-w-3xl border-t border-border/70 pt-3 text-sm leading-6 text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {activeScienceCategory.name}：
+                    </span>
+                    {activeScienceCategory.description}
+                  </div>
+                )}
+
+                {filteredScienceSkills.length === 0 ? (
+                  <EmptyState>没有找到匹配的科学技能</EmptyState>
+                ) : (
+                  <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
+                    {filteredScienceSkills.map((skill) => (
+                      <ScienceSkillCard
+                        key={skill.id}
+                        enableHref={withEnabledSkill(workbenchHref, skill.id)}
+                        installDisabled={loading}
+                        installed={installedScienceSkillIds.has(skill.id)}
+                        installing={installingScienceSkillIds.has(skill.id)}
+                        onInstall={installScienceSkill}
+                        skill={skill}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          </TabsContent>
+
+          <TabsContent value={INSTALLED_SKILLS_TAB}>
+            <section className="space-y-8">
+              <div>
+                <div className="mb-4 flex items-center gap-2">
+                  <PackageCheck className="h-3.5 w-3.5 text-primary" />
+                  <h2 className="text-sm font-semibold">默认安装</h2>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {featuredSkills.length}
+                  </span>
+                </div>
+
+                {loading ? (
+                  <SkillSkeleton />
+                ) : featuredSkills.length === 0 ? (
+                  <EmptyState>暂时没有默认通用技能</EmptyState>
+                ) : filteredDefaultSkills.length === 0 ? (
+                  <EmptyState>没有找到匹配的默认通用技能</EmptyState>
+                ) : (
+                  <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
+                    {filteredDefaultSkills.map((skill) => (
+                      <InstalledSkillCard
+                        key={skill.key}
+                        group="default"
+                        onOpenDetails={setDetailSkill}
+                        skill={skill}
                       />
                     ))}
                   </div>
@@ -1315,13 +1254,9 @@ export function SkillsMarketplace() {
                 {loading ? (
                   <SkillSkeleton />
                 ) : importedSkills.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                    还没有导入技能
-                  </div>
+                  <EmptyState compact>还没有导入技能</EmptyState>
                 ) : filteredImportedSkills.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                    没有找到匹配的导入技能
-                  </div>
+                  <EmptyState compact>没有找到匹配的导入技能</EmptyState>
                 ) : (
                   <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
                     {filteredImportedSkills.map((skill) => (
@@ -1354,7 +1289,11 @@ export function SkillsMarketplace() {
       >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>上传技能</DialogTitle>
+            <DialogTitle>
+              {uploadSkillMode === UPLOAD_LOCAL_MODE
+                ? "上传本地技能"
+                : "导入云端技能"}
+            </DialogTitle>
             <DialogDescription>
               从本地目录或云端地址上传已有技能。
             </DialogDescription>
