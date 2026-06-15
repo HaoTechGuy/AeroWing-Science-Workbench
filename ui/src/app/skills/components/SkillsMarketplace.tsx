@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Check,
   CloudDownload,
+  ExternalLink,
   FolderPlus,
   Loader2,
   Plus,
@@ -880,6 +881,18 @@ export function SkillsMarketplace() {
               <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
                 快照来自 InternScience/scp，点击安装时会从 GitHub
                 下载对应技能目录。
+                <a
+                  href="https://scphub.intern-ai.org.cn/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-1 inline-flex items-center gap-1 font-medium text-[#2F6868] underline-offset-4 hover:underline dark:text-[hsl(var(--primary))]"
+                >
+                  SCPHub 提供了 200+ 高质量科学领域技能
+                  <ExternalLink
+                    className="h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                </a>
               </p>
             </div>
             <div className="shrink-0 truncate rounded-md bg-muted/50 px-2 py-1 font-mono text-[11px] text-muted-foreground">

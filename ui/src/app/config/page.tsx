@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -30,11 +30,6 @@ import {
   type ThemeMode,
 } from "@/lib/theme";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
-import {
-  SkillsConfigCard,
-  type SkillsConfigCardHandle,
-  type SkillsConfigCardState,
-} from "@/app/config/components/SkillsConfigCard";
 import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 
 type AuthorizationMode = "auto" | "write" | "all";
@@ -317,7 +312,6 @@ async function waitForWorkbenchReady(url: string) {
 
 function ConfigPageContent() {
   const searchParams = useSearchParams();
-  const skillsConfigRef = useRef<SkillsConfigCardHandle>(null);
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] =
     useState<ConfigResponse>(DEFAULT_CONFIG);
@@ -341,14 +335,8 @@ function ConfigPageContent() {
   const [gatewayModelsError, setGatewayModelsError] = useState<string | null>(
     null
   );
-  const [skillsState, setSkillsState] = useState<SkillsConfigCardState>({
-    hasChanges: false,
-    isBusy: false,
-    requiresRestart: false,
-  });
-
   const actionBusy = loading || saving || restarting;
-  const isBusy = actionBusy || checkingStatus || skillsState.isBusy;
+  const isBusy = actionBusy || checkingStatus;
   const hasChanges = useMemo(() => {
     return (
       config.modelProvider !== savedConfig.modelProvider ||
@@ -424,8 +412,8 @@ function ConfigPageContent() {
     savedConfig.openaiCompatibleBaseUrl,
     savedConfig.openaiCompatibleModel,
   ]);
-  const hasAnyChanges = hasChanges || skillsState.hasChanges;
-  const hasPendingRestart = requiresRestart || skillsState.requiresRestart;
+  const hasAnyChanges = hasChanges;
+  const hasPendingRestart = requiresRestart;
   const canApplyWhenIdle = !isBusy;
   const canApplyNow = !isBusy;
   const onboardingMode = onboardingRequested;
@@ -617,7 +605,6 @@ function ConfigPageContent() {
 
       setAutoRestart(false);
       setBackendStatus(null);
-      skillsConfigRef.current?.markApplied();
       toast.success(restart.message || "配置已应用");
       if (redirectHome) {
         const homeUrl = buildQuickstartWorkbenchUrl();
@@ -651,29 +638,9 @@ function ConfigPageContent() {
       }
     }
 
-    let skillsResult = {
-      saved: true,
-      needsRestart: skillsState.requiresRestart,
-    };
-    if (skillsState.hasChanges) {
-      const skillsConfig = skillsConfigRef.current;
-      if (!skillsConfig) {
-        toast.error("技能配置尚未加载完成。");
-        return { saved: false, needsRestart: false };
-      }
-      skillsResult = await skillsConfig.save({ silent: true });
-      if (!skillsResult.saved) {
-        return { saved: false, needsRestart: false };
-      }
-    }
-
     return {
       saved: true,
-      needsRestart:
-        configResult.needsRestart ||
-        skillsResult.needsRestart ||
-        requiresRestart ||
-        skillsState.requiresRestart,
+      needsRestart: configResult.needsRestart || requiresRestart,
     };
   }
 
@@ -770,8 +737,7 @@ function ConfigPageContent() {
       !autoRestart ||
       !hasPendingRestart ||
       hasAnyChanges ||
-      actionBusy ||
-      skillsState.isBusy
+      actionBusy
     ) {
       return;
     }
@@ -801,7 +767,6 @@ function ConfigPageContent() {
     hasPendingRestart,
     hasAnyChanges,
     actionBusy,
-    skillsState.isBusy,
   ]);
 
   useEffect(() => {
@@ -867,7 +832,7 @@ function ConfigPageContent() {
             <div className="min-w-0">
               <h1 className="truncate text-xl font-semibold">配置</h1>
               <div className="truncate text-xs text-muted-foreground">
-                模型、工作区、授权模式、技能和界面风格
+                模型、工作区、授权模式和界面风格
               </div>
             </div>
           </div>
@@ -875,13 +840,14 @@ function ConfigPageContent() {
           <div className="flex items-center gap-2">
             <>
               <Button
+                type="button"
                 size="sm"
                 onClick={applyWhenIdle}
                 disabled={!canApplyWhenIdle}
                 title={
                   hasAnyChanges
-                    ? "保存当前配置和技能选择，并在后台空闲时自动应用。"
-                    : "后台空闲时自动重启并加载当前配置和技能。"
+                    ? "保存当前配置，并在后台空闲时自动应用。"
+                    : "后台空闲时自动重启并加载当前配置。"
                 }
                 className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
               >
@@ -890,14 +856,19 @@ function ConfigPageContent() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                空闲时应用
+                {hasAnyChanges ? "保存并空闲时应用" : "空闲时应用"}
               </Button>
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => void applyNow()}
                 disabled={!canApplyNow}
-                title="保存当前配置和技能选择并立即应用。"
+                title={
+                  hasAnyChanges
+                    ? "保存当前配置并立即应用。"
+                    : "立即重启并加载当前配置。"
+                }
                 className="h-9"
               >
                 {restarting ? (
@@ -905,7 +876,7 @@ function ConfigPageContent() {
                 ) : (
                   <ServerCog className="h-4 w-4" />
                 )}
-                立即应用
+                {hasAnyChanges ? "保存并立即应用" : "立即应用"}
               </Button>
             </>
           </div>
@@ -957,7 +928,7 @@ function ConfigPageContent() {
           {!onboardingMode && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>
-                模型、授权模式和技能需要重启后端后生效；工作区和界面风格会立即生效。
+                模型和授权模式需要重启后端后生效；工作区和界面风格会立即生效。
               </span>
               {hasPendingRestart && !hasAnyChanges && (
                 <span className="text-amber-700 dark:text-[#f5b85b]">有配置等待应用。</span>
@@ -1498,11 +1469,6 @@ function ConfigPageContent() {
                   })}
                 </div>
               </section>
-
-              <SkillsConfigCard
-                ref={skillsConfigRef}
-                onStateChange={setSkillsState}
-              />
 
               <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-start gap-3">
