@@ -24,14 +24,6 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   applyTheme,
@@ -184,6 +176,28 @@ const MODEL_PROVIDER_OPTIONS: Array<{
     title: "OpenAI 兼容",
     subtitle: "Base URL + API Key",
     description: "接入任意兼容 Chat Completions 的模型服务。",
+  },
+];
+
+const IMAGE_GENERATION_PROVIDER_OPTIONS: Array<{
+  id: ImageGenerationProvider;
+  title: string;
+  subtitle?: string;
+  badge?: string;
+  description: string;
+}> = [
+  {
+    id: "internagents_gateway",
+    title: "Jisi 默认服务",
+    badge: "默认",
+    description: "无需额外配置，使用 Jisi 提供的默认图片生成能力。",
+    subtitle: "适合快速生成和日常使用。",
+  },
+  {
+    id: "custom",
+    title: "自定义服务",
+    description: "填写 Base URL、API Key 和模型 ID，调用自己的生图服务。",
+    subtitle: "适合接入私有或第三方图片生成接口。",
   },
 ];
 
@@ -804,6 +818,23 @@ function ConfigPageContent() {
       openaiCompatibleModel: "deepseek-v4-flash",
       openaiCompatibleBaseUrl:
         current.openaiCompatibleBaseUrl || "https://openrouter.ai/api/v1",
+    }));
+  }
+
+  function updateImageGenerationProvider(provider: ImageGenerationProvider) {
+    setConfig((current) => ({
+      ...current,
+      imageGenerationProvider: provider,
+      imageGenerationModel:
+        provider === "custom"
+          ? current.imageGenerationProvider === "custom" &&
+            current.imageGenerationModel !== IMAGE_GENERATION_DEFAULT_MODEL
+            ? current.imageGenerationModel
+            : ""
+          : IMAGE_GENERATION_DEFAULT_MODEL,
+      imageGenerationBaseUrl:
+        provider === "custom" ? "" : IMAGE_GENERATION_GATEWAY_BASE_URL,
+      imageGenerationApiKey: "",
     }));
   }
 
@@ -1493,7 +1524,9 @@ function ConfigPageContent() {
                     <span
                       className={cn(
                         "rounded-full px-2 py-1 text-xs font-medium",
-                        config.imageGenerationApiKeySet
+                        config.imageGenerationProvider ===
+                          "internagents_gateway" ||
+                          config.imageGenerationApiKeySet
                           ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
                           : "bg-muted text-muted-foreground"
                       )}
@@ -1506,78 +1539,87 @@ function ConfigPageContent() {
                     </span>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <ServerCog className="h-3.5 w-3.5" />
-                        服务
-                      </div>
-                      <Select
-                        value={config.imageGenerationProvider}
-                        disabled={loading}
-                        onValueChange={(value) => {
-                          const provider = value as ImageGenerationProvider;
-                          setConfig((current) => ({
-                            ...current,
-                            imageGenerationProvider: provider,
-                            imageGenerationModel:
-                              provider === "custom"
-                                ? current.imageGenerationModel
-                                : IMAGE_GENERATION_DEFAULT_MODEL,
-                            imageGenerationBaseUrl:
-                              provider === "custom"
-                                ? ""
-                                : IMAGE_GENERATION_GATEWAY_BASE_URL,
-                            imageGenerationApiKey: "",
-                          }));
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Jisi 默认服务" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            <SelectItem value="internagents_gateway">
-                              Jisi 默认服务
-                            </SelectItem>
-                            <SelectItem value="custom">
-                              自定义服务
-                            </SelectItem>
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
+                  <div className="space-y-3">
+                    <Label>图像生成服务</Label>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {IMAGE_GENERATION_PROVIDER_OPTIONS.map((option) => {
+                        const active =
+                          config.imageGenerationProvider === option.id;
+                        const ProviderIcon =
+                          option.id === "internagents_gateway"
+                            ? ServerCog
+                            : KeyRound;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() =>
+                              updateImageGenerationProvider(option.id)
+                            }
+                            disabled={loading}
+                            className={cn(
+                              "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 dark:hover:border-[hsl(var(--primary)/0.5)]",
+                              active
+                                ? "border-primary ring-2 ring-primary/20 dark:border-[hsl(var(--primary))] dark:ring-[hsl(var(--primary)/0.2)]"
+                                : "border-border"
+                            )}
+                          >
+                            <div className="mb-3 flex items-center justify-between gap-2">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                                <ProviderIcon className="h-4 w-4" />
+                              </div>
+                              {option.badge && (
+                                <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
+                                  {option.badge}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm font-semibold">
+                              {option.title}
+                            </div>
+                            <div className="mt-1.5 text-sm text-foreground">
+                              {option.description}
+                            </div>
+                            {option.subtitle && (
+                              <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                {option.subtitle}
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
+                  </div>
 
+                  {config.imageGenerationProvider === "internagents_gateway" && (
+                    <div className="text-xs leading-5 text-muted-foreground">
+                      默认使用 Jisi 图片生成服务，无需额外填写 URL 或 API Key。
+                    </div>
+                  )}
+
+                  <div className="grid gap-3 md:grid-cols-2">
                     {config.imageGenerationProvider === "custom" ? (
                       <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <ServerCog className="h-3.5 w-3.5" />
-                        Base URL
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <ServerCog className="h-3.5 w-3.5" />
+                          Base URL
+                        </div>
+                        <Input
+                          id="image-generation-base-url"
+                          type="url"
+                          autoComplete="off"
+                          value={config.imageGenerationBaseUrl}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              imageGenerationBaseUrl: event.target.value,
+                            }))
+                          }
+                          placeholder="https://your-image-api.example/v1"
+                        />
                       </div>
-                      <Input
-                        id="image-generation-base-url"
-                        type="url"
-                        autoComplete="off"
-                        value={config.imageGenerationBaseUrl}
-                        disabled={loading}
-                        onChange={(event) =>
-                          setConfig((current) => ({
-                            ...current,
-                            imageGenerationBaseUrl: event.target.value,
-                          }))
-                        }
-                        placeholder={
-                          config.imageGenerationProvider === "custom"
-                            ? "https://your-image-api.example/v1"
-                            : IMAGE_GENERATION_GATEWAY_BASE_URL
-                        }
-                      />
-                      </div>
-                    ) : (
-                      <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
-                        使用 Jisi 默认服务，无需额外填写 URL 或 API Key。
-                      </div>
-                    )}
+                    ) : null}
 
                     {config.imageGenerationProvider === "custom" ? (
                       <div className="space-y-2">
@@ -1616,7 +1658,12 @@ function ConfigPageContent() {
                         id="image-generation-model"
                         type="text"
                         autoComplete="off"
-                        value={config.imageGenerationModel}
+                        value={
+                          config.imageGenerationModel ===
+                          IMAGE_GENERATION_DEFAULT_MODEL
+                            ? ""
+                            : config.imageGenerationModel
+                        }
                         disabled={loading}
                         onChange={(event) =>
                           setConfig((current) => ({
