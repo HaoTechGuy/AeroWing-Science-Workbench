@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Cpu,
   FolderOpen,
+  ImageIcon,
   KeyRound,
   Loader2,
   Mail,
@@ -23,6 +24,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   applyTheme,
@@ -35,6 +44,7 @@ import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
 type ModelProvider = "gateway" | "openai_compatible";
+type ImageGenerationProvider = "internagents_gateway" | "custom";
 type OnboardingMissing = "gatewayEmail" | "openaiCompatibleApiKey";
 
 interface ConfigResponse {
@@ -61,6 +71,14 @@ interface ConfigResponse {
   openaiCompatibleApiKey: string;
   openaiCompatibleApiKeySet: boolean;
   openaiCompatibleApiKeyPreview: string;
+  imageGenerationEnabled: boolean;
+  imageGenerationProvider: ImageGenerationProvider;
+  imageGenerationModel: string;
+  imageGenerationBaseUrl: string;
+  imageGenerationSize: string;
+  imageGenerationOutputDir: string;
+  imageGenerationApiKey: string;
+  imageGenerationApiKeySet: boolean;
   authorizationMode: AuthorizationMode;
   desktopMode: boolean;
   needsOnboarding: boolean;
@@ -104,6 +122,11 @@ interface GatewayModelsPayload {
   error?: unknown;
 }
 
+const QUICKSTART_START_PARAM = "quickstart";
+const IMAGE_GENERATION_GATEWAY_BASE_URL = "http://43.106.18.167/jisi/v1";
+const IMAGE_GENERATION_DEFAULT_MODEL = "cogview-3-flash";
+const IMAGE_GENERATION_DEFAULT_OUTPUT_DIR = "/generated-images";
+
 const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
@@ -128,13 +151,19 @@ const DEFAULT_CONFIG: ConfigResponse = {
   openaiCompatibleApiKey: "",
   openaiCompatibleApiKeySet: false,
   openaiCompatibleApiKeyPreview: "",
+  imageGenerationEnabled: true,
+  imageGenerationProvider: "internagents_gateway",
+  imageGenerationModel: IMAGE_GENERATION_DEFAULT_MODEL,
+  imageGenerationBaseUrl: IMAGE_GENERATION_GATEWAY_BASE_URL,
+  imageGenerationSize: "1024x1024",
+  imageGenerationOutputDir: IMAGE_GENERATION_DEFAULT_OUTPUT_DIR,
+  imageGenerationApiKey: "",
+  imageGenerationApiKeySet: false,
   authorizationMode: "auto",
   desktopMode: false,
   needsOnboarding: false,
   missing: [],
 };
-
-const QUICKSTART_START_PARAM = "quickstart";
 
 const MODEL_PROVIDER_OPTIONS: Array<{
   id: ModelProvider;
@@ -346,6 +375,13 @@ function ConfigPageContent() {
       config.openaiCompatibleApiKey.trim() !== "" ||
       config.openaiCompatibleBaseUrl !== savedConfig.openaiCompatibleBaseUrl ||
       config.openaiCompatibleModel !== savedConfig.openaiCompatibleModel ||
+      config.imageGenerationEnabled !== savedConfig.imageGenerationEnabled ||
+      config.imageGenerationProvider !== savedConfig.imageGenerationProvider ||
+      config.imageGenerationModel !== savedConfig.imageGenerationModel ||
+      config.imageGenerationBaseUrl !== savedConfig.imageGenerationBaseUrl ||
+      config.imageGenerationSize !== savedConfig.imageGenerationSize ||
+      config.imageGenerationOutputDir !== savedConfig.imageGenerationOutputDir ||
+      config.imageGenerationApiKey.trim() !== "" ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode ||
@@ -356,6 +392,13 @@ function ConfigPageContent() {
     config.gatewayEmail,
     config.gatewayInviteCode,
     config.gatewayUsername,
+    config.imageGenerationApiKey,
+    config.imageGenerationBaseUrl,
+    config.imageGenerationEnabled,
+    config.imageGenerationModel,
+    config.imageGenerationOutputDir,
+    config.imageGenerationProvider,
+    config.imageGenerationSize,
     config.model,
     config.modelProvider,
     config.modelSelectionMode,
@@ -367,6 +410,12 @@ function ConfigPageContent() {
     savedConfig.gatewayEmail,
     savedConfig.gatewayInviteCode,
     savedConfig.gatewayUsername,
+    savedConfig.imageGenerationBaseUrl,
+    savedConfig.imageGenerationEnabled,
+    savedConfig.imageGenerationModel,
+    savedConfig.imageGenerationOutputDir,
+    savedConfig.imageGenerationProvider,
+    savedConfig.imageGenerationSize,
     savedConfig.model,
     savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
@@ -387,6 +436,13 @@ function ConfigPageContent() {
       config.openaiCompatibleApiKey.trim() !== "" ||
       config.openaiCompatibleBaseUrl !== savedConfig.openaiCompatibleBaseUrl ||
       config.openaiCompatibleModel !== savedConfig.openaiCompatibleModel ||
+      config.imageGenerationEnabled !== savedConfig.imageGenerationEnabled ||
+      config.imageGenerationProvider !== savedConfig.imageGenerationProvider ||
+      config.imageGenerationModel !== savedConfig.imageGenerationModel ||
+      config.imageGenerationBaseUrl !== savedConfig.imageGenerationBaseUrl ||
+      config.imageGenerationSize !== savedConfig.imageGenerationSize ||
+      config.imageGenerationOutputDir !== savedConfig.imageGenerationOutputDir ||
+      config.imageGenerationApiKey.trim() !== "" ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode
@@ -396,6 +452,13 @@ function ConfigPageContent() {
     config.gatewayEmail,
     config.gatewayInviteCode,
     config.gatewayUsername,
+    config.imageGenerationApiKey,
+    config.imageGenerationBaseUrl,
+    config.imageGenerationEnabled,
+    config.imageGenerationModel,
+    config.imageGenerationOutputDir,
+    config.imageGenerationProvider,
+    config.imageGenerationSize,
     config.model,
     config.modelProvider,
     config.modelSelectionMode,
@@ -406,6 +469,12 @@ function ConfigPageContent() {
     savedConfig.gatewayEmail,
     savedConfig.gatewayInviteCode,
     savedConfig.gatewayUsername,
+    savedConfig.imageGenerationBaseUrl,
+    savedConfig.imageGenerationEnabled,
+    savedConfig.imageGenerationModel,
+    savedConfig.imageGenerationOutputDir,
+    savedConfig.imageGenerationProvider,
+    savedConfig.imageGenerationSize,
     savedConfig.model,
     savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
@@ -456,6 +525,7 @@ function ConfigPageContent() {
         ...DEFAULT_CONFIG,
         ...payload,
         openaiCompatibleApiKey: "",
+        imageGenerationApiKey: "",
       } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
@@ -510,6 +580,26 @@ function ConfigPageContent() {
             config.modelProvider === "openai_compatible"
               ? config.openaiCompatibleBaseUrl.trim() || undefined
               : undefined,
+          imageGeneration: {
+            enabled: config.imageGenerationEnabled,
+            provider: config.imageGenerationProvider,
+            model:
+              config.imageGenerationProvider === "custom"
+                ? config.imageGenerationModel.trim() || undefined
+                : IMAGE_GENERATION_DEFAULT_MODEL,
+            baseUrl:
+              config.imageGenerationProvider === "custom"
+                ? config.imageGenerationBaseUrl.trim() || undefined
+                : undefined,
+            size: config.imageGenerationSize.trim() || "1024x1024",
+            outputDir:
+              config.imageGenerationOutputDir.trim() ||
+              IMAGE_GENERATION_DEFAULT_OUTPUT_DIR,
+            apiKey:
+              config.imageGenerationProvider === "custom"
+                ? config.imageGenerationApiKey.trim() || undefined
+                : undefined,
+          },
           authorizationMode: config.authorizationMode,
           workspacePath: onboardingMode ? undefined : config.workspacePath,
         }),
@@ -522,6 +612,7 @@ function ConfigPageContent() {
         ...DEFAULT_CONFIG,
         ...payload,
         openaiCompatibleApiKey: "",
+        imageGenerationApiKey: "",
       } as ConfigResponse;
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
@@ -1366,6 +1457,223 @@ function ConfigPageContent() {
 
           {!onboardingMode && (
             <>
+              <section
+                className="rounded-lg border border-border bg-card p-5 shadow-sm"
+                data-tour="config-image-generation"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                    <ImageIcon className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">图像生成</h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      使用 Jisi 默认服务生成图片，并保存到当前 workspace。
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2">
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <input
+                        type="checkbox"
+                        checked={config.imageGenerationEnabled}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            imageGenerationEnabled: event.target.checked,
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-border text-primary"
+                      />
+                      启用 generate_image 工具
+                    </label>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-1 text-xs font-medium",
+                        config.imageGenerationApiKeySet
+                          ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {config.imageGenerationProvider === "custom"
+                        ? config.imageGenerationApiKeySet
+                          ? "API Key 已保存"
+                          : "API Key 未保存"
+                        : "Jisi 默认服务"}
+                    </span>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <ServerCog className="h-3.5 w-3.5" />
+                        服务
+                      </div>
+                      <Select
+                        value={config.imageGenerationProvider}
+                        disabled={loading}
+                        onValueChange={(value) => {
+                          const provider = value as ImageGenerationProvider;
+                          setConfig((current) => ({
+                            ...current,
+                            imageGenerationProvider: provider,
+                            imageGenerationModel:
+                              provider === "custom"
+                                ? current.imageGenerationModel
+                                : IMAGE_GENERATION_DEFAULT_MODEL,
+                            imageGenerationBaseUrl:
+                              provider === "custom"
+                                ? ""
+                                : IMAGE_GENERATION_GATEWAY_BASE_URL,
+                            imageGenerationApiKey: "",
+                          }));
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Jisi 默认服务" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="internagents_gateway">
+                              Jisi 默认服务
+                            </SelectItem>
+                            <SelectItem value="custom">
+                              自定义服务
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {config.imageGenerationProvider === "custom" ? (
+                      <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <ServerCog className="h-3.5 w-3.5" />
+                        Base URL
+                      </div>
+                      <Input
+                        id="image-generation-base-url"
+                        type="url"
+                        autoComplete="off"
+                        value={config.imageGenerationBaseUrl}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            imageGenerationBaseUrl: event.target.value,
+                          }))
+                        }
+                        placeholder={
+                          config.imageGenerationProvider === "custom"
+                            ? "https://your-image-api.example/v1"
+                            : IMAGE_GENERATION_GATEWAY_BASE_URL
+                        }
+                      />
+                      </div>
+                    ) : (
+                      <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
+                        使用 Jisi 默认服务，无需额外填写 URL 或 API Key。
+                      </div>
+                    )}
+
+                    {config.imageGenerationProvider === "custom" ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <KeyRound className="h-3.5 w-3.5" />
+                          API Key
+                        </div>
+                        <Input
+                          id="image-generation-api-key"
+                          type="password"
+                          autoComplete="off"
+                          value={config.imageGenerationApiKey}
+                          disabled={loading}
+                          onChange={(event) =>
+                            setConfig((current) => ({
+                              ...current,
+                              imageGenerationApiKey: event.target.value,
+                            }))
+                          }
+                          placeholder={
+                            config.imageGenerationApiKeySet
+                              ? "已保存，留空则继续使用当前 key"
+                              : "自定义服务 API Key"
+                          }
+                        />
+                      </div>
+                    ) : null}
+
+                    {config.imageGenerationProvider === "custom" ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <Cpu className="h-3.5 w-3.5" />
+                        模型 ID
+                      </div>
+                      <Input
+                        id="image-generation-model"
+                        type="text"
+                        autoComplete="off"
+                        value={config.imageGenerationModel}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            imageGenerationModel: event.target.value,
+                          }))
+                        }
+                        placeholder="your-image-model"
+                      />
+                    </div>
+                    ) : null}
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <ImageIcon className="h-3.5 w-3.5" />
+                        默认尺寸
+                      </div>
+                      <Input
+                        id="image-generation-size"
+                        type="text"
+                        autoComplete="off"
+                        value={config.imageGenerationSize}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            imageGenerationSize: event.target.value,
+                          }))
+                        }
+                        placeholder="1024x1024"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      输出目录
+                    </div>
+                    <Input
+                      id="image-generation-output-dir"
+                      type="text"
+                      autoComplete="off"
+                      value={config.imageGenerationOutputDir}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          imageGenerationOutputDir: event.target.value,
+                        }))
+                      }
+                      placeholder={IMAGE_GENERATION_DEFAULT_OUTPUT_DIR}
+                    />
+                  </div>
+                </div>
+              </section>
+
               <section
                 className="rounded-lg border border-border bg-card p-5 shadow-sm"
                 data-tour="config-workspace"

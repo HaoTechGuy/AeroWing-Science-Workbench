@@ -142,6 +142,13 @@ local backend. For any other OpenAI-compatible provider, set
 untracked `.env` or in the desktop app's Application Support runtime directory;
 they should not be committed.
 
+Image generation uses the same InternAgents gateway account by default. The
+default `image_generation.provider` is `internagents_gateway`, calling
+`/v1/images/generations` with `cogview-3-flash`. To use your own image model
+endpoint instead, set `image_generation.provider` to `custom`, configure
+`image_generation.base_url`, and put `INTERNAGENTS_IMAGE_API_KEY` in the
+untracked `.env`.
+
 ## DeepAgent Configuration
 
 Runtime settings for `create_deep_agent(...)` live in:
@@ -298,8 +305,9 @@ local development.
 
 ## Software Updates
 
-The About page includes a local software update panel. The installed macOS app
-checks a GitHub Releases feed for binary DMG assets. By default it reads:
+The About page includes a local software update panel. The installed desktop app
+checks a GitHub Releases feed for platform-specific binary assets. By default it
+reads:
 
 ```text
 InternScience/InternAgents
@@ -310,7 +318,7 @@ a different release repository. The official release repository is
 `InternScience/InternAgents`; it receives the commit and tag to build, runs the
 release workflow there, and hosts GitHub Releases with assets named like
 `InternAgents-0.1.1-arm64.dmg`, `InternAgents-0.1.1-x64.dmg`, and
-`internagents-backend-cli.tar.gz`.
+`InternAgents-0.1.1-x64.exe`, plus `internagents-backend-cli.tar.gz`.
 
 Public release repositories do not require a token. The updater first tries the
 GitHub Releases API and, if the unauthenticated API is rate-limited, falls back
@@ -320,9 +328,11 @@ limit or when you intentionally check a private release repository.
 
 The browser never receives a shell command or user-provided repository URL. It
 calls local Next.js API routes under `/api/update/*`; those routes are the only
-place that can query the fixed release feed, download the matching DMG, mount
-it, verify the `.app`, and launch the local installer script that replaces the
-current app and reopens InternAgents.
+place that can query the fixed release feed and download the matching installer.
+On macOS, the updater mounts the DMG, verifies the `.app`, and launches a local
+script that replaces the current app. On Windows, it launches the downloaded
+NSIS installer in silent mode for the current install directory. Both paths
+reopen InternAgents after the installer completes.
 
 When a user selects a local-managed SSH workspace, the local Next.js API also
 checks the same release repository for the backend CLI package matching the

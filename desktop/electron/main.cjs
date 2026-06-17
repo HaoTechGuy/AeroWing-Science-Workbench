@@ -18,6 +18,7 @@ const PRESERVED_RUNTIME_FILES = new Set([
 let mainWindow = null;
 let splashWindow = null;
 let nextProcess = null;
+let nextLogStream = null;
 let runtimeRoot = "";
 let splashStatus = "Starting InternAgents...";
 
@@ -502,11 +503,6 @@ function canRunPython(candidate, env) {
   const script = [
     "import sys",
     "import langgraph_cli",
-    "import defusedxml",
-    "import lxml.etree",
-    "import markitdown",
-    "import openpyxl",
-    "import pandas",
     "raise SystemExit(0 if sys.version_info >= (3, 11) else 1)",
   ].join("; ");
   const result = spawnSync(
@@ -558,7 +554,7 @@ function pythonBinary() {
   }
   if (app.isPackaged) {
     throw new Error(
-      "Bundled Python runtime is missing or does not include required Office attachment dependencies."
+      "Bundled Python runtime is missing or incompatible."
     );
   }
   return process.platform === "win32" ? "python" : "python3";
@@ -647,11 +643,21 @@ function appBundlePath() {
   if (!app.isPackaged) {
     return "";
   }
-  return path.resolve(path.dirname(process.execPath), "..", "..");
+  if (process.platform === "darwin") {
+    return path.resolve(path.dirname(process.execPath), "..", "..");
+  }
+  if (process.platform === "win32") {
+    return process.execPath;
+  }
+  return process.execPath;
 }
 
 function runtimePidFile(name) {
   return path.join(runtimeRoot, ".internagents", "pids", `${name}.pid`);
+}
+
+function runtimeLogFile(name) {
+  return path.join(runtimeRoot, ".internagents", "logs", `${name}.log`);
 }
 
 function terminatePid(pid) {
@@ -677,6 +683,10 @@ function terminatePid(pid) {
 function cleanupServices() {
   if (nextProcess && !nextProcess.killed) {
     nextProcess.kill("SIGTERM");
+  }
+  if (nextLogStream) {
+    nextLogStream.end();
+    nextLogStream = null;
   }
 
   for (const name of ["backend", "local-runtime"]) {
@@ -719,16 +729,40 @@ async function startNextServer(uiPort, backendPort, runtimePort) {
     NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID: "agent_local",
   };
 
+  await fsp.mkdir(path.dirname(runtimeLogFile("next")), { recursive: true });
+  nextLogStream = fs.createWriteStream(runtimeLogFile("next"), { flags: "a" });
+  nextLogStream.write(
+    `\n[${new Date().toISOString()}] Starting Next.js server: ${serverJs}\n`
+  );
+
+  let exitStatus = null;
   nextProcess = spawn(nodeHostBinary(), [serverJs], {
     cwd: serverDir,
     env,
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+  });
+  nextProcess.stdout?.on("data", (chunk) => {
+    nextLogStream?.write(chunk);
+  });
+  nextProcess.stderr?.on("data", (chunk) => {
+    nextLogStream?.write(chunk);
+  });
+  nextProcess.on("exit", (code, signal) => {
+    exitStatus = { code, signal };
+    nextLogStream?.write(
+      `[${new Date().toISOString()}] Next.js server exited with code=${code} signal=${signal}\n`
+    );
   });
 
   const ready = await waitForUrl(`http://${HOST}:${uiPort}`, 60000);
   if (!ready) {
-    throw new Error("Next.js server did not become ready in time.");
+    const exitText = exitStatus
+      ? ` It exited with code=${exitStatus.code} signal=${exitStatus.signal}.`
+      : "";
+    throw new Error(
+      `Next.js server did not become ready in time.${exitText} See ${runtimeLogFile("next")}.`
+    );
   }
 }
 
