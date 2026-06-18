@@ -203,6 +203,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
+    env:
+      INTERNAGENTS_SKIP_LIBREOFFICE_RUNTIME: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -365,6 +367,8 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
+    env:
+      INTERNAGENTS_SKIP_LIBREOFFICE_RUNTIME: "1"
 
     steps:
       - name: Checkout source
