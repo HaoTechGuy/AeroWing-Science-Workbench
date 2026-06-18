@@ -452,6 +452,18 @@ jobs:
           & $python -c "import langgraph_cli; print(langgraph_cli.__file__)"
           "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$runtime" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
+      - name: Prepare Windows CI home
+        shell: pwsh
+        run: |
+          $ciHome = Join-Path $PWD.Path ".internagents-ci-home"
+          $appData = Join-Path $ciHome "AppData\Roaming"
+          $localAppData = Join-Path $ciHome "AppData\Local"
+          New-Item -ItemType Directory -Force $ciHome, $appData, $localAppData | Out-Null
+          "HOME=$ciHome" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "USERPROFILE=$ciHome" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "APPDATA=$appData" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "LOCALAPPDATA=$localAppData" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
       - name: Validate Python files
         shell: pwsh
         run: |
