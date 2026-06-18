@@ -234,6 +234,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Pandoc
+        run: |
+          brew install pandoc
+          echo "INTERNAGENTS_PANDOC_BIN=$(command -v pandoc)" >> "$GITHUB_ENV"
+          pandoc --version
+
       - name: Install UI dependencies
         run: npm --prefix ui ci
 
@@ -299,6 +305,7 @@ jobs:
             goal_middleware.py \
             goal_state.py \
             goal_tools.py \
+            image_generation_tools.py \
             mineru_middleware.py
 
       - name: Validate UI
@@ -381,6 +388,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Pandoc
+        shell: pwsh
+        run: |
+          choco install pandoc --yes --no-progress
+          $pandoc = (Get-Command pandoc.exe).Source
+          "INTERNAGENTS_PANDOC_BIN=$pandoc" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          & $pandoc --version
+
       - name: Install UI dependencies
         run: npm --prefix ui ci
 
@@ -444,6 +459,7 @@ jobs:
             goal_middleware.py `
             goal_state.py `
             goal_tools.py `
+            image_generation_tools.py `
             mineru_middleware.py
 
       - name: Validate UI
