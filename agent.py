@@ -26,6 +26,9 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_config
 
 ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
 DEFAULT_SKILL_CATALOG_PATHS = [
     "~/.internagents/myskills",
@@ -63,6 +66,8 @@ IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS = (
     "no endpoints found that support image input",
     "does not support image input",
     "unsupported image input",
+    "unknown variant `image_url`",
+    "unknown variant image_url",
 )
 _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS: set[str] = set()
 
