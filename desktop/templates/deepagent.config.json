@@ -13,6 +13,10 @@
     ],
     "active_path": ".internagents/active-skills",
     "selected": [
+      "skills/pdf",
+      "skills/docx",
+      "skills/xlsx",
+      "skills/pptx",
       "skills/skill-creator"
     ],
     "label": "InternAgents"

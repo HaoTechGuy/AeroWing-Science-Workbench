@@ -14,6 +14,12 @@ const PRESERVED_RUNTIME_FILES = new Set([
   "internagent.resources.json",
   "internagent.resources.local.json",
 ]);
+const DEFAULT_DOCUMENT_SKILLS = [
+  "skills/pdf",
+  "skills/docx",
+  "skills/xlsx",
+  "skills/pptx",
+];
 
 let mainWindow = null;
 let splashWindow = null;
@@ -233,6 +239,42 @@ async function copyRuntimeTemplate(source, destination) {
       });
     }
   }
+}
+
+async function ensureRuntimeDefaultDocumentSkills() {
+  const configPath = path.join(runtimeRoot, "deepagent.config.json");
+  let config = {};
+  try {
+    if (fs.existsSync(configPath)) {
+      config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    }
+  } catch {
+    return;
+  }
+
+  const skills =
+    config.skills && typeof config.skills === "object" ? config.skills : {};
+  if (skills.enabled === false) {
+    return;
+  }
+
+  const selected = Array.isArray(skills.selected) ? skills.selected : [];
+  const mergedSelected = [...selected];
+  for (const skill of DEFAULT_DOCUMENT_SKILLS) {
+    if (!mergedSelected.includes(skill)) {
+      mergedSelected.push(skill);
+    }
+  }
+  if (mergedSelected.length === selected.length) {
+    return;
+  }
+
+  config.skills = {
+    ...skills,
+    enabled: skills.enabled !== false,
+    selected: mergedSelected,
+  };
+  await fsp.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 function envPath() {
@@ -564,6 +606,13 @@ function executableName(name) {
   return process.platform === "win32" ? `${name}.exe` : name;
 }
 
+function executableNames(name) {
+  if (process.platform === "win32" && name === "soffice") {
+    return ["soffice.com", "soffice.exe"];
+  }
+  return [executableName(name)];
+}
+
 function findNamedExecutableSync(directory, names) {
   if (!fs.existsSync(directory)) {
     return "";
@@ -597,14 +646,22 @@ function findNamedExecutableSync(directory, names) {
 
 function bundledOfficeTool(name) {
   const officeToolsRoot = path.join(resourcesRoot(), "office-tools");
-  const directPath = path.join(officeToolsRoot, "bin", executableName(name));
-  if (fs.existsSync(directPath)) {
-    return directPath;
+  for (const candidate of executableNames(name)) {
+    const directPath = path.join(officeToolsRoot, "bin", candidate);
+    if (fs.existsSync(directPath)) {
+      return directPath;
+    }
   }
-  return findNamedExecutableSync(
-    officeToolsRoot,
-    new Set([executableName(name).toLowerCase()])
-  );
+  for (const candidate of executableNames(name)) {
+    const match = findNamedExecutableSync(
+      officeToolsRoot,
+      new Set([candidate.toLowerCase()])
+    );
+    if (match) {
+      return match;
+    }
+  }
+  return "";
 }
 
 function officeToolEnv() {
@@ -862,6 +919,7 @@ async function boot() {
 
   updateSplashStatus("Preparing local workspace...");
   await copyRuntimeTemplate(templateRoot, runtimeRoot);
+  await ensureRuntimeDefaultDocumentSkills();
 
   updateSplashStatus("Choosing local ports...");
   const uiPort = await findAvailablePort();

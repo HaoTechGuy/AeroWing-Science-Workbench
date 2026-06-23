@@ -9,7 +9,7 @@ import {
   readWorkspaceRawFile,
 } from "../_lib/workspace";
 import {
-  buildOfficePreview,
+  buildOfficeReadablePreview,
   isOfficePreviewKind,
 } from "../_lib/office-preview";
 import type { WorkspaceFileResponse } from "@/app/types/workspace";
@@ -70,7 +70,10 @@ export async function GET(request: NextRequest) {
           resourceId,
           workspaceId
         );
-        payload.officePreview = buildOfficePreview(rawFile.path, rawFile.data);
+        payload.officePreview = await buildOfficeReadablePreview(
+          rawFile.path,
+          rawFile.data
+        );
       } catch (previewError) {
         payload.officePreview = {
           kind: previewKind,
