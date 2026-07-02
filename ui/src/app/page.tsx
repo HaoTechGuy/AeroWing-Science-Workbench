@@ -30,7 +30,7 @@ import {
   RefreshCcw,
   Search,
   Settings,
-  Sparkles,
+  SlidersHorizontal,
   SquarePen,
   List,
   UploadCloud,
@@ -598,7 +598,7 @@ function HomePageInner({
     [searchParams]
   );
   const skillsHref = useMemo(
-    () => pageHrefWithWorkbenchReturn("/skills", searchParams),
+    () => `${pageHrefWithWorkbenchReturn("/config", searchParams)}#settings-skills`,
     [searchParams]
   );
   const projectsHref = "/projects";
@@ -809,7 +809,7 @@ function WorkbenchSidebar({
           <span>{t("projectList")}</span>
         </Link>
         <div>
-          <h1>InternAgents</h1>
+          <h1>InternAgentS</h1>
           <span>{t("projectWorkbench")}</span>
         </div>
       </section>
@@ -932,8 +932,8 @@ function WorkbenchSidebar({
         <Link
           href={skillsHref}
         >
-          <Sparkles size={18} />
-          <span>{t("capabilities")}</span>
+          <SlidersHorizontal size={18} />
+          <span>{t("customize")}</span>
         </Link>
         <Link
           href={configHref}
@@ -1074,15 +1074,30 @@ function InspectorFilesView({
     expandedPaths,
     loadingPaths,
     error,
+    loadDirectory,
     toggleDirectory,
     refresh,
   } = useWorkspaceFiles(resourceId, workspaceId, refreshKey);
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<InspectorFilesViewMode>("list");
+  const [currentDirectoryPath, setCurrentDirectoryPath] = useState("");
 
   const normalizedFilter = filter.trim().toLowerCase();
   const rootEntries = useMemo(() => directories[""] ?? [], [directories]);
   const rootLoading = loadingPaths.has("") && rootEntries.length === 0;
+  const currentDirectoryEntries = useMemo(
+    () => directories[currentDirectoryPath] ?? [],
+    [currentDirectoryPath, directories]
+  );
+  const currentDirectoryLoading =
+    loadingPaths.has(currentDirectoryPath) && currentDirectoryEntries.length === 0;
+  const currentDirectorySegments = useMemo(() => {
+    const parts = currentDirectoryPath.split("/").filter(Boolean);
+    return parts.map((part, index) => ({
+      label: part,
+      path: parts.slice(0, index + 1).join("/"),
+    }));
+  }, [currentDirectoryPath]);
 
   const visibleEntries = useMemo(() => {
     const hasMatchingDescendant = (entry: WorkspaceEntry): boolean => {
@@ -1120,16 +1135,62 @@ function InspectorFilesView({
     return walk(rootEntries, 0);
   }, [directories, expandedPaths, normalizedFilter, rootEntries]);
 
+  const gridEntries = useMemo(() => {
+    if (normalizedFilter) {
+      return visibleEntries;
+    }
+
+    return currentDirectoryEntries.map((entry) => ({ entry, depth: 0 }));
+  }, [currentDirectoryEntries, normalizedFilter, visibleEntries]);
+
+  const entriesForView = viewMode === "grid" ? gridEntries : visibleEntries;
+  const isLoadingFiles =
+    viewMode === "grid" && !normalizedFilter
+      ? currentDirectoryLoading
+      : rootLoading;
+  const emptyMessage = normalizedFilter ? t("noMatchingFiles") : t("emptyFolder");
+
+  useEffect(() => {
+    setCurrentDirectoryPath("");
+  }, [refreshKey, resourceId, workspaceId]);
+
+  const navigateToDirectory = useCallback(
+    async (path: string) => {
+      await loadDirectory(path);
+      setCurrentDirectoryPath(path);
+    },
+    [loadDirectory]
+  );
+
+  const navigateToParentDirectory = useCallback(async () => {
+    if (!currentDirectoryPath) {
+      return;
+    }
+
+    const parentPath = currentDirectoryPath.split("/").slice(0, -1).join("/");
+    await navigateToDirectory(parentPath);
+  }, [currentDirectoryPath, navigateToDirectory]);
+
+  const handleRefreshFiles = useCallback(() => {
+    setCurrentDirectoryPath("");
+    void refresh();
+  }, [refresh]);
+
   const handleEntryClick = useCallback(
     async (entry: WorkspaceEntry) => {
       if (entry.kind === "directory") {
+        if (viewMode === "grid") {
+          await navigateToDirectory(entry.path);
+          return;
+        }
+
         await toggleDirectory(entry.path);
         return;
       }
 
       await onFileSelect(entry);
     },
-    [onFileSelect, toggleDirectory]
+    [navigateToDirectory, onFileSelect, toggleDirectory, viewMode]
   );
 
   return (
@@ -1164,7 +1225,7 @@ function InspectorFilesView({
           </button>
           <button
             type="button"
-            onClick={() => void refresh()}
+            onClick={handleRefreshFiles}
             title={t("refreshProjectFiles")}
             aria-label={t("refreshProjectFiles")}
           >
@@ -1173,20 +1234,56 @@ function InspectorFilesView({
         </div>
       </div>
 
+      {viewMode === "grid" && !normalizedFilter && (
+        <div
+          className="ocs-inspector-file-breadcrumb"
+          aria-label={t("currentFolder")}
+        >
+          <button
+            type="button"
+            className={cn(!currentDirectoryPath && "active")}
+            onClick={() => void navigateToDirectory("")}
+          >
+            {t("rootFolder")}
+          </button>
+          {currentDirectorySegments.map((segment) => (
+            <React.Fragment key={segment.path}>
+              <ChevronRight className="ocs-inspector-file-breadcrumb-separator h-3.5 w-3.5" />
+              <button
+                type="button"
+                className={cn(segment.path === currentDirectoryPath && "active")}
+                onClick={() => void navigateToDirectory(segment.path)}
+              >
+                {segment.label}
+              </button>
+            </React.Fragment>
+          ))}
+          {currentDirectoryPath && (
+            <button
+              type="button"
+              className="ocs-inspector-file-up"
+              onClick={() => void navigateToParentDirectory()}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              {t("parentFolder")}
+            </button>
+          )}
+        </div>
+      )}
+
       {error && <div className="ocs-inspector-file-error">{error}</div>}
 
-      {rootLoading ? (
+      {isLoadingFiles ? (
         <div className="ocs-inspector-empty">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>{t("loading")}</span>
         </div>
-      ) : visibleEntries.length === 0 ? (
-        <div className="ocs-inspector-empty">{t("noMatchingFiles")}</div>
+      ) : entriesForView.length === 0 ? (
+        <div className="ocs-inspector-empty">{emptyMessage}</div>
       ) : viewMode === "grid" ? (
         <div className="ocs-inspector-file-grid">
-          {visibleEntries.map(({ entry, depth }) => {
+          {gridEntries.map(({ entry }) => {
             const isDirectory = entry.kind === "directory";
-            const isExpanded = expandedPaths.has(entry.path);
             const isSelected = selectedFilePath === entry.path;
 
             return (
@@ -1202,9 +1299,7 @@ function InspectorFilesView({
               >
                 <span className="ocs-inspector-file-icon">
                   {isDirectory ? (
-                    <FolderOpen
-                      className={cn("h-4 w-4", !isExpanded && "opacity-60")}
-                    />
+                    <Folder className="h-4 w-4" />
                   ) : (
                     <InspectorEntryIcon entry={entry} />
                   )}
@@ -1217,7 +1312,7 @@ function InspectorFilesView({
                       entry.previewKind ||
                       t("files")}
                 </span>
-                {depth > 0 && (
+                {normalizedFilter && entry.path.includes("/") && (
                   <span className="ocs-inspector-file-path">{entry.path}</span>
                 )}
               </button>

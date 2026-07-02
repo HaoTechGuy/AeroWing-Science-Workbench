@@ -30,10 +30,13 @@ import {
   Circle,
   Copy,
   FileIcon,
+  Hash,
   ImagePlus,
   Loader2,
+  MessageSquare,
   Paperclip,
   Pencil,
+  Search,
   Sparkles,
   RotateCcw,
   Target,
@@ -66,11 +69,15 @@ import { FilesPopover } from "@/app/components/TasksFilesSidebar";
 import { useLanguage } from "@/app/hooks/useLanguage";
 import {
   WORKSPACE_FILE_DRAG_MIME,
+  createWorkspaceFileDragPayload,
   parseWorkspaceFileDragPayload,
   type WorkspaceFileDragPayload,
 } from "@/app/utils/workspaceDrag";
 import { normalizeWorkspacePreviewPath } from "@/app/utils/workspacePathLinks";
 import type { SkillEntry, SkillsConfigResponse } from "@/app/skills/types";
+import { useThreads, type ThreadItem } from "@/app/hooks/useThreads";
+import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
+import type { WorkspaceEntry } from "@/app/types/workspace";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
@@ -96,6 +103,7 @@ const MAX_MENTION_OPTIONS = 10;
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
 const CHAT_COMPOSER_HASH = "#chat-composer";
+const IME_COMPOSITION_END_GRACE_MS = 80;
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -203,9 +211,20 @@ interface AttachmentUploadContext {
   threadId?: string | null;
 }
 
+type ComposerTrigger = "@" | "#" | "/";
+type ComposerTriggerKind = "artifact" | "session" | "skill" | "search";
+
+const COMPOSER_TRIGGER_KIND: Record<ComposerTrigger, ComposerTriggerKind> = {
+  "@": "artifact",
+  "#": "session",
+  "/": "skill",
+};
+
 interface MentionContext {
   start: number;
   query: string;
+  kind: ComposerTriggerKind;
+  trigger: ComposerTrigger | null;
 }
 
 interface MentionMenuPosition {
@@ -214,23 +233,94 @@ interface MentionMenuPosition {
   width: number;
 }
 
+type ComposerSuggestionOption =
+  | {
+      type: "workspace-file";
+      key: string;
+      label: string;
+      description: string;
+      entry: WorkspaceEntry;
+    }
+  | {
+      type: "artifact";
+      key: string;
+      label: string;
+      description: string;
+      path: string;
+      content: string;
+    }
+  | {
+      type: "thread";
+      key: string;
+      label: string;
+      description: string;
+      thread: ThreadItem;
+    }
+  | {
+      type: "skill";
+      key: string;
+      label: string;
+      description: string;
+      skill: SkillEntry;
+      selectedForThread: boolean;
+    }
+  | {
+      type: "command";
+      key: string;
+      label: string;
+      description: string;
+      command: "new-session";
+    };
+
+interface ComposerSuggestionSection {
+  title: string | null;
+  options: ComposerSuggestionOption[];
+}
+
 function getMentionContext(
   value: string,
   cursor: number
 ): MentionContext | null {
   const beforeCursor = value.slice(0, cursor);
-  const atIndex = beforeCursor.lastIndexOf("@");
+  const candidates = (Object.keys(COMPOSER_TRIGGER_KIND) as ComposerTrigger[])
+    .map((trigger) => ({
+      trigger,
+      index: beforeCursor.lastIndexOf(trigger),
+    }))
+    .filter((candidate) => candidate.index >= 0)
+    .sort((left, right) => right.index - left.index);
 
-  if (atIndex === -1) {
+  if (candidates.length === 0) {
     return null;
   }
 
-  const query = beforeCursor.slice(atIndex + 1);
+  const { trigger, index } = candidates[0];
+  if (index > 0 && !/\s/.test(beforeCursor[index - 1])) {
+    return null;
+  }
+
+  const query = beforeCursor.slice(index + 1);
   if (/\s/.test(query)) {
     return null;
   }
 
-  return { start: atIndex, query };
+  return {
+    start: index,
+    query,
+    kind: COMPOSER_TRIGGER_KIND[trigger],
+    trigger,
+  };
+}
+
+function textMatchesQuery(query: string, values: Array<string | undefined>) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return values.some((value) =>
+    (value || "").toLowerCase().includes(normalizedQuery)
+  );
 }
 
 function skillMatchesQuery(skill: SkillEntry, query: string): boolean {
@@ -301,6 +391,26 @@ function addThreadSkill(
   skill: SkillEntry
 ): ThreadSkillsState {
   return addThreadSkillItem(current, threadSkillFromEntry(skill));
+}
+
+function removeThreadSkill(
+  current: ThreadSkillsState | null | undefined,
+  skillKey: string
+): ThreadSkillsState {
+  const active = current?.active ?? [];
+  const nextActive = active.filter((skill) => skill.key !== skillKey);
+
+  if (nextActive.length === active.length) {
+    return {
+      revision: current?.revision ?? 0,
+      active,
+    };
+  }
+
+  return {
+    revision: (current?.revision ?? 0) + 1,
+    active: nextActive,
+  };
 }
 
 function autoSkillNamesForAttachment(
@@ -961,12 +1071,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const tasksContainerRef = useRef<HTMLDivElement | null>(null);
     const composerRef = useRef<HTMLFormElement | null>(null);
     const mentionMenuRef = useRef<HTMLDivElement | null>(null);
+    const commandSearchInputRef = useRef<HTMLInputElement | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const chatDragDepthRef = useRef(0);
     const suppressSkillsMetaToggleUntilRef = useRef(0);
+    const composerCompositionRef = useRef({
+      isComposing: false,
+      lastEndedAt: 0,
+    });
     const [, setSelectedFilePath] = useQueryState("file");
+    const [, setThreadIdQuery] = useQueryState("threadId");
 
     const [input, setInput] = useState("");
     const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
@@ -1040,27 +1156,49 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       setActiveMentionIndex(0);
     }, []);
 
-    const insertMentionTrigger = useCallback(() => {
+    const insertComposerTrigger = useCallback(
+      (trigger: ComposerTrigger) => {
+        const textarea = textareaRef.current;
+        const cursorStart = textarea?.selectionStart ?? input.length;
+        const cursorEnd = textarea?.selectionEnd ?? cursorStart;
+        const prefix = input.slice(0, cursorStart);
+        const suffix = input.slice(cursorEnd);
+        const needsLeadingSpace =
+          prefix.length > 0 && !/\s$/.test(prefix) && !prefix.endsWith(trigger);
+        const inserted = `${needsLeadingSpace ? " " : ""}${trigger}`;
+        const nextInput = `${prefix}${inserted}${suffix}`;
+        const nextMentionStart = prefix.length + (needsLeadingSpace ? 1 : 0);
+        const nextCursor = prefix.length + inserted.length;
+
+        setInput(nextInput);
+        openMentionMenu({
+          start: nextMentionStart,
+          query: "",
+          kind: COMPOSER_TRIGGER_KIND[trigger],
+          trigger,
+        });
+
+        window.requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+          textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+        });
+      },
+      [input, openMentionMenu]
+    );
+
+    const openComposerSearch = useCallback(() => {
       const textarea = textareaRef.current;
-      const cursorStart = textarea?.selectionStart ?? input.length;
-      const cursorEnd = textarea?.selectionEnd ?? cursorStart;
-      const prefix = input.slice(0, cursorStart);
-      const suffix = input.slice(cursorEnd);
-      const needsLeadingSpace =
-        prefix.length > 0 && !/\s$/.test(prefix) && !prefix.endsWith("@");
-      const inserted = `${needsLeadingSpace ? " " : ""}@`;
-      const nextInput = `${prefix}${inserted}${suffix}`;
-      const nextMentionStart = prefix.length + (needsLeadingSpace ? 1 : 0);
-      const nextCursor = prefix.length + inserted.length;
-
-      setInput(nextInput);
-      openMentionMenu({ start: nextMentionStart, query: "" });
-
-      window.requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+      const cursor = textarea?.selectionStart ?? input.length;
+      openMentionMenu({
+        start: cursor,
+        query: "",
+        kind: "search",
+        trigger: null,
       });
-    }, [input, openMentionMenu]);
+      window.requestAnimationFrame(() => {
+        commandSearchInputRef.current?.focus();
+      });
+    }, [input.length, openMentionMenu]);
     const [isSavingTitle, setIsSavingTitle] = useState(false);
     const [showIntermediateResults, setShowIntermediateResults] =
       useState(false);
@@ -1095,9 +1233,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       workspaceId,
     } = useChatContext();
     const { t } = useLanguage();
+    const threadSuggestions = useThreads({
+      limit: 20,
+      resourceId,
+      assistantId: assistant?.assistant_id,
+      workspaceId,
+    });
+    const workspaceFiles = useWorkspaceFiles(resourceId, workspaceId);
 
     const composerBusy = isLoading || isStreamRecovering;
     const submitDisabled = composerBusy || !assistant;
+    const composerSearchShortcut = "Ctrl+K";
     const activeThreadSkillKeys = useMemo(
       () => new Set((threadSkills?.active ?? []).map((skill) => skill.key)),
       [threadSkills]
@@ -1188,6 +1334,244 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           .slice(0, MAX_MENTION_OPTIONS),
       [mentionQuery, sortedMentionSkills]
     );
+    const rootWorkspaceFiles = useMemo(
+      () =>
+        (workspaceFiles.directories[""] ?? [])
+          .filter((entry) => entry.kind === "file")
+          .slice()
+          .sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
+      [workspaceFiles.directories]
+    );
+    const flattenedMentionThreads = useMemo(
+      () =>
+        (threadSuggestions.data?.flat() ?? [])
+          .filter((thread) => thread.id !== threadId)
+          .sort(
+            (left, right) =>
+              right.updatedAt.getTime() - left.updatedAt.getTime()
+          ),
+      [threadId, threadSuggestions.data]
+    );
+    const workspaceFileOptions = useMemo<ComposerSuggestionOption[]>(
+      () =>
+        rootWorkspaceFiles
+          .filter((entry) =>
+            textMatchesQuery(mentionQuery, [entry.name, entry.path])
+          )
+          .slice(0, MAX_MENTION_OPTIONS)
+          .map((entry) => ({
+            type: "workspace-file",
+            key: `workspace:${entry.path}`,
+            label: entry.name,
+            description: [
+              t("projectFile"),
+              typeof entry.size === "number"
+                ? formatAttachmentSize(entry.size)
+                : "",
+              entry.path,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+            entry,
+          })),
+      [mentionQuery, rootWorkspaceFiles, t]
+    );
+    const artifactOptions = useMemo<ComposerSuggestionOption[]>(
+      () =>
+        Object.entries(files)
+          .filter(([path, content]) =>
+            textMatchesQuery(mentionQuery, [path, content])
+          )
+          .slice(0, MAX_MENTION_OPTIONS)
+          .map(([path, content]) => ({
+            type: "artifact",
+            key: `artifact:${path}`,
+            label: path.split("/").pop() || path,
+            description: [t("sessionArtifact"), path].filter(Boolean).join(" · "),
+            path,
+            content,
+          })),
+      [files, mentionQuery, t]
+    );
+    const fileAndArtifactOptions = useMemo(
+      () =>
+        [...artifactOptions, ...workspaceFileOptions].slice(
+          0,
+          MAX_MENTION_OPTIONS
+        ),
+      [artifactOptions, workspaceFileOptions]
+    );
+    const threadOptions = useMemo<ComposerSuggestionOption[]>(
+      () =>
+        flattenedMentionThreads
+          .filter((thread) =>
+            textMatchesQuery(mentionQuery, [
+              thread.title,
+              thread.description,
+              thread.id,
+            ])
+          )
+          .slice(0, MAX_MENTION_OPTIONS)
+          .map((thread) => ({
+            type: "thread",
+            key: `thread:${thread.id}`,
+            label: thread.title,
+            description:
+              thread.description ||
+              `${t("sessions")} · ${thread.id.slice(0, 8)}`,
+            thread,
+          })),
+      [flattenedMentionThreads, mentionQuery, t]
+    );
+    const skillOptions = useMemo<ComposerSuggestionOption[]>(
+      () =>
+        filteredMentionSkills.map((skill) => ({
+          type: "skill",
+          key: `skill:${skill.key}`,
+          label: skill.name,
+          description: skill.description || skill.relativePath,
+          skill,
+          selectedForThread: activeThreadSkillKeys.has(skill.key),
+        })),
+      [activeThreadSkillKeys, filteredMentionSkills]
+    );
+    const commandOptions = useMemo<ComposerSuggestionOption[]>(
+      () =>
+        textMatchesQuery(mentionQuery, [
+          t("newSessionCommand"),
+          t("newThread"),
+          "new session",
+        ])
+          ? [
+              {
+                type: "command",
+                key: "command:new-session",
+                label: t("newSessionCommand"),
+                description: t("command"),
+                command: "new-session",
+              },
+            ]
+          : [],
+      [mentionQuery, t]
+    );
+    const mentionOptions = useMemo<ComposerSuggestionOption[]>(() => {
+      switch (mentionContext?.kind) {
+        case "artifact":
+          return fileAndArtifactOptions;
+        case "session":
+          return threadOptions;
+        case "skill":
+          return skillOptions;
+        case "search":
+          return [
+            ...fileAndArtifactOptions.slice(0, 8),
+            ...threadOptions.slice(0, 5),
+            ...skillOptions.slice(0, 4),
+            ...commandOptions,
+          ];
+        default:
+          return [];
+      }
+    }, [
+      commandOptions,
+      fileAndArtifactOptions,
+      mentionContext?.kind,
+      skillOptions,
+      threadOptions,
+    ]);
+    const mentionSections = useMemo<ComposerSuggestionSection[]>(() => {
+      if (mentionContext?.kind !== "search") {
+        return [{ title: null, options: mentionOptions }];
+      }
+
+      return [
+        {
+          title: t("recentArtifacts"),
+          options: fileAndArtifactOptions.slice(0, 8),
+        },
+        {
+          title: t("recentSessions"),
+          options: threadOptions.slice(0, 5),
+        },
+        {
+          title: t("skills"),
+          options: skillOptions.slice(0, 4),
+        },
+        {
+          title: t("commands"),
+          options: commandOptions,
+        },
+      ].filter((section) => section.options.length > 0);
+    }, [
+      commandOptions,
+      fileAndArtifactOptions,
+      mentionContext?.kind,
+      mentionOptions,
+      skillOptions,
+      t,
+      threadOptions,
+    ]);
+    const mentionMenuTitle = useMemo(() => {
+      switch (mentionContext?.kind) {
+        case "artifact":
+          return t("chooseFileOrArtifact");
+        case "session":
+          return t("chooseSession");
+        case "skill":
+          return t("chooseSkill");
+        case "search":
+          return t("commandPalette");
+        default:
+          return t("searchComposer");
+      }
+    }, [mentionContext?.kind, t]);
+    const mentionMenuEmptyText = useMemo(() => {
+      switch (mentionContext?.kind) {
+        case "artifact":
+          return t("noMatchingFilesOrArtifacts");
+        case "session":
+          return t("noMatchingSessions");
+        case "skill":
+          return t("noMatchingSkills");
+        default:
+          return t("noMatchingResults");
+      }
+    }, [mentionContext?.kind, t]);
+    const threadSuggestionsError =
+      threadSuggestions.error instanceof Error
+        ? threadSuggestions.error.message
+        : threadSuggestions.error
+        ? t("sessionsLoadFailed")
+        : null;
+    const mentionMenuError =
+      mentionContext?.kind === "artifact"
+        ? workspaceFiles.error
+        : mentionContext?.kind === "session"
+        ? threadSuggestionsError
+        : mentionContext?.kind === "skill"
+        ? mentionSkillsError
+        : null;
+    const mentionMenuLoading =
+      mentionContext?.kind === "artifact"
+        ? workspaceFiles.loadingPaths.has("")
+        : mentionContext?.kind === "session"
+        ? !threadSuggestions.data && !threadSuggestions.error
+        : mentionContext?.kind === "skill"
+        ? mentionSkillsLoading
+        : mentionContext?.kind === "search"
+        ? mentionSkillsLoading ||
+          workspaceFiles.loadingPaths.has("") ||
+          (!threadSuggestions.data && !threadSuggestions.error)
+        : false;
+    const mentionMenuLoadingText =
+      mentionContext?.kind === "artifact"
+        ? t("loadingFiles")
+        : mentionContext?.kind === "session"
+        ? t("loadingSessions")
+        : mentionContext?.kind === "skill"
+        ? t("loadingSkills")
+        : t("loadingResults");
+    const mentionMenuIsCommandPalette = mentionContext?.kind === "search";
 
     const loadMentionSkills = useCallback(async () => {
       if (mentionSkillsLoaded || mentionSkillsLoading) {
@@ -1221,10 +1605,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     }, [mentionSkillsLoaded, mentionSkillsLoading, t]);
 
     useEffect(() => {
-      if (mentionMenuOpen) {
+      if (
+        mentionMenuOpen &&
+        (mentionContext?.kind === "skill" || mentionContext?.kind === "search")
+      ) {
         void loadMentionSkills();
       }
-    }, [loadMentionSkills, mentionMenuOpen]);
+    }, [loadMentionSkills, mentionContext?.kind, mentionMenuOpen]);
 
     useEffect(() => {
       if (typeof window === "undefined") {
@@ -1359,13 +1746,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
     useEffect(() => {
       setActiveMentionIndex(0);
-    }, [mentionQuery]);
+    }, [mentionContext?.kind, mentionQuery]);
 
     useEffect(() => {
-      if (activeMentionIndex >= filteredMentionSkills.length) {
-        setActiveMentionIndex(Math.max(0, filteredMentionSkills.length - 1));
+      if (activeMentionIndex >= mentionOptions.length) {
+        setActiveMentionIndex(Math.max(0, mentionOptions.length - 1));
       }
-    }, [activeMentionIndex, filteredMentionSkills.length]);
+    }, [activeMentionIndex, mentionOptions.length]);
 
     useEffect(() => {
       if (!mentionMenuOpen) {
@@ -1452,6 +1839,23 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       }
     }, [t, titleDraft, updateThreadTitle]);
 
+    const removeMentionToken = useCallback(() => {
+      const textarea = textareaRef.current;
+      const cursorEnd = textarea?.selectionEnd ?? input.length;
+      if (!mentionContext || mentionContext.trigger === null) {
+        return {
+          nextInput: input,
+          nextCursor: cursorEnd,
+        };
+      }
+
+      const start = mentionContext.start;
+      return {
+        nextInput: `${input.slice(0, start)}${input.slice(cursorEnd)}`,
+        nextCursor: start,
+      };
+    }, [input, mentionContext]);
+
     const handleInputChange = useCallback(
       (event: React.ChangeEvent<HTMLTextAreaElement>) => {
         const nextInput = event.currentTarget.value;
@@ -1462,11 +1866,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
         if (nextMentionContext) {
           openMentionMenu(nextMentionContext);
+        } else if (mentionMenuOpen && mentionContext?.kind === "search") {
+          setMentionContext({
+            start: cursor,
+            query: nextInput.trim(),
+            kind: "search",
+            trigger: null,
+          });
         } else {
           closeMentionMenu();
         }
       },
-      [closeMentionMenu, openMentionMenu]
+      [closeMentionMenu, mentionContext?.kind, mentionMenuOpen, openMentionMenu]
     );
 
     const selectMentionSkill = useCallback(
@@ -1479,11 +1890,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           return;
         }
 
-        const textarea = textareaRef.current;
-        const cursorEnd = textarea?.selectionEnd ?? input.length;
-        const start = mentionContext?.start ?? cursorEnd;
-        const nextInput = `${input.slice(0, start)}${input.slice(cursorEnd)}`;
-        const nextCursor = start;
+        const { nextInput, nextCursor } = removeMentionToken();
         const alreadyEnabled = activeThreadSkillKeys.has(skill.key);
 
         setInput(nextInput);
@@ -1509,12 +1916,31 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         activeThreadSkillKeys,
         closeMentionMenu,
         composerBusy,
-        input,
-        mentionContext,
+        removeMentionToken,
         t,
         threadSkills,
         updateThreadSkills,
       ]
+    );
+
+    const removeActiveThreadSkill = useCallback(
+      (skill: ThreadSkillItem) => {
+        if (composerBusy) {
+          toast.error(t("addSkillAfterRun"), {
+            position: "top-center",
+          });
+          return;
+        }
+
+        const nextThreadSkills = removeThreadSkill(threadSkills, skill.key);
+        void updateThreadSkills(nextThreadSkills).catch((error) => {
+          toast.error(
+            error instanceof Error ? error.message : t("skillRemoveFailed"),
+            { position: "top-center" }
+          );
+        });
+      },
+      [composerBusy, t, threadSkills, updateThreadSkills]
     );
 
     const handleSubmit = useCallback(
@@ -1580,6 +2006,90 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         applyAutoAttachmentSkills,
         attachmentCopy,
         resourceId,
+        t,
+        threadId,
+        workspaceId,
+      ]
+    );
+
+    const appendWorkspaceFileAttachment = useCallback(
+      async (payload: WorkspaceFileDragPayload) => {
+        if (submitDisabled) {
+          toast.error(t("cannotAttachWhileRunning"));
+          return;
+        }
+
+        if (!isWorkspaceFileAttachmentAllowed(payload)) {
+          toast.warning(
+            t("unsupportedProjectFile", {
+              name: payload.name,
+              hint: attachmentHint,
+            })
+          );
+          return;
+        }
+
+        setIsPreparingDroppedAttachment(true);
+        try {
+          const attachmentContext = {
+            resourceId,
+            workspaceId,
+            threadId,
+          };
+          const attachment = isWorkspaceOfficeAttachment(payload)
+            ? ({
+                id: createAttachmentId(),
+                name: payload.name,
+                mimeType:
+                  OFFICE_ATTACHMENT_MIME_TYPES[
+                    getAttachmentFileKey(payload.name)
+                  ] || "application/octet-stream",
+                size: payload.size || 0,
+                kind: "file",
+                ...(await uploadWorkspaceOfficeAttachment(
+                  payload,
+                  attachmentContext
+                )),
+              } satisfies ChatAttachment)
+            : await prepareAttachment(
+                await workspaceDragPayloadToFile(payload, attachmentContext),
+                attachmentContext,
+                attachmentCopy
+              );
+
+          if (attachment.error) {
+            toast.error(`${attachment.name}: ${attachment.error}`);
+            return;
+          }
+
+          try {
+            await applyAutoAttachmentSkills([attachment]);
+          } catch (skillError) {
+            toast.error(
+              skillError instanceof Error
+                ? skillError.message
+                : t("autoLoadSkillsFailed"),
+              { position: "top-center" }
+            );
+          }
+          setAttachments((current) => [...current, attachment]);
+          toast.success(t("attachmentAdded", { name: attachment.name }));
+        } catch (attachmentError) {
+          toast.error(
+            attachmentError instanceof Error
+              ? attachmentError.message
+              : t("unableToReadProjectFile")
+          );
+        } finally {
+          setIsPreparingDroppedAttachment(false);
+        }
+      },
+      [
+        applyAutoAttachmentSkills,
+        attachmentCopy,
+        attachmentHint,
+        resourceId,
+        submitDisabled,
         t,
         threadId,
         workspaceId,
@@ -1664,43 +2174,85 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           return;
         }
 
-        if (!isWorkspaceFileAttachmentAllowed(payload)) {
-          toast.warning(
-            t("unsupportedProjectFile", {
-              name: payload.name,
-              hint: attachmentHint,
-            })
-          );
+        await appendWorkspaceFileAttachment(payload);
+      },
+      [
+        appendWorkspaceFileAttachment,
+        handleAttachmentFiles,
+        resetChatDropState,
+        submitDisabled,
+        t,
+      ]
+    );
+
+    const removeAttachment = useCallback((id: string) => {
+      setAttachments((current) =>
+        current.filter((attachment) => attachment.id !== id)
+      );
+    }, []);
+
+    const selectComposerOption = useCallback(
+      async (option: ComposerSuggestionOption) => {
+        if (option.type === "skill") {
+          selectMentionSkill(option.skill);
           return;
         }
 
-        setIsPreparingDroppedAttachment(true);
-        try {
-          const attachmentContext = {
-            resourceId,
-            workspaceId,
-            threadId,
-          };
-          const attachment = isWorkspaceOfficeAttachment(payload)
-            ? ({
-                id: createAttachmentId(),
-                name: payload.name,
-                mimeType:
-                  OFFICE_ATTACHMENT_MIME_TYPES[
-                    getAttachmentFileKey(payload.name)
-                  ] || "application/octet-stream",
-                size: payload.size || 0,
-                kind: "file",
-                ...(await uploadWorkspaceOfficeAttachment(
-                  payload,
-                  attachmentContext
-                )),
-              } satisfies ChatAttachment)
-            : await prepareAttachment(
-                await workspaceDragPayloadToFile(payload, attachmentContext),
-                attachmentContext,
-                attachmentCopy
+        const { nextInput, nextCursor } = removeMentionToken();
+        setInput(nextInput);
+        closeMentionMenu();
+
+        if (option.type === "command") {
+          if (option.command === "new-session") {
+            try {
+              await setThreadIdQuery(null);
+            } catch (commandError) {
+              toast.error(
+                commandError instanceof Error
+                  ? commandError.message
+                  : t("threadSwitchFailed")
               );
+            }
+          }
+          return;
+        }
+
+        if (option.type === "thread") {
+          try {
+            await setThreadIdQuery(option.thread.id);
+          } catch (threadError) {
+            toast.error(
+              threadError instanceof Error
+                ? threadError.message
+                : t("threadSwitchFailed")
+            );
+          }
+          return;
+        }
+
+        if (option.type === "workspace-file") {
+          const payload = createWorkspaceFileDragPayload(
+            option.entry,
+            resourceId,
+            workspaceId
+          );
+          if (!payload) {
+            toast.error(t("unableToReadProjectFile"));
+            return;
+          }
+          await appendWorkspaceFileAttachment(payload);
+        } else if (option.type === "artifact") {
+          if (submitDisabled) {
+            toast.error(t("cannotAttachWhileRunning"));
+            return;
+          }
+
+          const fileName = option.path.split("/").pop() || option.path;
+          const attachment = await prepareAttachment(
+            new File([option.content], fileName, { type: "text/plain" }),
+            { resourceId, workspaceId, threadId },
+            attachmentCopy
+          );
 
           if (attachment.error) {
             toast.error(`${attachment.name}: ${attachment.error}`);
@@ -1719,82 +2271,126 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           }
           setAttachments((current) => [...current, attachment]);
           toast.success(t("attachmentAdded", { name: attachment.name }));
-        } catch (dropError) {
-          toast.error(
-            dropError instanceof Error
-              ? dropError.message
-              : t("unableToReadProjectFile")
-          );
-        } finally {
-          setIsPreparingDroppedAttachment(false);
         }
+
+        window.requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+          textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+        });
       },
       [
-        handleAttachmentFiles,
+        appendWorkspaceFileAttachment,
         applyAutoAttachmentSkills,
-        resetChatDropState,
         attachmentCopy,
+        closeMentionMenu,
+        removeMentionToken,
         resourceId,
+        selectMentionSkill,
+        setThreadIdQuery,
         submitDisabled,
         t,
-        attachmentHint,
         threadId,
         workspaceId,
       ]
     );
 
-    const removeAttachment = useCallback((id: string) => {
-      setAttachments((current) =>
-        current.filter((attachment) => attachment.id !== id)
-      );
+    const handleSuggestionKeyDown = useCallback(
+      (e: React.KeyboardEvent<HTMLElement>) => {
+        if (!mentionMenuOpen) {
+          return false;
+        }
+
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setActiveMentionIndex((current) =>
+            mentionOptions.length === 0
+              ? 0
+              : (current + 1) % mentionOptions.length
+          );
+          return true;
+        }
+
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveMentionIndex((current) =>
+            mentionOptions.length === 0
+              ? 0
+              : (current - 1 + mentionOptions.length) % mentionOptions.length
+          );
+          return true;
+        }
+
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeMentionMenu();
+          return true;
+        }
+
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          const selectedOption =
+            mentionOptions[
+              Math.min(activeMentionIndex, mentionOptions.length - 1)
+            ];
+          if (selectedOption) {
+            void selectComposerOption(selectedOption);
+          }
+          return true;
+        }
+
+        return false;
+      },
+      [
+        activeMentionIndex,
+        closeMentionMenu,
+        mentionMenuOpen,
+        mentionOptions,
+        selectComposerOption,
+      ]
+    );
+
+    const isImeComposingForKeyEvent = useCallback(
+      (event: React.KeyboardEvent<HTMLElement>) => {
+        const nativeEvent = event.nativeEvent;
+        const recentlyEndedComposition =
+          Date.now() - composerCompositionRef.current.lastEndedAt <
+          IME_COMPOSITION_END_GRACE_MS;
+
+        return (
+          composerCompositionRef.current.isComposing ||
+          nativeEvent.isComposing ||
+          nativeEvent.keyCode === 229 ||
+          (event.key === "Enter" && recentlyEndedComposition)
+        );
+      },
+      []
+    );
+
+    const handleComposerCompositionStart = useCallback(() => {
+      composerCompositionRef.current.isComposing = true;
+    }, []);
+
+    const handleComposerCompositionEnd = useCallback(() => {
+      composerCompositionRef.current.isComposing = false;
+      composerCompositionRef.current.lastEndedAt = Date.now();
     }, []);
 
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (isImeComposingForKeyEvent(e)) {
+          return;
+        }
+
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+          e.preventDefault();
+          openComposerSearch();
+          return;
+        }
+
         if (submitDisabled) return;
-        const nativeEvent = e.nativeEvent;
-        const isImeComposing =
-          nativeEvent.isComposing || nativeEvent.keyCode === 229;
-        if (isImeComposing) return;
 
         if (mentionMenuOpen) {
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setActiveMentionIndex((current) =>
-              filteredMentionSkills.length === 0
-                ? 0
-                : (current + 1) % filteredMentionSkills.length
-            );
-            return;
-          }
-
-          if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setActiveMentionIndex((current) =>
-              filteredMentionSkills.length === 0
-                ? 0
-                : (current - 1 + filteredMentionSkills.length) %
-                  filteredMentionSkills.length
-            );
-            return;
-          }
-
-          if (e.key === "Escape") {
-            e.preventDefault();
-            closeMentionMenu();
-            return;
-          }
-
-          if (
-            (e.key === "Enter" || e.key === "Tab") &&
-            filteredMentionSkills.length > 0
-          ) {
-            e.preventDefault();
-            selectMentionSkill(
-              filteredMentionSkills[
-                Math.min(activeMentionIndex, filteredMentionSkills.length - 1)
-              ]
-            );
+          if (handleSuggestionKeyDown(e)) {
             return;
           }
         }
@@ -1805,12 +2401,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         }
       },
       [
-        activeMentionIndex,
-        closeMentionMenu,
-        filteredMentionSkills,
+        handleSuggestionKeyDown,
         handleSubmit,
+        isImeComposingForKeyEvent,
         mentionMenuOpen,
-        selectMentionSkill,
+        openComposerSearch,
         submitDisabled,
       ]
     );
@@ -3004,7 +3599,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           {threadSkills.active.map((skill) => (
                             <div
                               key={skill.key}
-                              className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-border bg-card px-3 py-3"
+                              className="grid grid-cols-[auto_1fr_auto] gap-3 rounded-md border border-border bg-card px-3 py-3"
                             >
                               <span className="border-primary/20 bg-primary/10 flex h-8 w-8 items-center justify-center rounded-md border text-sm font-semibold text-primary">
                                 {skill.name.slice(0, 1)}
@@ -3019,6 +3614,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                   </span>
                                 )}
                               </span>
+                              <button
+                                type="button"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => removeActiveThreadSkill(skill)}
+                                disabled={composerBusy}
+                                aria-label={t("removeSkill", {
+                                  name: skill.name,
+                                })}
+                                title={t("removeSkill", {
+                                  name: skill.name,
+                                })}
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
                             </div>
                           ))}
                         </div>
@@ -3095,88 +3704,183 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 createPortal(
                   <div
                     ref={mentionMenuRef}
-                    style={{
-                      bottom: mentionMenuPosition.bottom,
-                      left: mentionMenuPosition.left,
-                      width: mentionMenuPosition.width,
-                    }}
-                    className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg shadow-black/10"
-                    role="listbox"
-                    aria-label={t("chooseSkill")}
+                    style={
+                      mentionMenuIsCommandPalette
+                        ? undefined
+                        : {
+                            bottom: mentionMenuPosition.bottom,
+                            left: mentionMenuPosition.left,
+                            width: mentionMenuPosition.width,
+                          }
+                    }
+                    className={cn(
+                      "fixed z-50 overflow-hidden border border-border bg-popover text-popover-foreground shadow-lg shadow-black/10",
+                      mentionMenuIsCommandPalette
+                        ? "left-1/2 top-[14vh] w-[min(640px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl shadow-2xl shadow-black/20"
+                        : "rounded-lg"
+                    )}
+                    role={mentionMenuIsCommandPalette ? "dialog" : "listbox"}
+                    aria-label={mentionMenuTitle}
                   >
-                    <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-foreground">
-                          {t("chooseSkill")}
+                    {mentionMenuIsCommandPalette ? (
+                      <div className="border-b border-border/70 px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="min-w-0 truncate text-sm font-semibold text-foreground">
+                            {mentionMenuTitle}
+                          </div>
+                          <div className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                            {t("resultCount", {
+                              count: mentionOptions.length,
+                            })}
+                          </div>
                         </div>
-                      </div>
-                      {mentionSkillsLoading && (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      )}
-                    </div>
-                    {mentionSkillsError ? (
-                      <div className="px-3 py-4 text-sm text-red-600">
-                        {mentionSkillsError}
-                      </div>
-                    ) : mentionSkillsLoading && mentionSkills.length === 0 ? (
-                      <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {t("loadingSkills")}
-                      </div>
-                    ) : filteredMentionSkills.length === 0 ? (
-                      <div className="px-3 py-4 text-sm text-muted-foreground">
-                        {t("noMatchingSkills")}
+                        <input
+                          ref={commandSearchInputRef}
+                          value={mentionQuery}
+                          onChange={(event) => {
+                            const query = event.currentTarget.value;
+                            setMentionContext((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    query,
+                                    kind: "search",
+                                    trigger: null,
+                                  }
+                                : current
+                            );
+                          }}
+                          onKeyDown={handleSuggestionKeyDown}
+                          className="h-10 w-full border-0 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground"
+                          placeholder={t("searchThisProject")}
+                          aria-label={t("searchComposer")}
+                          role="combobox"
+                        />
                       </div>
                     ) : (
-                      <div className="scrollbar-subtle max-h-56 overflow-y-auto p-1">
-                        {filteredMentionSkills.map((skill, index) => {
-                          const active = index === activeMentionIndex;
-                          const selectedForThread = activeThreadSkillKeys.has(
-                            skill.key
-                          );
+                      <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-foreground">
+                            {mentionMenuTitle}
+                          </div>
+                        </div>
+                        {mentionMenuLoading && (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        )}
+                      </div>
+                    )}
+                    {mentionMenuError ? (
+                      <div className="px-3 py-4 text-sm text-red-600">
+                        {mentionMenuError}
+                      </div>
+                    ) : mentionMenuLoading && mentionOptions.length === 0 ? (
+                      <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {mentionMenuLoadingText}
+                      </div>
+                    ) : mentionOptions.length === 0 ? (
+                      <div className="px-3 py-4 text-sm text-muted-foreground">
+                        {mentionMenuEmptyText}
+                      </div>
+                    ) : (
+                      <div
+                        className={cn(
+                          "scrollbar-subtle overflow-y-auto p-1",
+                          mentionMenuIsCommandPalette ? "max-h-[60vh]" : "max-h-56"
+                        )}
+                        role="listbox"
+                      >
+                        {mentionSections.map((section, sectionIndex) => {
+                          const sectionStartIndex = mentionSections
+                            .slice(0, sectionIndex)
+                            .reduce(
+                              (count, current) => count + current.options.length,
+                              0
+                            );
                           return (
-                            <button
-                              key={skill.key}
-                              type="button"
-                              role="option"
-                              aria-selected={active}
-                              onMouseEnter={() => setActiveMentionIndex(index)}
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                selectMentionSkill(skill);
-                              }}
-                              className={cn(
-                                "flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                                active
-                                  ? "bg-accent text-accent-foreground"
-                                  : "text-popover-foreground hover:bg-accent/70"
+                            <Fragment key={section.title || "options"}>
+                              {section.title && (
+                                <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  {section.title}
+                                </div>
                               )}
-                            >
-                              <span
-                                className={cn(
-                                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
-                                  selectedForThread
-                                    ? "border-primary/25 bg-primary/10 text-primary"
-                                    : "border-border bg-background text-muted-foreground"
-                                )}
-                              >
-                                {selectedForThread ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                ) : (
-                                  <Sparkles className="h-3.5 w-3.5" />
-                                )}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                                {skill.name}
-                              </span>
-                              {selectedForThread && (
-                                <span className="text-xs text-muted-foreground">
-                                  {t("enabled")}
-                                </span>
-                              )}
-                            </button>
+                              {section.options.map((option, optionIndex) => {
+                                const index = sectionStartIndex + optionIndex;
+                                const active = index === activeMentionIndex;
+                                const selectedForThread =
+                                  option.type === "skill" &&
+                                  option.selectedForThread;
+                                return (
+                                  <button
+                                    key={option.key}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={active}
+                                    onMouseEnter={() =>
+                                      setActiveMentionIndex(index)
+                                    }
+                                    onMouseDown={(event) => {
+                                      event.preventDefault();
+                                      void selectComposerOption(option);
+                                    }}
+                                    className={cn(
+                                      "flex min-h-12 w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                                      active
+                                        ? "bg-accent text-accent-foreground"
+                                        : "text-popover-foreground hover:bg-accent/70"
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border",
+                                        selectedForThread
+                                          ? "border-primary/25 bg-primary/10 text-primary"
+                                          : "border-border bg-background text-muted-foreground"
+                                      )}
+                                    >
+                                      {selectedForThread ? (
+                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                      ) : option.type === "thread" ? (
+                                        <MessageSquare className="h-3.5 w-3.5" />
+                                      ) : option.type === "skill" ? (
+                                        <Sparkles className="h-3.5 w-3.5" />
+                                      ) : option.type === "command" ? (
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <FileIcon className="h-3.5 w-3.5" />
+                                      )}
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-sm font-medium">
+                                        {option.label}
+                                      </span>
+                                      {option.description && (
+                                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                          {option.description}
+                                        </span>
+                                      )}
+                                    </span>
+                                    {selectedForThread && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {t("enabled")}
+                                      </span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </Fragment>
                           );
                         })}
+                      </div>
+                    )}
+                    {mentionMenuIsCommandPalette && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/70 px-4 py-2 text-[11px] text-muted-foreground">
+                        <span>{t("navigateHint")}</span>
+                        <span>{t("openHint")}</span>
+                        <span>{t("mentionHint")}</span>
+                        <span>{t("closeHint")}</span>
+                        <span>@ {t("artifact")}</span>
+                        <span># {t("sessions")}</span>
                       </div>
                     )}
                   </div>,
@@ -3243,13 +3947,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
+                onCompositionStart={handleComposerCompositionStart}
+                onCompositionEnd={handleComposerCompositionEnd}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   isStreamRecovering
                     ? t("recoveringSession")
                     : isLoading
                     ? t("running")
-                    : t("chatPlaceholder")
+                    : t("chatPlaceholder", {
+                        shortcut: composerSearchShortcut,
+                      })
                 }
                 className="font-inherit field-sizing-content min-h-[64px] flex-1 resize-none border-0 bg-transparent px-4 pb-2.5 pt-4 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
                 rows={2}
@@ -3309,9 +4017,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         variant="ghost"
                         size="icon"
                         className="ocs-composer-icon-button h-8 w-8 text-muted-foreground hover:text-primary"
-                        onClick={insertMentionTrigger}
+                        onClick={() => insertComposerTrigger("@")}
                         disabled={isLoading}
-                        aria-label={t("mentionCapability")}
+                        aria-label={t("mentionFilesArtifacts")}
                       >
                         <AtSign className="h-4 w-4" />
                       </Button>
@@ -3322,7 +4030,80 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       sideOffset={6}
                       className="whitespace-nowrap"
                     >
-                      {t("mentionCapability")}
+                      {t("mentionFilesArtifacts")}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="ocs-composer-icon-button h-8 w-8 text-muted-foreground hover:text-primary"
+                        onClick={() => insertComposerTrigger("#")}
+                        disabled={isLoading}
+                        aria-label={t("mentionSessions")}
+                      >
+                        <Hash className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      align="center"
+                      sideOffset={6}
+                      className="whitespace-nowrap"
+                    >
+                      {t("mentionSessions")}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="ocs-composer-icon-button h-8 w-8 text-muted-foreground hover:text-primary"
+                        onClick={() => insertComposerTrigger("/")}
+                        disabled={isLoading}
+                        aria-label={t("mentionSkills")}
+                      >
+                        <span className="font-mono text-base leading-none">/</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      align="center"
+                      sideOffset={6}
+                      className="whitespace-nowrap"
+                    >
+                      {t("mentionSkills")}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="ocs-composer-icon-button h-8 w-8 text-muted-foreground hover:text-primary"
+                        onClick={openComposerSearch}
+                        disabled={isLoading}
+                        aria-label={t("searchComposerShortcut", {
+                          shortcut: composerSearchShortcut,
+                        })}
+                      >
+                        <Search className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      align="center"
+                      sideOffset={6}
+                      className="whitespace-nowrap"
+                    >
+                      {t("searchComposerShortcut", {
+                        shortcut: composerSearchShortcut,
+                      })}
                     </TooltipContent>
                   </Tooltip>
                 </div>
