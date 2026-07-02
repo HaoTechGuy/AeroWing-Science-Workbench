@@ -3,37 +3,6 @@ import { gatewayModelsUrl } from "@/app/api/gateway/_lib/gateway";
 
 export const runtime = "nodejs";
 
-const DEFAULT_IMAGE_MODELS = [
-  {
-    id: "cogview-3-flash",
-    title: "CogView-3-Flash",
-    provider: "Zhipu AI",
-    description:
-      "Free image generation model routed through the InternAgents gateway.",
-    upstreamModel: "cogview-3-flash",
-    upstreamProvider: "bigmodel",
-    size: "1024x1024",
-    isDefault: true,
-  },
-];
-
-function withImageModels(payload: unknown) {
-  const record =
-    payload && typeof payload === "object" && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : {};
-  const imageModels =
-    Array.isArray(record.imageModels) && record.imageModels.length > 0
-      ? record.imageModels
-      : Array.isArray(record.image_models) && record.image_models.length > 0
-        ? record.image_models
-        : DEFAULT_IMAGE_MODELS;
-  return {
-    ...record,
-    imageModels,
-  };
-}
-
 export async function GET() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
@@ -54,7 +23,7 @@ export async function GET() {
         { status: response.status }
       );
     }
-    return NextResponse.json(withImageModels(payload));
+    return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json(
       {

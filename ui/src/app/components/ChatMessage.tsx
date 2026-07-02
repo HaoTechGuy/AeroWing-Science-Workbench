@@ -4,7 +4,7 @@ import React, { useMemo, useState, useCallback } from "react";
 import { SubAgentIndicator } from "@/app/components/SubAgentIndicator";
 import { ToolCallBox } from "@/app/components/ToolCallBox";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
-import { ExternalLink, FileIcon, ImageIcon } from "lucide-react";
+import { FileIcon } from "lucide-react";
 import type {
   ChatAttachment,
   SubAgent,
@@ -18,18 +18,11 @@ import {
   extractSubAgentContent,
   extractVisibleStringFromMessageContent,
 } from "@/app/utils/utils";
-import {
-  extractGeneratedImageArtifacts,
-  extractMarkdownWorkspaceImagePaths,
-  workspaceImageRawUrl,
-} from "@/app/utils/generatedImages";
 import { cn } from "@/lib/utils";
 
 interface ChatMessageProps {
   message: Message;
   toolCalls: ToolCall[];
-  artifactToolCalls?: ToolCall[];
-  hiddenGeneratedImagePaths?: readonly string[];
   showAvatar?: boolean;
   isLoading?: boolean;
   actionRequestsMap?: Map<string, ActionRequest>;
@@ -41,16 +34,12 @@ interface ChatMessageProps {
   runtimeMuted?: boolean;
   showTerminalToolIssueNotice?: boolean;
   onOpenAttachment?: (path: string) => void;
-  resourceId?: string;
-  workspaceId?: string;
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
   ({
     message,
     toolCalls,
-    artifactToolCalls,
-    hiddenGeneratedImagePaths,
     showAvatar,
     isLoading,
     actionRequestsMap,
@@ -62,17 +51,13 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     runtimeMuted,
     showTerminalToolIssueNotice,
     onOpenAttachment,
-    resourceId,
-    workspaceId,
   }) => {
     const isUser = message.type === "human";
     const messageContent = extractVisibleStringFromMessageContent(message);
-    const messageImageUrls = useMemo(
-      () => extractImageUrlsFromMessageContent(message),
-      [message]
+    const imageUrls = useMemo(
+      () => (isUser ? extractImageUrlsFromMessageContent(message) : []),
+      [isUser, message]
     );
-    const userImageUrls = isUser ? messageImageUrls : [];
-    const assistantImageUrls = isUser ? [] : messageImageUrls;
     const attachments = useMemo(() => {
       const rawAttachments = message.additional_kwargs?.attachments;
       return Array.isArray(rawAttachments)
@@ -85,34 +70,8 @@ export const ChatMessage = React.memo<ChatMessageProps>(
       (attachment) => attachment.kind !== "image"
     );
     const hasUserAttachments =
-      isUser &&
-      (userImageUrls.length > 0 || visibleFileAttachments.length > 0);
+      isUser && (imageUrls.length > 0 || visibleFileAttachments.length > 0);
     const hasToolCalls = toolCalls.length > 0;
-    const generatedImages = useMemo(() => {
-      if (isUser) {
-        return [];
-      }
-      const markdownImagePaths = new Set(
-        extractMarkdownWorkspaceImagePaths(messageContent)
-      );
-      for (const path of hiddenGeneratedImagePaths ?? []) {
-        markdownImagePaths.add(path);
-      }
-      return extractGeneratedImageArtifacts(artifactToolCalls ?? toolCalls)
-        .map((artifact) => ({
-          ...artifact,
-          rawUrl: workspaceImageRawUrl(artifact.path, resourceId, workspaceId),
-        }))
-        .filter((artifact) => !markdownImagePaths.has(artifact.path));
-    }, [
-      artifactToolCalls,
-      hiddenGeneratedImagePaths,
-      isUser,
-      messageContent,
-      resourceId,
-      toolCalls,
-      workspaceId,
-    ]);
     const hasTerminalToolIssue = toolCalls.some(
       (toolCall) =>
         Boolean(toolCall.result) &&
@@ -206,8 +165,6 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <MarkdownContent
                     content={messageContent}
                     onOpenWorkspacePath={onOpenAttachment}
-                    resourceId={resourceId}
-                    workspaceId={workspaceId}
                   />
                 ) : null}
               </div>
@@ -215,7 +172,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
           )}
           {hasUserAttachments && (
             <div className="mt-2 flex flex-wrap justify-end gap-2">
-              {userImageUrls.map((imageUrl, index) => (
+              {imageUrls.map((imageUrl, index) => (
                 <img
                   key={`${message.id}-image-${index}`}
                   src={imageUrl}
@@ -247,71 +204,6 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <FileIcon className="h-4 w-4 shrink-0" />
                   <span className="min-w-0 truncate">{attachment.name}</span>
                 </button>
-              ))}
-            </div>
-          )}
-          {assistantImageUrls.length > 0 && (
-            <div className="mt-3 flex max-w-full flex-wrap gap-3">
-              {assistantImageUrls.map((imageUrl, index) => (
-                <img
-                  key={`${message.id}-assistant-image-${index}`}
-                  src={imageUrl}
-                  alt="Assistant image"
-                  className={cn(
-                    "max-h-[28rem] max-w-[min(28rem,100%)] rounded-md border border-border bg-card object-contain shadow-sm shadow-black/[0.025]",
-                    showMutedRuntime && "border-border/30 bg-muted/5 opacity-90"
-                  )}
-                  loading="lazy"
-                />
-              ))}
-            </div>
-          )}
-          {generatedImages.length > 0 && (
-            <div className="mt-3 flex max-w-full flex-wrap gap-3">
-              {generatedImages.map((image, index) => (
-                <figure
-                  key={`${image.path}-${index}`}
-                  className={cn(
-                    "m-0 w-full max-w-[min(28rem,100%)] overflow-hidden rounded-md border border-border bg-card shadow-sm shadow-black/[0.025]",
-                    showMutedRuntime && "border-border/30 bg-muted/5 opacity-90"
-                  )}
-                >
-                  <button
-                    type="button"
-                    className={cn(
-                      "block max-h-[28rem] w-full overflow-hidden bg-muted/20 text-left",
-                      onOpenAttachment &&
-                        "cursor-zoom-in transition-opacity hover:opacity-95"
-                    )}
-                    onClick={() => onOpenAttachment?.(image.path)}
-                    disabled={!onOpenAttachment}
-                    title={image.path}
-                  >
-                    <img
-                      src={image.rawUrl}
-                      alt={image.prompt || "Generated image"}
-                      className="h-auto max-h-[28rem] w-full object-contain"
-                      loading="lazy"
-                    />
-                  </button>
-                  <figcaption className="flex min-w-0 items-center gap-2 border-t border-border/70 px-2 py-1.5 text-xs text-muted-foreground">
-                    <ImageIcon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate font-mono">
-                      {image.path}
-                    </span>
-                    {onOpenAttachment && (
-                      <button
-                        type="button"
-                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => onOpenAttachment(image.path)}
-                        title={image.path}
-                        aria-label={`Open ${image.path}`}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </figcaption>
-                </figure>
               ))}
             </div>
           )}
@@ -387,8 +279,6 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                           <MarkdownContent
                             content={extractSubAgentContent(subAgent.input)}
                             onOpenWorkspacePath={onOpenAttachment}
-                            resourceId={resourceId}
-                            workspaceId={workspaceId}
                             className={cn(
                               showMutedRuntime &&
                                 "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"
@@ -408,8 +298,6 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                             <MarkdownContent
                               content={extractSubAgentContent(subAgent.output)}
                               onOpenWorkspacePath={onOpenAttachment}
-                              resourceId={resourceId}
-                              workspaceId={workspaceId}
                               className={cn(
                                 showMutedRuntime &&
                                   "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"

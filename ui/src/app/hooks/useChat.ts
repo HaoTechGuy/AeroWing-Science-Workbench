@@ -74,7 +74,6 @@ type RuntimeRunSnapshot = {
   createdAt?: string;
   updatedAt?: string;
 };
-type PendingRunLoader = () => Promise<PendingRunInputPreview | null>;
 export type ThreadRecoveryNotice =
   | {
       kind: "failed_run_input";
@@ -96,8 +95,6 @@ const THREAD_UPDATED_AT_METADATA_KEY = "internagents_thread_updated_at";
 const PENDING_RUN_STATUS_METADATA_KEY = "internagents_pending_run_status";
 const THREAD_RECOVERY_KIND_METADATA_KEY = "internagents_recovery_kind";
 const THREAD_RECOVERY_FAILED_RUN_INPUT = "failed_run_input";
-const FAILED_RUN_FALLBACK_MESSAGE =
-  "本次运行失败，但本地 LangGraph 服务没有返回可直接显示的详细错误。请查看 backend.log 和 local-runtime.log；如果日志里出现 Upstream request failed，通常是当前模型上游服务失败或暂时不可用。";
 const STREAM_RECOVERY_VISIBLE_DELAY_MS = 700;
 const STALE_ACTIVE_RUN_MS = 10 * 60 * 1000;
 const ACTIVE_RUN_STATUSES = new Set(["busy", "pending", "running"]);
@@ -453,37 +450,9 @@ function mergePendingRunState(
   preview: PendingRunInputPreview
 ): ThreadState<StateType> {
   const pendingState = pendingRunToState(threadId, preview);
-  if (!primaryState) {
-    return pendingState;
-  }
-
-  const primaryMessages = messagesFromValues(primaryState.values);
-  const pendingMessages = messagesFromValues(pendingState.values);
-  const seenIds = new Set(
-    primaryMessages
-      .map((message) => message.id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0)
-  );
-  const messages = [
-    ...primaryMessages,
-    ...pendingMessages.filter((message) => {
-      if (!message.id) {
-        return true;
-      }
-      return !seenIds.has(message.id);
-    }),
-  ];
-  const merged = mergeStateSnapshot(primaryState, pendingState, {
-    preservePrimaryMessages: true,
-  });
-
-  return sanitizeThreadState({
-    ...merged,
-    values: {
-      ...merged.values,
-      messages,
-    },
-  });
+  return primaryState
+    ? mergeStateSnapshot(primaryState, pendingState)
+    : pendingState;
 }
 
 function attachPendingRunMetadata(
@@ -836,18 +805,6 @@ async function loadThreadSnapshot({
   let primaryState: ThreadState<StateType> | null = null;
   let primaryError: unknown;
   let hasMainStateMessages = false;
-  let pendingRunPreview: PendingRunInputPreview | null | undefined;
-  const loadPendingRunPreview: PendingRunLoader = async () => {
-    if (pendingRunPreview !== undefined) {
-      return pendingRunPreview;
-    }
-    pendingRunPreview =
-      (await loadPendingRunInputPreview(client, threadId)) ??
-      (runtimeClient
-        ? await loadPendingRunInputPreview(runtimeClient, threadId)
-        : null);
-    return pendingRunPreview;
-  };
 
   try {
     const mainState = sanitizeThreadState(
@@ -864,10 +821,6 @@ async function loadThreadSnapshot({
     const threadState = primaryState
       ? mergeThreadRecord(primaryState, threadRecord)
       : threadToState(threadId, threadRecord);
-    const pendingPreview = await loadPendingRunPreview();
-    if (pendingPreview?.status === "error") {
-      return [mergePendingRunState(threadId, threadState, pendingPreview)];
-    }
     if (hasMainStateMessages && stateHasMessages(threadState)) {
       return [sanitizeThreadState(threadState)];
     }
@@ -901,7 +854,11 @@ async function loadThreadSnapshot({
     return [sanitizeThreadState(primaryState)];
   }
 
-  pendingRunPreview = await loadPendingRunPreview();
+  const pendingRunPreview =
+    (await loadPendingRunInputPreview(client, threadId)) ??
+    (runtimeClient
+      ? await loadPendingRunInputPreview(runtimeClient, threadId)
+      : null);
   if (pendingRunPreview?.status === "error") {
     return [mergePendingRunState(threadId, primaryState, pendingRunPreview)];
   }
@@ -1575,20 +1532,6 @@ export function useChat({
     typeof threadMetadata[PENDING_RUN_STATUS_METADATA_KEY] === "string"
       ? threadMetadata[PENDING_RUN_STATUS_METADATA_KEY]
       : null;
-  const recoveredRunError = useMemo(() => {
-    if (visibleError) {
-      return undefined;
-    }
-    if (
-      pendingRunStatus !== "error" ||
-      threadMetadata[THREAD_RECOVERY_KIND_METADATA_KEY] !==
-        THREAD_RECOVERY_FAILED_RUN_INPUT
-    ) {
-      return undefined;
-    }
-    return new Error(FAILED_RUN_FALLBACK_MESSAGE);
-  }, [pendingRunStatus, threadMetadata, visibleError]);
-  const effectiveError = visibleError ?? recoveredRunError;
   const detectedActiveRun =
     (threadStatus ? ACTIVE_RUN_STATUSES.has(threadStatus) : false) ||
     (pendingRunStatus ? ACTIVE_RUN_STATUSES.has(pendingRunStatus) : false) ||
@@ -2415,7 +2358,7 @@ export function useChat({
   const visibleInterrupt = hasActionableInterrupt(activeInterrupt)
     ? activeInterrupt
     : undefined;
-  const runStatus: RunLifecycleStatus = effectiveError
+  const runStatus: RunLifecycleStatus = visibleError
     ? "error"
     : visibleInterrupt
     ? "interrupted"
@@ -2514,7 +2457,7 @@ export function useChat({
     updateThreadSkills,
     setFiles,
     messages: scopedMessages,
-    error: effectiveError,
+    error: visibleError,
     recoveryNotice,
     isLoading: isRunLoading,
     isStreamRecovering,

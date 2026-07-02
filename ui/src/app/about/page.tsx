@@ -101,28 +101,6 @@ function formatBytes(value: number) {
   return `${size.toFixed(digits)} ${units[unitIndex]}`;
 }
 
-function updateAssetLabel(assetName?: string) {
-  const lowerName = assetName?.toLowerCase() || "";
-  if (lowerName.endsWith(".exe")) {
-    return "Windows 安装器";
-  }
-  if (lowerName.endsWith(".dmg")) {
-    return "DMG";
-  }
-  return "安装包";
-}
-
-function updateApplyDescription(assetName?: string) {
-  const lowerName = assetName?.toLowerCase() || "";
-  if (lowerName.endsWith(".exe")) {
-    return "更新会下载最新 Windows 安装器，退出当前 App，静默安装后重新打开。";
-  }
-  if (lowerName.endsWith(".dmg")) {
-    return "更新会下载最新 DMG，退出当前 App，替换本机 .app 后重新打开。";
-  }
-  return "更新会下载最新安装包，退出当前 App，完成安装后重新打开。";
-}
-
 function formatPercent(value: number | undefined) {
   if (value === undefined) {
     return "下载中";
@@ -248,14 +226,13 @@ function AboutPageContent() {
 
   async function applySoftwareUpdate() {
     const latestTag = updateStatus?.latest?.tagName;
-    const latestAssetName = updateStatus?.latest?.asset?.name;
     const confirmed = window.confirm(
       [
         latestTag
           ? `即将从 InternScience/InternAgents 更新到 ${latestTag}。`
           : "即将从 InternScience/InternAgents 更新到最新 release。",
         "",
-        updateApplyDescription(latestAssetName),
+        "更新会下载最新 DMG，退出当前 App，替换本机 .app 后重新打开。",
         "",
         "确认继续？",
       ].join("\n")
@@ -293,16 +270,13 @@ function AboutPageContent() {
 
   async function rollbackSoftwareUpdate() {
     const previousLabel = updateStatus?.previous?.label;
-    const latestAssetName = updateStatus?.latest?.asset?.name;
     const confirmed = window.confirm(
       [
         previousLabel
           ? `即将回滚到 ${previousLabel}。`
           : "即将回滚到上一版本。",
         "",
-        `当前 App 安装器模式不支持自动回滚；如需回滚，请下载上一版 ${updateAssetLabel(
-          latestAssetName
-        )} 手动安装。`,
+        "当前 App 安装器模式不支持自动回滚；如需回滚，请下载上一版 DMG 手动安装。",
         "",
         "确认继续？",
       ].join("\n")
@@ -558,7 +532,7 @@ function AboutPageContent() {
                   <div className="mt-1 truncate text-xs text-muted-foreground">
                     {updateStatus?.backendRestart?.message ||
                       updateStatus?.latest?.asset?.name ||
-                      (updateStatus ? "GitHub Release 安装包" : "等待状态读取")}
+                      (updateStatus ? "GitHub Release DMG" : "等待状态读取")}
                   </div>
                 </div>
               </div>

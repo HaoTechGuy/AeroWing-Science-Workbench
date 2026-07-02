@@ -36,15 +36,5 @@
     "provider": "duckduckgo",
     "max_results": 5,
     "timeout_seconds": 10
-  },
-  "image_generation": {
-    "enabled": true,
-    "provider": "internagents_gateway",
-    "model": "cogview-3-flash",
-    "base_url": "http://43.106.18.167/jisi/v1",
-    "size": "1024x1024",
-    "output_dir": "/generated-images",
-    "timeout_seconds": 60,
-    "max_images_per_call": 1
   }
 }

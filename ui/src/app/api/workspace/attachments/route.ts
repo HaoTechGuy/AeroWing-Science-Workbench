@@ -1,6 +1,4 @@
 import crypto from "crypto";
-import { existsSync } from "node:fs";
-import { pathToFileURL } from "node:url";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -147,32 +145,6 @@ function normalizeExtractedText(text: string): string {
     .trim();
 }
 
-async function loadPdfParse(): Promise<typeof import("pdf-parse")> {
-  try {
-    return await import("pdf-parse");
-  } catch (importError) {
-    const nodePath = process.env.NODE_PATH || "";
-    const moduleRoots = nodePath.split(path.delimiter).filter(Boolean);
-    for (const moduleRoot of moduleRoots) {
-      const cjsEntry = path.join(
-        moduleRoot,
-        "pdf-parse",
-        "dist",
-        "pdf-parse",
-        "cjs",
-        "index.cjs"
-      );
-      if (existsSync(cjsEntry)) {
-        return (await import(
-          /* webpackIgnore: true */
-          pathToFileURL(cjsEntry).href
-        )) as typeof import("pdf-parse");
-      }
-    }
-    throw importError;
-  }
-}
-
 async function extractPdfText(data: Buffer): Promise<{
   text: string;
   pageCount?: number;
@@ -181,7 +153,7 @@ async function extractPdfText(data: Buffer): Promise<{
   extractionError?: string;
 }> {
   try {
-    const { PDFParse } = await loadPdfParse();
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: new Uint8Array(data) });
     try {
       const result = await parser.getText({ first: MAX_PDF_EXTRACT_PAGES });

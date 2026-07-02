@@ -16,36 +16,6 @@ const COMMAND_TIMEOUT_MS = 60 * 1000;
 const MAX_BUFFER = 8 * 1024 * 1024;
 const MAX_LOG_ENTRIES = 40;
 const LOCK_STALE_MS = 30 * 60 * 1000;
-const WINDOWS_PRODUCT_EXE = "InternAgents.exe";
-
-type UpdatePlatform = "darwin" | "win32" | "unsupported";
-
-function updatePlatform(): UpdatePlatform {
-  if (process.platform === "darwin" || process.platform === "win32") {
-    return process.platform;
-  }
-  return "unsupported";
-}
-
-function updateAssetExtension(platform = updatePlatform()) {
-  if (platform === "darwin") {
-    return ".dmg";
-  }
-  if (platform === "win32") {
-    return ".exe";
-  }
-  return "";
-}
-
-function updateAssetLabel(platform = updatePlatform()) {
-  if (platform === "darwin") {
-    return "macOS DMG";
-  }
-  if (platform === "win32") {
-    return "Windows installer EXE";
-  }
-  return "desktop installer";
-}
 
 type UpdateState =
   | "idle"
@@ -404,15 +374,7 @@ function appBundlePath() {
     return undefined;
   }
   const resolved = path.resolve(raw);
-  if (process.platform === "darwin") {
-    return resolved.endsWith(".app") ? resolved : undefined;
-  }
-  if (process.platform === "win32") {
-    return path.extname(resolved).toLowerCase() === ".exe"
-      ? resolved
-      : undefined;
-  }
-  return undefined;
+  return resolved.endsWith(".app") ? resolved : undefined;
 }
 
 export async function getCurrentVersionInfo(): Promise<UpdateVersionInfo> {
@@ -490,9 +452,7 @@ function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
     typeof asset.browser_download_url === "string"
       ? asset.browser_download_url
       : "";
-  const lowerName = name.toLowerCase();
-  const extension = updateAssetExtension();
-  if (!name || !downloadUrl || !extension || !lowerName.endsWith(extension)) {
+  if (!name || !downloadUrl || !name.toLowerCase().endsWith(".dmg")) {
     return -1;
   }
 
@@ -501,16 +461,8 @@ function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
     return override.test(name) ? 1000 : -1;
   }
 
-  const platform = updatePlatform();
+  const lowerName = name.toLowerCase();
   const arch = process.arch;
-  const wantedPlatformTokens =
-    platform === "win32"
-      ? ["win", "windows", "nsis", "setup"]
-      : ["mac", "macos", "darwin", "dmg"];
-  const otherPlatformTokens =
-    platform === "win32"
-      ? ["mac", "macos", "darwin", "dmg"]
-      : ["win", "windows", "nsis", "setup"];
   const wantedTokens =
     arch === "arm64"
       ? ["arm64", "aarch64", "apple-silicon", "silicon"]
@@ -523,17 +475,8 @@ function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
     lowerName.includes(token)
   );
   const hasOtherToken = otherTokens.some((token) => lowerName.includes(token));
-  const hasWantedPlatformToken = wantedPlatformTokens.some((token) =>
-    lowerName.includes(token)
-  );
-  const hasOtherPlatformToken = otherPlatformTokens.some((token) =>
-    lowerName.includes(token)
-  );
 
   if (hasOtherToken && !hasWantedToken) {
-    return -1;
-  }
-  if (hasOtherPlatformToken && !hasWantedPlatformToken) {
     return -1;
   }
 
@@ -541,9 +484,6 @@ function scoreReleaseAsset(asset: GitHubAssetPayload, tagName: string) {
 
   if (lowerName.includes("internagents")) {
     score += 100;
-  }
-  if (hasWantedPlatformToken) {
-    score += 40;
   }
   if (hasWantedToken) {
     score += 80;
@@ -600,19 +540,15 @@ function releaseTagFromUrl(value: string | undefined) {
 
 function publicAssetCandidates(tagName: string) {
   const version = normalizeVersion(tagName);
-  const extension = updateAssetExtension();
-  if (!extension) {
-    return [];
-  }
   const archTokens = process.arch === "arm64" ? ["arm64"] : ["x64", "x86_64"];
   const versionTokens = Array.from(new Set([version, tagName]));
   const names = new Set<string>();
 
   for (const versionToken of versionTokens) {
     for (const archToken of archTokens) {
-      names.add(`InternAgents-${versionToken}-${archToken}${extension}`);
+      names.add(`InternAgents-${versionToken}-${archToken}.dmg`);
     }
-    names.add(`InternAgents-${versionToken}${extension}`);
+    names.add(`InternAgents-${versionToken}.dmg`);
   }
 
   return [...names];
@@ -773,24 +709,17 @@ function blockReasonFor(status: UpdateStatus) {
   if (status.state === "downloading" || status.state === "applying") {
     return "更新正在进行中。";
   }
-  const platform = updatePlatform();
-  if (platform === "unsupported") {
-    return "自动安装 App 更新仅支持 macOS 和 Windows。";
+  if (process.platform !== "darwin") {
+    return "自动安装 App 更新仅支持 macOS。";
   }
   if (!status.latest?.asset) {
-    return `最新 Release 没有匹配当前平台和架构的 ${updateAssetLabel()} 资源。`;
+    return "最新 Release 没有匹配当前 Mac 架构的 DMG 资产。";
   }
   if (status.current.installMode !== "desktop-app" || !status.current.appPath) {
-    return `当前不是从打包后的桌面 App 启动；请下载 ${updateAssetLabel()} 后手动安装。`;
+    return "当前不是从打包后的 macOS App 启动；请下载 DMG 后手动安装。";
   }
-  if (platform === "darwin" && status.current.appPath.startsWith("/Volumes/")) {
+  if (status.current.appPath.startsWith("/Volumes/")) {
     return "当前 App 似乎直接运行在 DMG 中；请先拖到 Applications 后再更新。";
-  }
-  if (
-    platform === "win32" &&
-    path.extname(status.current.appPath).toLowerCase() !== ".exe"
-  ) {
-    return "当前 Windows App 路径不是可执行安装目标；请下载安装器后手动安装。";
   }
   return undefined;
 }
@@ -888,10 +817,7 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
     status = buildStatusWithRelease(current, latest, status);
     status = appendLog(status, status.message);
     if (status.updateAvailable && !latest.asset) {
-      status = appendLog(
-        status,
-        `未找到适用于当前平台和架构的 ${updateAssetLabel()} 资源。`
-      );
+      status = appendLog(status, "未找到适用于当前 Mac 的 DMG 资产。");
     }
     return writeStatusFile(status);
   } catch (error) {
@@ -972,7 +898,7 @@ async function downloadAsset(
     cache: "no-store",
   });
   if (!response.ok || !response.body) {
-    throw new Error(`${updateAssetLabel()} 下载失败：HTTP ${response.status}`);
+    throw new Error(`DMG 下载失败：HTTP ${response.status}`);
   }
 
   const totalBytes =
@@ -1040,7 +966,7 @@ async function downloadAsset(
     const stat = await fs.stat(partial);
     if (stat.size !== asset.size) {
       throw new Error(
-        `${updateAssetLabel()} 下载大小不一致：期望 ${asset.size}，实际 ${stat.size}。`
+        `DMG 下载大小不一致：期望 ${asset.size}，实际 ${stat.size}。`
       );
     }
   }
@@ -1151,10 +1077,6 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-function powerShellQuote(value: string) {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 async function writeInstallerScript(
   stagedApp: string,
   targetApp: string,
@@ -1247,117 +1169,6 @@ async function launchInstaller(
   return installLogPath;
 }
 
-async function writeWindowsInstallerScript(
-  installerPath: string,
-  targetExe: string,
-  tagName: string
-) {
-  const { installerDir, installLogPath } = updatePaths();
-  await fs.mkdir(installerDir, { recursive: true });
-  const scriptPath = path.join(
-    installerDir,
-    `install-${safeFileName(tagName)}.ps1`
-  );
-  const appPid = Number(process.env.INTERNAGENTS_APP_PID || process.ppid || 0);
-  const serverPid = process.pid;
-  const targetDir = path.dirname(targetExe);
-
-  const script = `$ErrorActionPreference = "Stop"
-$Log = ${powerShellQuote(installLogPath)}
-$Installer = ${powerShellQuote(installerPath)}
-$TargetExe = ${powerShellQuote(targetExe)}
-$TargetDir = ${powerShellQuote(targetDir)}
-$FallbackExe = ${powerShellQuote(WINDOWS_PRODUCT_EXE)}
-$AppPid = ${String(appPid)}
-$ServerPid = ${String(serverPid)}
-
-function Write-UpdateLog([string]$Message) {
-  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Log) | Out-Null
-  Add-Content -LiteralPath $Log -Value ("[{0}Z] {1}" -f [DateTime]::UtcNow.ToString("s"), $Message)
-}
-
-function Stop-IfRunning([int]$ProcessId) {
-  if ($ProcessId -le 1 -or $ProcessId -eq $PID) {
-    return
-  }
-  $TargetProcess = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-  if ($null -eq $TargetProcess) {
-    return
-  }
-  Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
-  Wait-Process -Id $ProcessId -Timeout 20 -ErrorAction SilentlyContinue
-}
-
-try {
-  Write-UpdateLog "Installing InternAgents ${tagName}"
-  Start-Sleep -Seconds 1
-  Stop-IfRunning $AppPid
-  Stop-IfRunning $ServerPid
-
-  if (-not (Test-Path -LiteralPath $Installer)) {
-    throw "Installer is missing: $Installer"
-  }
-
-  $Arguments = @("/S", "/D=$TargetDir")
-  Write-UpdateLog ("Running installer: " + $Installer + " " + ($Arguments -join " "))
-  $InstallerProcess = Start-Process -FilePath $Installer -ArgumentList $Arguments -Wait -PassThru
-  if ($InstallerProcess.ExitCode -ne 0) {
-    throw "Installer exited with code $($InstallerProcess.ExitCode)."
-  }
-
-  $LaunchExe = $TargetExe
-  if (-not (Test-Path -LiteralPath $LaunchExe)) {
-    $LaunchExe = Join-Path -Path $TargetDir -ChildPath $FallbackExe
-  }
-  if (Test-Path -LiteralPath $LaunchExe) {
-    Start-Process -FilePath $LaunchExe
-  } else {
-    Write-UpdateLog "Updated executable was not found after install."
-  }
-  Write-UpdateLog "Install complete."
-} catch {
-  Write-UpdateLog ("Install failed: " + $_.Exception.Message)
-  exit 1
-}
-`;
-
-  await fs.writeFile(scriptPath, script, "utf8");
-  return { scriptPath, installLogPath };
-}
-
-async function launchWindowsInstaller(
-  installerPath: string,
-  targetExe: string,
-  tagName: string
-) {
-  const { scriptPath, installLogPath } = await writeWindowsInstallerScript(
-    installerPath,
-    targetExe,
-    tagName
-  );
-  const powerShell =
-    process.env.SystemRoot?.trim()
-      ? path.join(
-          process.env.SystemRoot,
-          "System32",
-          "WindowsPowerShell",
-          "v1.0",
-          "powershell.exe"
-        )
-      : "powershell.exe";
-  const installer = spawn(
-    powerShell,
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-    {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    }
-  );
-  installer.unref();
-  return installLogPath;
-}
-
 export async function applyUpdate(): Promise<UpdateStatus> {
   const releaseCheck = await checkForUpdate();
   const latest = releaseCheck.latest;
@@ -1411,7 +1222,7 @@ export async function applyUpdate(): Promise<UpdateStatus> {
     );
     await writeStatusFile(status);
 
-    const assetPath = await downloadAsset(asset, async (download) => {
+    const dmgPath = await downloadAsset(asset, async (download) => {
       status = {
         ...status,
         state: "downloading",
@@ -1427,37 +1238,22 @@ export async function applyUpdate(): Promise<UpdateStatus> {
     status = appendLog(status, `已下载 ${asset.name}。`);
     await writeStatusFile(status);
 
-    const platform = updatePlatform();
-    let installLogPath: string;
-    let applyingMessage: string;
-    if (platform === "darwin") {
-      const stagedApp = await stageAppFromDmg(assetPath, latest.tagName);
-      status = appendLog(status, "已校验并暂存新版 App。");
-      await writeStatusFile(status);
-      installLogPath = await launchInstaller(
-        stagedApp,
-        targetAppPath,
-        latest.tagName
-      );
-      applyingMessage = "安装器已启动，InternAgents 将退出、替换 App 并重新打开。";
-    } else if (platform === "win32") {
-      installLogPath = await launchWindowsInstaller(
-        assetPath,
-        targetAppPath,
-        latest.tagName
-      );
-      applyingMessage =
-        "Windows 安装器已启动，InternAgents 将退出、静默安装并重新打开。";
-    } else {
-      throw new Error("当前平台暂不支持自动安装 App 更新。");
-    }
+    const stagedApp = await stageAppFromDmg(dmgPath, latest.tagName);
+    status = appendLog(status, "已校验并暂存新版 App。");
+    await writeStatusFile(status);
+
+    const installLogPath = await launchInstaller(
+      stagedApp,
+      targetAppPath,
+      latest.tagName
+    );
 
     status = appendLog(
       {
         ...status,
         state: "applying",
         installLogPath,
-        message: applyingMessage,
+        message: "安装器已启动，InternAgents 将退出、替换 App 并重新打开。",
       },
       "已启动本机安装器。"
     );
@@ -1489,7 +1285,7 @@ export async function rollbackUpdate(): Promise<UpdateStatus> {
           ...status,
           state: "failed",
           message:
-            `App 安装器模式不支持应用内回滚；请从 release 页面下载上一版 ${updateAssetLabel()} 重新安装。`,
+            "App 安装器模式不支持应用内回滚；请从 release 页面下载上一版 DMG 重新安装。",
           completedAt: nowIso(),
         },
         "已拒绝应用内回滚。"

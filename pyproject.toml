@@ -14,12 +14,7 @@ dependencies = [
     "markitdown[pptx]",
     "openpyxl",
     "pandas",
-    "Pillow",
-    "pdfplumber",
-    "pypdf",
-    "pypdfium2",
     "python-dotenv",
-    "reportlab",
     "socksio",
 ]
 
@@ -31,4 +26,4 @@ build-backend = "setuptools.build_meta"
 internagents-backend = "internagents_backend_cli:main"
 
 [tool.setuptools]
-py-modules = ["agent", "main", "internagent_resources", "ssh_backend", "dynamic_local_backend", "kb_sync_middleware", "goal_state", "goal_tools", "goal_middleware", "date_middleware", "mcp_config", "mcp_tools", "scp_catalog", "scp_state", "scp_tools", "scp_middleware", "thread_skill_middleware", "internagents_backend_cli", "web_search_tools", "image_generation_tools"]
+py-modules = ["agent", "main", "internagent_resources", "ssh_backend", "dynamic_local_backend", "kb_sync_middleware", "goal_state", "goal_tools", "goal_middleware", "date_middleware", "mcp_config", "mcp_tools", "scp_catalog", "scp_state", "scp_tools", "scp_middleware", "thread_skill_middleware", "internagents_backend_cli", "web_search_tools"]

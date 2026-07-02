@@ -14,7 +14,7 @@ const uiStandaloneDir = path.join(distDir, "ui-standalone");
 const templateDir = path.join(distDir, "internagents-template");
 const pythonRuntimeDir = path.join(distDir, "python-runtime");
 const officeToolsDir = path.join(distDir, "office-tools");
-const standaloneDependencyRoots = ["pdf-parse", "docx", "pptxgenjs", "pdf-lib"];
+const standaloneDependencyRoots = ["pdf-parse"];
 const backendWheelhouseDirName = "backend-wheelhouse";
 const backendCliArchiveName = "internagents-backend-cli.tar.gz";
 const backendWheelhouseTargets = [
@@ -35,26 +35,9 @@ const backendRuntimeBinaryRequirements = ["httptools>=0.5.0", "uvloop>=0.18.0"];
 const officePythonImportChecks = [
   ["defusedxml", "defusedxml"],
   ["lxml.etree", "lxml"],
-  ["PIL", "Pillow"],
   ["pandas", "pandas"],
   ["openpyxl", "openpyxl"],
   ["markitdown", "markitdown[pptx]"],
-  ["pypdf", "pypdf"],
-  ["pdfplumber", "pdfplumber"],
-  ["pypdfium2", "pypdfium2"],
-  ["reportlab", "reportlab"],
-];
-const officeNodeImportChecks = [
-  ["pdf-parse", "pdf-parse"],
-  ["docx", "docx"],
-  ["pptxgenjs", "pptxgenjs"],
-  ["pdf-lib", "pdf-lib"],
-];
-const officeNodeFileChecks = [
-  [
-    "pdf-parse",
-    ["dist", "pdf-parse", "cjs", "pdf.worker.mjs"],
-  ],
 ];
 const canCreatePortableSymlinks = process.platform !== "win32";
 const standaloneCopyLinkOptions = {
@@ -73,21 +56,12 @@ const runtimeEntries = [
   "ssh_backend.py",
   "dynamic_local_backend.py",
   "kb_sync_middleware.py",
-  "date_middleware.py",
   "goal_middleware.py",
   "goal_state.py",
   "goal_tools.py",
-  "mcp_config.py",
-  "mcp_tools.py",
-  "scp_catalog.py",
-  "scp_catalog.json",
-  "scp_state.py",
-  "scp_tools.py",
-  "scp_middleware.py",
   "thread_skill_middleware.py",
   "internagents_backend_cli.py",
   "web_search_tools.py",
-  "image_generation_tools.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.json",
@@ -136,13 +110,6 @@ function commandForPlatform(command, args) {
 
 function executableName(name) {
   return process.platform === "win32" ? `${name}.exe` : name;
-}
-
-function executableNames(name) {
-  if (process.platform === "win32" && name === "soffice") {
-    return ["soffice.com", "soffice.exe"];
-  }
-  return [executableName(name)];
 }
 
 function findExecutableOnPath(command) {
@@ -280,7 +247,6 @@ async function prepareUiStandalone() {
   await rewriteUiStandaloneNodeModuleSymlinks();
   await copyMissingStandalonePackageDependencies();
   await linkStandalonePackageDependencies();
-  validateOfficeNodeDependencies();
 }
 
 async function rewriteUiStandaloneNodeModuleSymlinks() {
@@ -437,16 +403,12 @@ async function linkStandalonePackageDependencies() {
 async function ensureStandalonePackage(
   packageName,
   sourceNodeModulesDir,
-  targetNodeModulesDir,
-  options = {}
+  targetNodeModulesDir
 ) {
   const targetPath = packagePath(targetNodeModulesDir, packageName);
   const sourcePath = packagePath(sourceNodeModulesDir, packageName);
   if (!existsSync(sourcePath)) {
     return false;
-  }
-  if (options.forceComplete) {
-    await fs.rm(targetPath, { recursive: true, force: true });
   }
 
   const isPartialPackage =
@@ -486,8 +448,7 @@ async function copyMissingStandalonePackageDependencies() {
     const available = await ensureStandalonePackage(
       packageName,
       sourceNodeModulesDir,
-      standaloneNodeModulesDir,
-      { forceComplete: standaloneDependencyRoots.includes(packageName) }
+      standaloneNodeModulesDir
     );
     if (!available) {
       continue;
@@ -518,54 +479,6 @@ async function copyMissingStandalonePackageDependencies() {
         queuedPackageNames.add(dependencyName);
       }
     }
-  }
-}
-
-function validateOfficeNodeDependencies() {
-  const standaloneNodeModulesDir = path.join(
-    uiStandaloneDir,
-    "standalone_node_modules"
-  );
-  const script = [
-    "const fs = require('node:fs');",
-    "const path = require('node:path');",
-    "const required = " + JSON.stringify(officeNodeImportChecks) + ";",
-    "const requiredFiles = " + JSON.stringify(officeNodeFileChecks) + ";",
-    "const moduleRoots = (process.env.NODE_PATH || '').split(path.delimiter).filter(Boolean);",
-    "const missing = [];",
-    "for (const [moduleName, packageName] of required) {",
-    "  try { require.resolve(moduleName); }",
-    "  catch (error) { missing.push(`${packageName} (${moduleName}): ${error.message}`); }",
-    "}",
-    "for (const [packageName, relativeParts] of requiredFiles) {",
-    "  const found = moduleRoots.some((moduleRoot) => fs.existsSync(path.join(moduleRoot, packageName, ...relativeParts)));",
-    "  if (!found) { missing.push(`${packageName}: missing ${relativeParts.join('/')}`); }",
-    "}",
-    "if (missing.length) {",
-    "  throw new Error('Missing bundled Office Node dependency:\\n- ' + missing.join('\\n- '));",
-    "}",
-  ].join("\n");
-  const result = spawnSync(process.execPath, ["-e", script], {
-    cwd: rootDir,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      NODE_PATH: standaloneNodeModulesDir,
-    },
-    shell: false,
-    windowsHide: true,
-  });
-
-  if (result.status !== 0) {
-    throw new Error(
-      [
-        "Office document packaging requires UI Node dependencies for docx, pptxgenjs, and pdf-lib.",
-        "Install UI dependencies before packaging, then rerun desktop prepare:dist.",
-        result.stderr || result.stdout,
-      ]
-        .filter(Boolean)
-        .join("\n")
-    );
   }
 }
 
@@ -667,10 +580,8 @@ function projectDependencyRequirements(pythonBin) {
     "import pathlib, subprocess, sys, tomllib",
     "data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())",
     "build = data.get('build-system', {}).get('requires', [])",
-    "project = data.get('project', {})",
-    "runtime = project.get('dependencies', [])",
     "frozen = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze', '--exclude-editable'], text=True)",
-    "deps = ['pip==25.3', *build, *runtime, *frozen.splitlines()]",
+    "deps = ['pip==25.3', *build, *frozen.splitlines()]",
     "for dep in deps:",
     "    dep = dep.strip()",
     "    if dep and ' @ file://' not in dep:",
@@ -889,16 +800,10 @@ async function prepareLibreOfficeRuntime() {
     verbatimSymlinks: false,
   });
 
-  let soffice = "";
-  for (const candidate of executableNames("soffice")) {
-    soffice = findNamedExecutable(
-      destinationRoot,
-      new Set([candidate.toLowerCase()])
-    );
-    if (soffice) {
-      break;
-    }
-  }
+  const soffice = findNamedExecutable(
+    destinationRoot,
+    new Set([executableName("soffice").toLowerCase()])
+  );
   if (!soffice) {
     throw new Error(
       `LibreOffice runtime source ${source} did not contain a soffice executable.`

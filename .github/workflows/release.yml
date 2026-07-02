@@ -30,6 +30,7 @@ jobs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       source_repository: ${{ steps.release.outputs.source_repository }}
       source_ref: ${{ steps.release.outputs.source_ref }}
+      source_label: ${{ steps.release.outputs.source_label }}
       extra_notes: ${{ steps.release.outputs.extra_notes }}
 
     steps:
@@ -62,6 +63,7 @@ jobs:
             is_test_release="true"
             source_repository="${GITHUB_REPOSITORY}"
             source_ref="${GITHUB_REF_NAME}"
+            source_label="${GITHUB_REPOSITORY}@${GITHUB_REF_NAME} (${GITHUB_SHA})"
           else
             tag="${GITHUB_REF_NAME}"
             if ! [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
@@ -79,6 +81,7 @@ jobs:
             is_test_release="false"
             source_repository="${GITHUB_REPOSITORY}"
             source_ref="$tag"
+            source_label="${GITHUB_REPOSITORY}@${tag}"
           fi
 
           {
@@ -88,6 +91,7 @@ jobs:
             echo "release_tag=$release_tag"
             echo "source_repository=$source_repository"
             echo "source_ref=$source_ref"
+            echo "source_label=$source_label"
             {
               echo "extra_notes<<EOF"
               printf '%s\n' "${EXTRA_NOTES:-}"
@@ -99,6 +103,7 @@ jobs:
           printf 'Release tag: %s\n' "$release_tag"
           printf 'Desktop version: %s\n' "$desktop_version"
           printf 'Source repository: %s\n' "$source_repository"
+          printf 'Source ref: %s\n' "$source_ref"
 
   prepare-release:
     name: Prepare binary release
@@ -111,6 +116,7 @@ jobs:
       INTERNAGENTS_IS_TEST_RELEASE: ${{ needs.metadata.outputs.is_test_release }}
       INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
       INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+      INTERNAGENTS_SOURCE_LABEL: ${{ needs.metadata.outputs.source_label }}
       INTERNAGENTS_EXTRA_NOTES: ${{ needs.metadata.outputs.extra_notes }}
 
     steps:
@@ -165,6 +171,7 @@ jobs:
           - Auto-update assets are published separately by platform and architecture.
 
           Desktop version: ${INTERNAGENTS_DESKTOP_VERSION}
+          Source ref: ${INTERNAGENTS_SOURCE_LABEL}
           Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, and remote backend CLI tarball${test_update_notes}"
 
           if [ -n "${INTERNAGENTS_EXTRA_NOTES:-}" ]; then
@@ -203,8 +210,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
-    env:
-      INTERNAGENTS_SKIP_LIBREOFFICE_RUNTIME: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -235,12 +240,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-
-      - name: Install Pandoc
-        run: |
-          brew install pandoc
-          echo "INTERNAGENTS_PANDOC_BIN=$(command -v pandoc)" >> "$GITHUB_ENV"
-          pandoc --version
 
       - name: Install UI dependencies
         run: npm --prefix ui ci
@@ -307,7 +306,6 @@ jobs:
             goal_middleware.py \
             goal_state.py \
             goal_tools.py \
-            image_generation_tools.py \
             mineru_middleware.py
 
       - name: Validate UI
@@ -367,8 +365,6 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
-    env:
-      INTERNAGENTS_SKIP_LIBREOFFICE_RUNTIME: "1"
 
     steps:
       - name: Checkout source
@@ -391,14 +387,6 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-
-      - name: Install Pandoc
-        shell: pwsh
-        run: |
-          choco install pandoc --yes --no-progress
-          $pandoc = (Get-Command pandoc.exe).Source
-          "INTERNAGENTS_PANDOC_BIN=$pandoc" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          & $pandoc --version
 
       - name: Install UI dependencies
         run: npm --prefix ui ci
@@ -452,18 +440,6 @@ jobs:
           & $python -c "import langgraph_cli; print(langgraph_cli.__file__)"
           "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$runtime" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
-      - name: Prepare Windows CI home
-        shell: pwsh
-        run: |
-          $ciHome = Join-Path $PWD.Path ".internagents-ci-home"
-          $appData = Join-Path $ciHome "AppData\Roaming"
-          $localAppData = Join-Path $ciHome "AppData\Local"
-          New-Item -ItemType Directory -Force $ciHome, $appData, $localAppData | Out-Null
-          "HOME=$ciHome" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          "USERPROFILE=$ciHome" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          "APPDATA=$appData" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          "LOCALAPPDATA=$localAppData" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-
       - name: Validate Python files
         shell: pwsh
         run: |
@@ -475,7 +451,6 @@ jobs:
             goal_middleware.py `
             goal_state.py `
             goal_tools.py `
-            image_generation_tools.py `
             mineru_middleware.py
 
       - name: Validate UI

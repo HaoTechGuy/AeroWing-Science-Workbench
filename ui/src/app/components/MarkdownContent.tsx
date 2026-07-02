@@ -9,17 +9,11 @@ import { FileText } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
-import {
-  isWorkspaceImagePath,
-  workspaceImageRawUrl,
-} from "@/app/utils/generatedImages";
 
 interface MarkdownContentProps {
   content: string;
   className?: string;
   onOpenWorkspacePath?: (path: string) => void;
-  resourceId?: string;
-  workspaceId?: string;
 }
 
 const OUTPUT_FILE_PATTERN =
@@ -109,7 +103,7 @@ function linkifyOutputFileChildren(
 }
 
 export const MarkdownContent = React.memo<MarkdownContentProps>(
-  ({ content, className = "", onOpenWorkspacePath, resourceId, workspaceId }) => {
+  ({ content, className = "", onOpenWorkspacePath }) => {
     return (
       <div
         className={cn(
@@ -200,47 +194,6 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                 >
                   {children}
                 </a>
-              );
-            },
-            img({
-              src,
-              alt,
-            }: {
-              src?: string | Blob;
-              alt?: string;
-            }) {
-              const sourcePath = typeof src === "string" ? src : "";
-              const imageSrc =
-                sourcePath && isWorkspaceImagePath(sourcePath)
-                  ? workspaceImageRawUrl(sourcePath, resourceId, workspaceId)
-                  : sourcePath;
-              const isWorkspaceImage = Boolean(
-                sourcePath && isWorkspaceImagePath(sourcePath)
-              );
-              return (
-                <button
-                  type="button"
-                  className={cn(
-                    "my-3 block max-w-full overflow-hidden rounded-md border border-border bg-card p-0 shadow-sm shadow-black/[0.025]",
-                    isWorkspaceImage && onOpenWorkspacePath
-                      ? "cursor-zoom-in transition-opacity hover:opacity-95"
-                      : "cursor-default"
-                  )}
-                  onClick={() => {
-                    if (isWorkspaceImage) {
-                      onOpenWorkspacePath?.(sourcePath);
-                    }
-                  }}
-                  disabled={!isWorkspaceImage || !onOpenWorkspacePath}
-                  title={sourcePath || alt || ""}
-                >
-                  <img
-                    src={imageSrc}
-                    alt={alt || ""}
-                    className="max-h-[28rem] w-full object-contain"
-                    loading="lazy"
-                  />
-                </button>
               );
             },
             blockquote({ children }: { children?: React.ReactNode }) {

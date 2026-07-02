@@ -8,10 +8,5 @@ lxml
 markitdown[pptx]
 openpyxl
 pandas
-Pillow
-pdfplumber
-pypdf
-pypdfium2
 python-dotenv
-reportlab
 socksio

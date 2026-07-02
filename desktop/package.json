@@ -80,9 +80,7 @@
         "from": "../dist-app/office-tools",
         "to": "office-tools",
         "filter": [
-          "**/*",
-          "!**/*.msi",
-          "!**/*.MSI"
+          "**/*"
         ]
       }
     ],

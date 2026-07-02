@@ -257,15 +257,13 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
             agent._current_runnable_config = original_config
 
         self.assertEqual(seen["temperature"], 0.1)
-        http_headers = seen["http_headers"]
-        self.assertIsInstance(http_headers, dict)
-        self.assertEqual(http_headers["x-existing"], "ok")
-        extra_headers = seen["extra_headers"]
-        self.assertIsInstance(extra_headers, dict)
-        self.assertEqual(extra_headers["x-internagents-session-id"], "thread-runtime")
-        self.assertEqual(extra_headers["x-langgraph-thread-id"], "thread-runtime")
-        self.assertEqual(extra_headers["x-internagents-conversation-id"], "conversation-meta")
-        self.assertEqual(extra_headers["x-internagents-request-id"], "run-runtime")
+        headers = seen["http_headers"]
+        self.assertIsInstance(headers, dict)
+        self.assertEqual(headers["x-existing"], "ok")
+        self.assertEqual(headers["x-internagents-session-id"], "thread-runtime")
+        self.assertEqual(headers["x-langgraph-thread-id"], "thread-runtime")
+        self.assertEqual(headers["x-internagents-conversation-id"], "conversation-meta")
+        self.assertEqual(headers["x-internagents-request-id"], "run-runtime")
 
     def test_model_request_middleware_normalizes_tool_image_blocks(self) -> None:
         request = ModelRequest(
@@ -374,49 +372,6 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
         self.assertEqual(len(seen_requests), 2)
         self.assertFalse(agent._message_has_image_input(seen_requests[1].messages[0]))
         self.assertEqual(response.result[0].content, "Image input is unsupported.")
-
-    def test_model_request_middleware_retries_gateway_image_variant_error(
-        self,
-    ) -> None:
-        request = ModelRequest(
-            model="gateway:minimax-m2.5",
-            messages=[
-                HumanMessage(content="生成一张小猫图"),
-                ToolMessage(
-                    content=[
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": "data:image/png;base64,abcd"},
-                        }
-                    ],
-                    tool_call_id="tool-4",
-                ),
-            ],
-        )
-        seen_requests: list[ModelRequest] = []
-
-        def handler(next_request: ModelRequest) -> ModelResponse:
-            seen_requests.append(next_request)
-            if len(seen_requests) == 1:
-                raise RuntimeError(
-                    "Error code: 400 - {'error': {'message': 'Failed to "
-                    "deserialize the JSON body into the target type: messages[5]: "
-                    "unknown variant `image_url`, expected `text`'}}"
-                )
-            return ModelResponse(result=[AIMessage(content="图片已生成。")])
-
-        response = ImageContentCompatibilityMiddleware().wrap_model_call(
-            request,
-            handler,
-        )
-
-        self.assertEqual(len(seen_requests), 2)
-        self.assertFalse(agent._message_has_image_input(seen_requests[1].messages[1]))
-        self.assertIn(
-            "current model endpoint does not support image input",
-            str(seen_requests[1].messages[1].content),
-        )
-        self.assertEqual(response.result[0].content, "图片已生成。")
 
     def test_model_request_middleware_omits_images_after_model_is_marked_unsupported(
         self,
