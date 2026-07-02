@@ -22,7 +22,19 @@ type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
 type ModelProvider = "gateway" | "openai_compatible";
 type StoredModelProvider = ModelProvider | "openai" | "openrouter";
+type ImageGenerationProvider = "internagents_gateway" | "custom";
 type OnboardingMissing = "gatewayEmail" | "openaiCompatibleApiKey";
+
+interface ImageGenerationConfig {
+  enabled?: boolean;
+  provider?: ImageGenerationProvider;
+  model?: string;
+  base_url?: string;
+  size?: string;
+  output_dir?: string;
+  timeout_seconds?: number;
+  max_images_per_call?: number;
+}
 
 interface AgentConfig {
   interrupt_on?: Record<string, unknown>;
@@ -36,6 +48,7 @@ interface AgentConfig {
   openrouter_model?: string;
   gateway_base_url?: string;
   gateway_model?: string;
+  image_generation?: ImageGenerationConfig;
   [key: string]: unknown;
 }
 
@@ -49,6 +62,7 @@ interface UpdateConfigRequest {
   openaiCompatibleApiKey?: unknown;
   openaiCompatibleBaseUrl?: unknown;
   openrouterApiKey?: unknown;
+  imageGeneration?: unknown;
   authorizationMode?: unknown;
   workspacePath?: unknown;
 }
@@ -58,8 +72,16 @@ const DEFAULT_MANUAL_MODEL = "deepseek-v4-flash";
 const DEFAULT_OPENAI_COMPATIBLE_MODEL = "deepseek-v4-flash";
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://openrouter.ai/api/v1";
 const LEGACY_OPENROUTER_AUTO_MODEL = "openrouter/auto";
+const DEFAULT_IMAGE_GENERATION_PROVIDER = "internagents_gateway";
+const DEFAULT_IMAGE_GENERATION_MODEL = "cogview-3-flash";
+const DEFAULT_IMAGE_GENERATION_GATEWAY_BASE_URL = gatewayApiBaseUrl(fixedGatewayUrl());
+const DEFAULT_IMAGE_GENERATION_SIZE = "1024x1024";
+const DEFAULT_IMAGE_GENERATION_OUTPUT_DIR = "/generated-images";
+const LEGACY_IMAGE_GENERATION_OUTPUT_DIR = "/.internagents/generated-images";
+const DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS = 60;
+const DEFAULT_IMAGE_GENERATION_MAX_IMAGES_PER_CALL = 1;
 
-const WRITE_TOOLS = ["write_file", "edit_file"];
+const WRITE_TOOLS = ["write_file", "edit_file", "generate_image"];
 const COMMON_TOOLS = [
   "ls",
   "read_file",
@@ -72,6 +94,7 @@ const COMMON_TOOLS = [
   "write_todos",
   "compact_conversation",
   "web_search",
+  "generate_image",
   "fetch_url",
   "start_async_task",
   "update_async_task",
@@ -240,6 +263,146 @@ function normalizeOpenAiCompatibleBaseUrl(value: unknown, fallback = "") {
   return trimmed;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizeImageGenerationProvider(
+  value: unknown
+): ImageGenerationProvider {
+  if (value === "custom" || value === "openai_compatible") {
+    return "custom";
+  }
+  if (
+    value === "internagents_gateway" ||
+    value === "gateway" ||
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return DEFAULT_IMAGE_GENERATION_PROVIDER;
+  }
+  return DEFAULT_IMAGE_GENERATION_PROVIDER;
+}
+
+function normalizeImageGenerationModel(value: unknown) {
+  return typeof value === "string" && value.trim()
+    ? value.trim()
+    : DEFAULT_IMAGE_GENERATION_MODEL;
+}
+
+function defaultImageGenerationBaseUrl(provider: ImageGenerationProvider) {
+  return provider === "custom" ? "" : DEFAULT_IMAGE_GENERATION_GATEWAY_BASE_URL;
+}
+
+function normalizeImageGenerationBaseUrl(
+  value: unknown,
+  provider: ImageGenerationProvider,
+  enabled: boolean
+) {
+  const rawValue = typeof value === "string" && value.trim() ? value.trim() : "";
+  const raw = rawValue || defaultImageGenerationBaseUrl(provider);
+  if (!raw && provider === "custom") {
+    if (enabled) {
+      throw new Error("Image generation Base URL is required for custom provider.");
+    }
+    return "";
+  }
+  const trimmed = raw.replace(/\/+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("Image generation Base URL is invalid.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Image generation Base URL must use http or https.");
+  }
+  return trimmed;
+}
+
+function normalizeImageGenerationSize(value: unknown) {
+  const size =
+    typeof value === "string" && value.trim()
+      ? value.trim()
+      : DEFAULT_IMAGE_GENERATION_SIZE;
+  if (!/^(?:auto|[1-9][0-9]{1,4}x[1-9][0-9]{1,4})$/.test(size)) {
+    throw new Error("Image generation size must be auto or WIDTHxHEIGHT.");
+  }
+  return size;
+}
+
+function normalizeImageGenerationOutputDir(value: unknown) {
+  let raw =
+    typeof value === "string" && value.trim()
+      ? value.trim().replace(/\\/g, "/")
+      : DEFAULT_IMAGE_GENERATION_OUTPUT_DIR;
+  if (raw.includes(":") || raw.startsWith("~")) {
+    throw new Error("Image output directory must be a workspace path.");
+  }
+  if (!raw.startsWith("/")) {
+    raw = `/${raw}`;
+  }
+  const parts = raw.split("/").filter(Boolean);
+  if (parts.some((part) => part === "." || part === "..")) {
+    throw new Error("Image output directory must stay inside the workspace.");
+  }
+  const normalized = parts.length > 0 ? `/${parts.join("/")}` : "/";
+  return normalized === LEGACY_IMAGE_GENERATION_OUTPUT_DIR
+    ? DEFAULT_IMAGE_GENERATION_OUTPUT_DIR
+    : normalized;
+}
+
+function normalizePositiveInteger(value: unknown, fallback: number) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number.parseInt(value, 10)
+        : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+
+function normalizeImageGenerationConfig(
+  current: ImageGenerationConfig | undefined,
+  raw: unknown
+): ImageGenerationConfig {
+  const record = isRecord(raw) ? raw : {};
+  const enabled =
+    typeof record.enabled === "boolean"
+      ? record.enabled
+      : current?.enabled !== false;
+  const provider = normalizeImageGenerationProvider(
+    record.provider || current?.provider
+  );
+  const configuredBaseUrl = record.baseUrl || record.base_url;
+  const inheritedBaseUrl = current?.provider === provider ? current.base_url : undefined;
+  return {
+    enabled,
+    provider,
+    model: normalizeImageGenerationModel(record.model || current?.model),
+    base_url: normalizeImageGenerationBaseUrl(
+      configuredBaseUrl || inheritedBaseUrl,
+      provider,
+      enabled
+    ),
+    size: normalizeImageGenerationSize(record.size || current?.size),
+    output_dir: normalizeImageGenerationOutputDir(
+      record.outputDir || record.output_dir || current?.output_dir
+    ),
+    timeout_seconds: normalizePositiveInteger(
+      record.timeoutSeconds || record.timeout_seconds || current?.timeout_seconds,
+      DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS
+    ),
+    max_images_per_call: normalizePositiveInteger(
+      record.maxImagesPerCall ||
+        record.max_images_per_call ||
+        current?.max_images_per_call,
+      DEFAULT_IMAGE_GENERATION_MAX_IMAGES_PER_CALL
+    ),
+  };
+}
+
 function isAuthorizationMode(value: unknown): value is AuthorizationMode {
   return value === "auto" || value === "write" || value === "all";
 }
@@ -382,6 +545,10 @@ async function normalizedResponse(config: AgentConfig) {
       DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL
   );
+  const imageGeneration = normalizeImageGenerationConfig(
+    config.image_generation,
+    config.image_generation
+  );
   const effectiveModel =
     modelProvider === "gateway" ? manualModel : openaiCompatibleModel;
   const gatewayKey =
@@ -390,6 +557,7 @@ async function normalizedResponse(config: AgentConfig) {
   const openaiCompatibleKey =
     env.OPENROUTER_API_KEY ||
     (modelProvider === "openai_compatible" ? env.OPENAI_API_KEY : "");
+  const directImageGenerationKey = env.INTERNAGENTS_IMAGE_API_KEY || "";
   const gatewayEmail = env.INTERNAGENTS_USER_EMAIL || "";
   const gatewayUsername = env.INTERNAGENTS_USER_NAME || "";
   const gatewayInviteCode =
@@ -422,6 +590,8 @@ async function normalizedResponse(config: AgentConfig) {
     missing.push("openaiCompatibleApiKey");
   }
   const desktopMode = isDesktopMode();
+  const imageGenerationProvider =
+    imageGeneration.provider || DEFAULT_IMAGE_GENERATION_PROVIDER;
 
   return {
     configPath: configPath(),
@@ -452,6 +622,20 @@ async function normalizedResponse(config: AgentConfig) {
     openrouterApiKey: "",
     openrouterApiKeySet: Boolean(openaiCompatibleKey),
     openrouterApiKeyPreview: "",
+    imageGenerationEnabled: imageGeneration.enabled !== false,
+    imageGenerationProvider,
+    imageGenerationModel: imageGeneration.model || DEFAULT_IMAGE_GENERATION_MODEL,
+    imageGenerationBaseUrl:
+      imageGeneration.base_url ||
+      defaultImageGenerationBaseUrl(imageGenerationProvider),
+    imageGenerationSize: imageGeneration.size || DEFAULT_IMAGE_GENERATION_SIZE,
+    imageGenerationOutputDir:
+      imageGeneration.output_dir || DEFAULT_IMAGE_GENERATION_OUTPUT_DIR,
+    imageGenerationApiKey: "",
+    imageGenerationApiKeySet:
+      imageGeneration.provider === "custom"
+        ? Boolean(directImageGenerationKey)
+        : Boolean(gatewayKey),
     authorizationMode: inferAuthorizationMode(config),
     desktopMode,
     needsOnboarding: missing.length > 0,
@@ -502,6 +686,10 @@ export async function PUT(request: NextRequest) {
     const authorizationMode = isAuthorizationMode(body.authorizationMode)
       ? body.authorizationMode
       : "auto";
+    const imageGeneration = normalizeImageGenerationConfig(
+      currentConfig.image_generation,
+      body.imageGeneration
+    );
     const workspacePath =
       typeof body.workspacePath === "string"
         ? body.workspacePath.trim()
@@ -520,6 +708,7 @@ export async function PUT(request: NextRequest) {
       model_selection_mode:
         modelProvider === "gateway" ? modelSelectionMode : "manual",
       manual_model: modelProvider === "gateway" ? model : DEFAULT_MANUAL_MODEL,
+      image_generation: imageGeneration,
     };
     if (modelProvider === "openai_compatible") {
       nextConfig.openai_compatible_model = model;
@@ -541,7 +730,7 @@ export async function PUT(request: NextRequest) {
       delete nextConfig.interrupt_on;
     }
 
-    const envUpdates =
+    const modelEnvUpdates =
       modelProvider === "gateway"
         ? await buildGatewayEnvUpdates({
             body,
@@ -553,8 +742,12 @@ export async function PUT(request: NextRequest) {
             config: nextConfig,
             env: currentEnv,
           });
+    const imageEnvUpdates = buildImageGenerationEnvUpdates({
+      body,
+      imageGeneration,
+    });
     await writeConfig(nextConfig);
-    await writeEnvValues(envUpdates);
+    await writeEnvValues({ ...modelEnvUpdates, ...imageEnvUpdates });
     if (shouldUpdateWorkspace) {
       await updateLocalResourceWorkspace(workspacePath);
     }
@@ -749,6 +942,28 @@ function buildOpenAiCompatibleEnvUpdates({
     OPENAI_API_KEY: apiKey,
     OPENAI_BASE_URL: apiBaseUrl,
     OPENAI_API_BASE: apiBaseUrl,
+  };
+}
+
+function buildImageGenerationEnvUpdates({
+  body,
+  imageGeneration,
+}: {
+  body: UpdateConfigRequest;
+  imageGeneration: ImageGenerationConfig;
+}): Record<string, string | null> {
+  if (imageGeneration.provider !== "custom") {
+    return {};
+  }
+  const requestedImageGeneration = isRecord(body.imageGeneration)
+    ? body.imageGeneration
+    : undefined;
+  const apiKey = normalizeApiKey(requestedImageGeneration?.apiKey);
+  if (!apiKey) {
+    return {};
+  }
+  return {
+    INTERNAGENTS_IMAGE_API_KEY: apiKey,
   };
 }
 

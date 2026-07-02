@@ -57,9 +57,15 @@ import type {
 } from "@/app/types/types";
 import { Assistant, Message } from "@langchain/langgraph-sdk";
 import {
+  extractImageUrlsFromMessageContent,
   extractStringFromMessageContent,
   extractVisibleStringFromMessageContent,
 } from "@/app/utils/utils";
+import {
+  extractGeneratedImageArtifacts,
+  extractMarkdownWorkspaceImagePaths,
+  hasGeneratedImageArtifacts,
+} from "@/app/utils/generatedImages";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
@@ -1005,7 +1011,10 @@ function settledPendingToolCallStatus(
 }
 
 function messageHasVisibleContent(message: Message): boolean {
-  return extractVisibleStringFromMessageContent(message).trim() !== "";
+  return (
+    extractVisibleStringFromMessageContent(message).trim() !== "" ||
+    extractImageUrlsFromMessageContent(message).length > 0
+  );
 }
 
 function hasTerminalToolIssue(toolCalls: ToolCall[]): boolean {
@@ -2269,6 +2278,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         }
         return (
           messageHasVisibleContent(data.message) ||
+          hasGeneratedImageArtifacts(data.toolCalls) ||
           Boolean(
             data.message.id && terminalToolIssueMessageIds.has(data.message.id)
           )
@@ -2280,16 +2290,59 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       return runStatus === "running" || isLoading || isStreamRecovering;
     }, [isLoading, isStreamRecovering, runStatus]);
 
+    const hiddenGeneratedImagePathsByMessageId = useMemo(() => {
+      const hiddenGeneratedImagePathsByMessageId = new Map<
+        string,
+        Set<string>
+      >();
+      const laterContentImagePaths = new Set<string>();
+
+      for (let index = visibleMessages.length - 1; index >= 0; index -= 1) {
+        const data = visibleMessages[index];
+        const messageId = data.message.id ? String(data.message.id) : "";
+        const hiddenPaths = extractGeneratedImageArtifacts(data.toolCalls)
+          .map((artifact) => artifact.path)
+          .filter((path) => laterContentImagePaths.has(path));
+
+        if (messageId && hiddenPaths.length > 0) {
+          hiddenGeneratedImagePathsByMessageId.set(
+            messageId,
+            new Set(hiddenPaths)
+          );
+        }
+
+        if (data.message.type === "ai") {
+          const content = extractVisibleStringFromMessageContent(data.message);
+          for (const path of extractMarkdownWorkspaceImagePaths(content)) {
+            laterContentImagePaths.add(path);
+          }
+        }
+      }
+
+      return hiddenGeneratedImagePathsByMessageId;
+    }, [visibleMessages]);
+
     const displayMessages = useMemo(() => {
       return visibleMessages.filter((data) => {
         if (data.message.type !== "ai") {
           return true;
         }
+        const hiddenPaths = data.message.id
+          ? hiddenGeneratedImagePathsByMessageId.get(String(data.message.id))
+          : undefined;
+        const generatedArtifacts = extractGeneratedImageArtifacts(data.toolCalls);
+        const hasVisibleGeneratedImage =
+          generatedArtifacts.length > 0 &&
+          generatedArtifacts.some(
+            (artifact) => !hiddenPaths?.has(artifact.path)
+          );
         return (
-          messageHasVisibleContent(data.message) || data.toolCalls.length > 0
+          messageHasVisibleContent(data.message) ||
+          hasVisibleGeneratedImage ||
+          (generatedArtifacts.length === 0 && data.toolCalls.length > 0)
         );
       });
-    }, [visibleMessages]);
+    }, [hiddenGeneratedImagePathsByMessageId, visibleMessages]);
     const shouldShowThreadLoading =
       isThreadLoading && messages.length === 0 && !recoveryNotice;
     const recoveredInputMessage = useMemo(() => {
@@ -2403,6 +2456,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       return processedMessages.filter(
         (data) =>
           data.toolCalls.length > 0 &&
+          !hasGeneratedImageArtifacts(data.toolCalls) &&
           !(data.message.id && terminalToolIssueMessageIds.has(data.message.id))
       );
     }, [processedMessages, showRuntimeDetails, terminalToolIssueMessageIds]);
@@ -2686,11 +2740,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   );
                   const showInlineToolCalls =
                     showRuntimeDetails || showTerminalToolIssueNotice;
+                  const hiddenGeneratedImagePaths = data.message.id
+                    ? Array.from(
+                        hiddenGeneratedImagePathsByMessageId.get(
+                          String(data.message.id)
+                        ) ?? []
+                      )
+                    : undefined;
                   return (
                     <ChatMessage
                       key={messageKey}
                       message={data.message}
                       toolCalls={showInlineToolCalls ? data.toolCalls : []}
+                      artifactToolCalls={data.toolCalls}
+                      hiddenGeneratedImagePaths={hiddenGeneratedImagePaths}
                       showAvatar={
                         data.message.type !== prevVisibleMessage?.type
                       }
@@ -2707,6 +2770,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       graphId={assistant?.graph_id}
                       showTerminalToolIssueNotice={showTerminalToolIssueNotice}
                       onOpenAttachment={openAttachmentPreview}
+                      resourceId={resourceId}
+                      workspaceId={workspaceId}
                     />
                   );
                 })}
@@ -2834,6 +2899,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               key={`intermediate-${data.message.id ?? index}`}
                               message={data.message}
                               toolCalls={data.toolCalls}
+                              artifactToolCalls={data.toolCalls}
                               showAvatar={false}
                               isLoading={false}
                               runtimeMuted
@@ -2842,6 +2908,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               onResumeInterrupt={resumeInterrupt}
                               graphId={assistant?.graph_id}
                               onOpenAttachment={openAttachmentPreview}
+                              resourceId={resourceId}
+                              workspaceId={workspaceId}
                             />
                           );
                         })}

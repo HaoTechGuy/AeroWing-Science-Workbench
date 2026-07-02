@@ -14,6 +14,7 @@ from langchain.chat_models import init_chat_model
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
@@ -25,6 +26,9 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_config
 
 ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
 DEFAULT_SKILL_CATALOG_PATHS = [
     "~/.internagents/myskills",
@@ -62,6 +66,8 @@ IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS = (
     "no endpoints found that support image input",
     "does not support image input",
     "unsupported image input",
+    "unknown variant `image_url`",
+    "unknown variant image_url",
 )
 _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS: set[str] = set()
 
@@ -78,6 +84,10 @@ from date_middleware import RuntimeDateContextMiddleware
 from goal_middleware import GoalContextMiddleware, goal_system_prompt
 from goal_state import normalize_goal_state, update_goal_status
 from goal_tools import goal_tools
+from image_generation_tools import (
+    image_generation_reference_prompt,
+    image_generation_tools,
+)
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from mcp_tools import load_configured_mcp_tools
@@ -236,6 +246,7 @@ def _lock_gateway_environment() -> None:
     gateway_key = _env_value("INTERNAGENTS_GATEWAY_KEY") or _env_value("OPENAI_API_KEY")
     if gateway_key:
         os.environ["OPENROUTER_API_KEY"] = gateway_key
+        os.environ["OPENAI_API_KEY"] = gateway_key
 
 
 def _config_openai_compatible_base_url(
@@ -283,8 +294,8 @@ def _resolve_model() -> str:
 
     if provider == "gateway":
         env_model = _env_value("INTERNAGENTS_GATEWAY_MODEL") or _env_value("LLM_MODEL")
-        model = config_model or env_model or "jisi/auto"
-        return _openrouter_model_spec(model)
+        model = config_model or env_model or "deepseek-v4-flash"
+        return _openai_compatible_model_spec(model)
 
     if provider == OPENAI_COMPATIBLE_PROVIDER:
         if config_model:
@@ -439,14 +450,38 @@ def _merge_model_http_headers(
     if not headers:
         return model_settings
     next_settings = dict(model_settings)
-    existing = next_settings.get("http_headers")
+    existing = next_settings.get("extra_headers")
     merged_headers = dict(existing) if isinstance(existing, dict) else {}
     merged_headers.update(headers)
-    next_settings["http_headers"] = merged_headers
+    next_settings["extra_headers"] = merged_headers
     return next_settings
 
 
+def _openai_compatible_chat_model(model_spec: str) -> ChatOpenAI:
+    model = _strip_model_provider_prefix(model_spec)
+    base_url = (
+        _env_value("OPENAI_BASE_URL")
+        or _env_value("OPENAI_API_BASE")
+        or _env_value("OPENROUTER_API_BASE")
+        or _env_value("OPENROUTER_BASE_URL")
+    )
+    api_key = _env_value("OPENAI_API_KEY") or _env_value("OPENROUTER_API_KEY")
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "disable_streaming": True,
+        "use_responses_api": False,
+        "stream_usage": False,
+    }
+    if base_url:
+        kwargs["base_url"] = base_url
+    if api_key:
+        kwargs["api_key"] = api_key
+    return ChatOpenAI(**kwargs)
+
+
 def _create_agent_model() -> str | Any:
+    if MODEL.startswith("openai:"):
+        return _openai_compatible_chat_model(MODEL)
     if MODEL.startswith("openrouter:") and _supports_reasoning_output(MODEL):
         return init_chat_model(
             MODEL,
@@ -605,9 +640,11 @@ def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
     return None
 
 
-def _resolve_tools(config: dict[str, Any]) -> list[Any]:
+def _resolve_tools(config: dict[str, Any], backend: Any | None = None) -> list[Any]:
     tools = list(goal_tools())
     tools.extend(web_search_tools(config))
+    if backend is not None:
+        tools.extend(image_generation_tools(config, backend))
     tools.extend(scp_tools())
     tools.extend(load_configured_mcp_tools(config, root_dir=ROOT_DIR))
     return tools
@@ -741,6 +778,9 @@ def _agent_system_prompt(base_prompt: str, agent_config: dict[str, Any]) -> str:
     reference_prompt = web_search_reference_prompt(agent_config)
     if reference_prompt:
         base_prompt = f"{base_prompt}\n\n{reference_prompt}"
+    image_prompt = image_generation_reference_prompt(agent_config)
+    if image_prompt:
+        base_prompt = f"{base_prompt}\n\n{image_prompt}"
     return goal_system_prompt(base_prompt)
 
 
@@ -1474,7 +1514,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware.append(_thread_skill_middleware(agent_config, backend))
     return create_deep_agent(
         model=_create_agent_model(),
-        tools=_resolve_tools(agent_config),
+        tools=_resolve_tools(agent_config, backend),
         backend=backend,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(
@@ -1548,7 +1588,7 @@ def create_runtime_agent():  # noqa: ANN201
     middleware.append(_thread_skill_middleware(agent_config, backend))
     return create_deep_agent(
         model=_create_agent_model(),
-        tools=_resolve_tools(agent_config),
+        tools=_resolve_tools(agent_config, backend),
         backend=backend,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(scp_system_prompt(system_prompt), agent_config),
