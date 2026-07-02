@@ -68,6 +68,19 @@ const TEXT_EXTENSIONS = new Set([
   ".zsh",
 ]);
 
+const MOLECULE_EXTENSIONS = new Set([
+  ".cif",
+  ".cube",
+  ".mcif",
+  ".mmcif",
+  ".mol",
+  ".mol2",
+  ".pdb",
+  ".pqr",
+  ".sdf",
+  ".xyz",
+]);
+
 const EXTENSIONLESS_TEXT_FILENAMES = new Set([
   "caddyfile",
   "dockerfile",
@@ -107,15 +120,25 @@ const MIME_TYPES: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".mdx": "text/markdown; charset=utf-8",
+  ".cif": "chemical/x-cif; charset=utf-8",
+  ".cube": "chemical/x-cube; charset=utf-8",
   makefile: "text/x-makefile; charset=utf-8",
+  ".mcif": "chemical/x-mmcif; charset=utf-8",
+  ".mmcif": "chemical/x-mmcif; charset=utf-8",
+  ".mol": "chemical/x-mdl-molfile; charset=utf-8",
+  ".mol2": "chemical/x-mol2; charset=utf-8",
   ".pdf": "application/pdf",
+  ".pdb": "chemical/x-pdb; charset=utf-8",
   ".png": "image/png",
   ".ppt": "application/vnd.ms-powerpoint",
   ".pptx":
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".pqr": "chemical/x-pqr; charset=utf-8",
   procfile: "text/plain; charset=utf-8",
   ".py": "text/x-python; charset=utf-8",
   rakefile: "text/plain; charset=utf-8",
+  ".sdf": "chemical/x-mdl-sdfile; charset=utf-8",
+  ".science.json": "application/vnd.internagents.science-scene+json; charset=utf-8",
   ".sh": "text/x-shellscript; charset=utf-8",
   ".toml": "application/toml; charset=utf-8",
   ".ts": "text/typescript; charset=utf-8",
@@ -124,6 +147,7 @@ const MIME_TYPES: Record<string, string> = {
   ".webp": "image/webp",
   ".xls": "application/vnd.ms-excel",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xyz": "chemical/x-xyz; charset=utf-8",
   ".yaml": "application/yaml; charset=utf-8",
   ".yml": "application/yaml; charset=utf-8",
 };
@@ -662,6 +686,9 @@ function normalizeRelativePath(relativePath = ""): string {
 
 export function getFileExtension(filePath: string): string {
   const basename = path.basename(filePath).toLowerCase();
+  if (basename.endsWith(".science.json")) {
+    return ".science.json";
+  }
   if (
     basename === ".env.example" ||
     basename === ".gitignore" ||
@@ -768,6 +795,14 @@ export function getPreviewKind(filePath: string): WorkspacePreviewKind {
 
   if (MARKDOWN_EXTENSIONS.has(extension)) {
     return "markdown";
+  }
+
+  if (MOLECULE_EXTENSIONS.has(extension)) {
+    return "molecule";
+  }
+
+  if (extension === ".science.json") {
+    return "science";
   }
 
   if (extension === ".pdf") {
@@ -1255,7 +1290,12 @@ export async function readWorkspaceFileData(
   };
   if (stats.size <= MAX_TEXT_FILE_SIZE) {
     const previewKind = getPreviewKind(resolved.relativePath);
-    if (previewKind === "markdown" || previewKind === "text") {
+    if (
+      previewKind === "markdown" ||
+      previewKind === "molecule" ||
+      previewKind === "science" ||
+      previewKind === "text"
+    ) {
       payload.content = await fs.readFile(resolved.absolutePath, "utf8");
     }
   } else {

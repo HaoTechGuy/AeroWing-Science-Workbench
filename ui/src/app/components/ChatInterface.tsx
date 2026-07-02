@@ -87,7 +87,6 @@ const MAX_MENTION_OPTIONS = 10;
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
 const CHAT_COMPOSER_HASH = "#chat-composer";
-const DEFAULT_SEND_SHORTCUT_MODIFIER = "Ctrl";
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -1211,9 +1210,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       });
     }, [input, openMentionMenu]);
     const [isSavingTitle, setIsSavingTitle] = useState(false);
-    const [sendShortcutModifier, setSendShortcutModifier] = useState(
-      DEFAULT_SEND_SHORTCUT_MODIFIER
-    );
     const [showIntermediateResults, setShowIntermediateResults] =
       useState(false);
     const [scpCatalog, setScpCatalog] = useState<ScpCatalogItem[]>([]);
@@ -1593,13 +1589,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     }, [threadId]);
 
     useEffect(() => {
-      const platform = window.navigator.platform || window.navigator.userAgent;
-      setSendShortcutModifier(
-        /Mac|iPhone|iPad|iPod/i.test(platform) ? "⌘" : "Ctrl"
-      );
-    }, []);
-
-    useEffect(() => {
       if (isLoading) {
         setShowIntermediateResults(false);
       }
@@ -1944,6 +1933,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (submitDisabled) return;
+        const nativeEvent = e.nativeEvent;
+        const isImeComposing =
+          nativeEvent.isComposing || nativeEvent.keyCode === 229;
+        if (isImeComposing) return;
+
         if (mentionMenuOpen) {
           if (e.key === "ArrowDown") {
             e.preventDefault();
@@ -1986,7 +1980,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           }
         }
 
-        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           handleSubmit();
         }
@@ -3704,18 +3698,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       <span>恢复中</span>
-                    </div>
-                  ) : !isLoading ? (
-                    <div
-                      className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground"
-                      aria-label={`${sendShortcutModifier} 加 Enter 发送`}
-                    >
-                      <kbd className="min-w-5 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-center font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
-                        {sendShortcutModifier}
-                      </kbd>
-                      <kbd className="rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
-                        Enter
-                      </kbd>
                     </div>
                   ) : null}
                   <Button

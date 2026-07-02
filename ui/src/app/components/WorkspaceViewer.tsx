@@ -15,6 +15,7 @@ import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
+import { MoleculeViewer } from "@/app/components/MoleculeViewer";
 import {
   Tooltip,
   TooltipContent,
@@ -63,6 +64,7 @@ const PREVIEW_KIND_LABELS: Record<WorkspaceFileResponse["previewKind"], string> 
     docx: "Docx",
     image: "Image",
     markdown: "Markdown",
+    molecule: "Molecule",
     pdf: "PDF",
     pptx: "PPT",
     text: "Text",
@@ -116,7 +118,7 @@ function EmptyViewer() {
           <PanelRight className="h-5 w-5 text-muted-foreground" />
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          从工作区选择代码、文本、图片、PDF、Docx、Excel 或 PPT 文件后，会在这里预览。
+          从工作区选择代码、文本、图片、PDF、Office 或分子结构文件后，会在这里预览。
         </p>
       </div>
     </div>
@@ -571,6 +573,10 @@ export function WorkspaceViewer({
               <MarkdownContent content={file.content || ""} />
             </div>
           </ScrollArea>
+        )}
+
+        {!isLoading && !error && file?.previewKind === "molecule" && (
+          <MoleculeViewer file={file} />
         )}
 
         {!isLoading && !error && file?.previewKind === "text" && (

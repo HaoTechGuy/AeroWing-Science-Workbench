@@ -32,7 +32,9 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@types/diff": "^5.0.3",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/three": "^0.185.0",
     "@types/uuid": "^9.0.8",
+    "3dmol": "^2.5.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^1.2.1",
     "date-fns": "^4.1.0",
@@ -56,6 +58,7 @@
     "sonner": "^2.0.7",
     "swr": "^2.4.1",
     "tailwind-merge": "^2.6",
+    "three": "^0.185.1",
     "use-stick-to-bottom": "^1.1.1",
     "uuid": "^9.0.1"
   },

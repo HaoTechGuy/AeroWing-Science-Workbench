@@ -55,7 +55,12 @@ export async function GET(request: NextRequest) {
       rawUrl: `/api/workspace/file/raw?${rawParams.toString()}`,
     };
 
-    if (previewKind === "markdown" || previewKind === "text") {
+    if (
+      previewKind === "markdown" ||
+      previewKind === "molecule" ||
+      previewKind === "science" ||
+      previewKind === "text"
+    ) {
       if (fileData.size <= MAX_TEXT_FILE_SIZE && fileData.content !== undefined) {
         payload.content = fileData.content;
       } else {
