@@ -196,7 +196,7 @@ function ProjectsPageContent() {
               <Beaker className="h-6 w-6 text-primary" />
               <div>
                 <h1 className="font-serif text-3xl font-semibold leading-none">
-                  InternAgents
+                  InternAgentS
                 </h1>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {t("localResearchWorkbench")}

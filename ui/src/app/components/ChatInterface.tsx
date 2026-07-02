@@ -390,6 +390,26 @@ function addThreadSkill(
   return addThreadSkillItem(current, threadSkillFromEntry(skill));
 }
 
+function removeThreadSkill(
+  current: ThreadSkillsState | null | undefined,
+  skillKey: string
+): ThreadSkillsState {
+  const active = current?.active ?? [];
+  const nextActive = active.filter((skill) => skill.key !== skillKey);
+
+  if (nextActive.length === active.length) {
+    return {
+      revision: current?.revision ?? 0,
+      active,
+    };
+  }
+
+  return {
+    revision: (current?.revision ?? 0) + 1,
+    active: nextActive,
+  };
+}
+
 function autoSkillNamesForAttachment(
   attachment: ChatAttachment
 ): Set<keyof typeof AUTO_ATTACHMENT_THREAD_SKILLS> {
@@ -1982,6 +2002,26 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         threadSkills,
         updateThreadSkills,
       ]
+    );
+
+    const removeActiveThreadSkill = useCallback(
+      (skill: ThreadSkillItem) => {
+        if (composerBusy) {
+          toast.error(t("addSkillAfterRun"), {
+            position: "top-center",
+          });
+          return;
+        }
+
+        const nextThreadSkills = removeThreadSkill(threadSkills, skill.key);
+        void updateThreadSkills(nextThreadSkills).catch((error) => {
+          toast.error(
+            error instanceof Error ? error.message : t("skillRemoveFailed"),
+            { position: "top-center" }
+          );
+        });
+      },
+      [composerBusy, t, threadSkills, updateThreadSkills]
     );
 
     const handleSubmit = useCallback(
@@ -3638,7 +3678,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           {threadSkills.active.map((skill) => (
                             <div
                               key={skill.key}
-                              className="grid grid-cols-[auto_1fr] gap-3 rounded-md border border-border bg-card px-3 py-3"
+                              className="grid grid-cols-[auto_1fr_auto] gap-3 rounded-md border border-border bg-card px-3 py-3"
                             >
                               <span className="border-primary/20 bg-primary/10 flex h-8 w-8 items-center justify-center rounded-md border text-sm font-semibold text-primary">
                                 {skill.name.slice(0, 1)}
@@ -3653,6 +3693,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                   </span>
                                 )}
                               </span>
+                              <button
+                                type="button"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={() => removeActiveThreadSkill(skill)}
+                                disabled={composerBusy}
+                                aria-label={t("removeSkill", {
+                                  name: skill.name,
+                                })}
+                                title={t("removeSkill", {
+                                  name: skill.name,
+                                })}
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
                             </div>
                           ))}
                         </div>

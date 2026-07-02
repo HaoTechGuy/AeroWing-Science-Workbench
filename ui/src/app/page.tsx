@@ -30,7 +30,7 @@ import {
   RefreshCcw,
   Search,
   Settings,
-  Sparkles,
+  SlidersHorizontal,
   SquarePen,
   List,
   UploadCloud,
@@ -805,7 +805,7 @@ function WorkbenchSidebar({
           <span>{t("projectList")}</span>
         </Link>
         <div>
-          <h1>InternAgents</h1>
+          <h1>InternAgentS</h1>
           <span>{t("projectWorkbench")}</span>
         </div>
       </section>
@@ -928,8 +928,8 @@ function WorkbenchSidebar({
         <Link
           href={skillsHref}
         >
-          <Sparkles size={18} />
-          <span>{t("capabilities")}</span>
+          <SlidersHorizontal size={18} />
+          <span>{t("customize")}</span>
         </Link>
         <Link
           href={configHref}

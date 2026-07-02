@@ -21,6 +21,7 @@ const GLOBAL_IMPORTED_SKILLS_PATH = "~/.internagents/imported-skills";
 const LEGACY_IMPORTED_SKILLS_PATH = ".internagents/imported-skills";
 const IMPORT_TMP_PATH = ".internagents/tmp";
 const CLOUD_CLONE_TIMEOUT_MS = 120_000;
+const CLOUD_FETCH_TIMEOUT_MS = 30_000;
 const MAX_IMPORTED_SKILLS = 50;
 const DEFAULT_CATALOG_PATHS = [
   GLOBAL_SKILLS_PATH,
@@ -484,7 +485,11 @@ async function downloadGitHubArchiveSkill(
   const archivePath = path.join(tmpDirectory, "repo.tar.gz");
 
   try {
-    const response = await fetch(archiveUrl);
+    const response = await fetchWithTimeout(
+      archiveUrl,
+      CLOUD_FETCH_TIMEOUT_MS,
+      "GitHub 归档下载"
+    );
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -513,6 +518,29 @@ async function downloadGitHubArchiveSkill(
   } catch (error) {
     await fs.rm(tmpDirectory, { force: true, recursive: true });
     throw error;
+  }
+}
+
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+  label: string
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (name === "AbortError" || name === "TimeoutError") {
+      throw new Error(`${label}超时，请检查网络或代理设置。`, {
+        cause: error,
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -580,7 +608,11 @@ async function cloneCloudSkill(
 }
 
 async function importRawSkill(root: string, rawUrl: string): Promise<string[]> {
-  const response = await fetch(rawUrl);
+  const response = await fetchWithTimeout(
+    rawUrl,
+    CLOUD_FETCH_TIMEOUT_MS,
+    "云端 SKILL.md 下载"
+  );
   if (!response.ok) {
     throw new Error(`云端技能下载失败：HTTP ${response.status}`);
   }
