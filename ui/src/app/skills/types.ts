@@ -52,3 +52,26 @@ export interface BackendStatusResult {
   busyThreads: number;
   interruptedThreads: number;
 }
+
+export interface SkillConnectionsResponse {
+  scp: {
+    envKey: "SCP_HUB_API_KEY";
+    apiKeySet: boolean;
+    apiKeyPreview: string;
+  };
+  mcp: {
+    configPath: string;
+    exists: boolean;
+    configText: string;
+    serverCount: number;
+    error?: string;
+  };
+  message?: string;
+  requiresRestart?: boolean;
+}
+
+export interface UpdateSkillConnectionsRequest {
+  scpApiKey?: string;
+  clearScpApiKey?: boolean;
+  mcpConfigText?: string;
+}

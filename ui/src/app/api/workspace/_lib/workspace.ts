@@ -81,6 +81,15 @@ const MOLECULE_EXTENSIONS = new Set([
   ".xyz",
 ]);
 
+const SCIENCE_EXTENSIONS = new Set([
+  ".cif",
+  ".cube",
+  ".jdx",
+  ".science.json",
+  ".vti",
+  ".vtk",
+]);
+
 const EXTENSIONLESS_TEXT_FILENAMES = new Set([
   "caddyfile",
   "dockerfile",
@@ -116,6 +125,7 @@ const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
+  ".jdx": "chemical/x-jcamp-dx; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
@@ -144,6 +154,8 @@ const MIME_TYPES: Record<string, string> = {
   ".ts": "text/typescript; charset=utf-8",
   ".tsx": "text/typescript; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
+  ".vti": "application/vnd.vtk+xml; charset=utf-8",
+  ".vtk": "model/vnd.vtk; charset=utf-8",
   ".webp": "image/webp",
   ".xls": "application/vnd.ms-excel",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -797,12 +809,12 @@ export function getPreviewKind(filePath: string): WorkspacePreviewKind {
     return "markdown";
   }
 
-  if (MOLECULE_EXTENSIONS.has(extension)) {
-    return "molecule";
+  if (SCIENCE_EXTENSIONS.has(extension)) {
+    return "science";
   }
 
-  if (extension === ".science.json") {
-    return "science";
+  if (MOLECULE_EXTENSIONS.has(extension)) {
+    return "molecule";
   }
 
   if (extension === ".pdf") {

@@ -444,27 +444,23 @@ def _clear_directory(path: Path) -> None:
             child.unlink()
 
 
-def _normalize_skill_sources(raw_sources: Any) -> list[Any]:
+def _normalize_skill_sources(raw_sources: Any) -> list[str]:
     if not isinstance(raw_sources, list):
         return []
 
-    sources: list[Any] = []
+    sources: list[str] = []
     for source in raw_sources:
         if isinstance(source, str) and source.strip():
             sources.append(source.strip())
         elif isinstance(source, dict):
             path = source.get("path")
-            label = source.get("label")
             enabled = source.get("enabled", True)
             if isinstance(path, str) and path.strip() and enabled:
-                if isinstance(label, str) and label.strip():
-                    sources.append((path.strip(), label.strip()))
-                else:
-                    sources.append(path.strip())
+                sources.append(path.strip())
     return sources
 
 
-def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
+def _sync_selected_skills(skills_config: dict[str, Any]) -> list[str] | None:
     if not skills_config.get("enabled", False):
         return None
 
@@ -527,12 +523,10 @@ def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
     if enabled_count == 0:
         return None
 
-    label = skills_config.get("label")
-    source_label = label.strip() if isinstance(label, str) and label.strip() else "InternAgents"
-    return [(str(active_path), source_label)]
+    return [str(active_path)]
 
 
-def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
+def _resolve_skills(config: dict[str, Any]) -> list[str] | None:
     skills_config = config.get("skills")
     if isinstance(skills_config, list):
         sources = _normalize_skill_sources(skills_config)
@@ -1364,9 +1358,10 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             "代码理解、研究方案设计和本地科研项目开发。请尽可能使用中文回答用户。"
         ),
     )
+    resolved_skills = _resolve_skills(agent_config)
     backend = _create_backend_for_resource(
         resource,
-        read_only_roots=_skill_read_only_roots(agent_config, None),
+        read_only_roots=_skill_read_only_roots(agent_config, resolved_skills),
     )
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
@@ -1379,6 +1374,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
+        skills=resolved_skills,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(
             _resource_system_prompt(base_prompt, resource),
@@ -1398,10 +1394,11 @@ def create_runtime_agent():  # noqa: ANN201
         runtime_resource = resources.get(runtime_id)
     except Exception:
         runtime_resource = None
+    resolved_skills = _resolve_skills(agent_config)
     backend = _create_runtime_backend(
         agent_config,
         runtime_resource,
-        read_only_roots=_skill_read_only_roots(agent_config, None),
+        read_only_roots=_skill_read_only_roots(agent_config, resolved_skills),
     )
     base_prompt = agent_config.get(
         "system_prompt",
@@ -1450,6 +1447,7 @@ def create_runtime_agent():  # noqa: ANN201
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
+        skills=resolved_skills,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(system_prompt, agent_config),
         interrupt_on=agent_config.get("interrupt_on") or None,
