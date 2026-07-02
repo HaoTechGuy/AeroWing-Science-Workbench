@@ -10,21 +10,23 @@ import React, {
 } from "react";
 import Link from "next/link";
 import {
-  ArrowLeftRight,
+  Beaker,
+  Eye,
+  Files,
   FolderOpen,
+  History,
   Info,
   Loader2,
-  MessageSquare,
-  MessageSquareOff,
   Plus,
+  Radio,
   Settings,
   Sparkles,
+  SquarePen,
   UploadCloud,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import type { ImperativePanelHandle } from "react-resizable-panels";
 import {
   getConfig,
   getResource,
@@ -45,21 +47,11 @@ import {
   SelectSeparator,
   SelectTrigger,
 } from "@/components/ui/select";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { ChatProvider } from "@/providers/ChatProvider";
-import { Button } from "@/components/ui/button";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { RemoteConnectionDialog } from "@/app/components/RemoteConnectionDialog";
-import { WorkspacePanel } from "@/app/components/WorkspacePanel";
+import { ThreadList } from "@/app/components/ThreadList";
+import { WorkspaceExplorer } from "@/app/components/WorkspaceExplorer";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
 import {
@@ -200,13 +192,8 @@ function HomePageInner({
   );
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [pushingBackendCli, setPushingBackendCli] = useState(false);
-  const [chatAndFileSwapped, setChatAndFileSwapped] = useState(false);
-  const [chatPanelHidden, setChatPanelHidden] = useState(false);
-  const chatPanelRef = useRef<ImperativePanelHandle>(null);
-  const [workspacePanelCompact, setWorkspacePanelCompact] = useState(false);
-  const workspacePanelRef = useRef<ImperativePanelHandle>(null);
-  const [viewerPanelCompact, setViewerPanelCompact] = useState(false);
-  const viewerPanelRef = useRef<ImperativePanelHandle>(null);
+  const [sidebarMode, setSidebarMode] =
+    useState<WorkbenchSidebarMode>("sessions");
   const previousObservedThreadIdRef = useRef<string | null>(threadId ?? null);
   const intentionalThreadChangeRef = useRef<string | null>(null);
   const generatedThreadIdRef = useRef<string | null>(null);
@@ -268,10 +255,6 @@ function HomePageInner({
   const handleFileSelect = useCallback(
     async (entry: WorkspaceEntry) => {
       if (entry.kind === "file") {
-        setViewerPanelCompact(false);
-        window.requestAnimationFrame(() => {
-          viewerPanelRef.current?.resize(31);
-        });
         await setSelectedFilePath(entry.path);
       }
     },
@@ -464,37 +447,6 @@ function HomePageInner({
     activeResource.backend === "ssh_shell" ||
     (!isActiveLocalResource && activeResource.id !== "local");
 
-  const handleWorkspacePanelCompactChange = useCallback((compact: boolean) => {
-    setWorkspacePanelCompact(compact);
-    window.requestAnimationFrame(() => {
-      workspacePanelRef.current?.resize(compact ? 4 : 24);
-    });
-  }, []);
-
-  const handleViewerPanelCompactChange = useCallback((compact: boolean) => {
-    setViewerPanelCompact(compact);
-    window.requestAnimationFrame(() => {
-      viewerPanelRef.current?.resize(compact ? 4 : 31);
-    });
-  }, []);
-
-  const handleSwapChatAndFilePanels = useCallback(() => {
-    setChatAndFileSwapped((swapped) => !swapped);
-  }, []);
-
-  const handleToggleChatPanel = useCallback(() => {
-    setChatPanelHidden((hidden) => {
-      const nextHidden = !hidden;
-      if (nextHidden) {
-        setViewerPanelCompact(false);
-      }
-      window.requestAnimationFrame(() => {
-        chatPanelRef.current?.resize(nextHidden ? 4 : 51);
-      });
-      return nextHidden;
-    });
-  }, []);
-
   const handleRemoteConfigured = useCallback(
     async (resource: ResourceConfig, resources: ResourceConfig[]) => {
       await setThreadId(null);
@@ -650,95 +602,37 @@ function HomePageInner({
     }
   }, [currentWorkbenchHref]);
 
-  const chatHeaderActions = (
-    <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-            aria-label="隐藏会话区"
-            onClick={handleToggleChatPanel}
-          >
-            <MessageSquareOff className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent
-          side="bottom"
-          align="center"
-          sideOffset={6}
-          className="whitespace-nowrap"
-        >
-          隐藏会话区
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-            aria-label={
-              chatAndFileSwapped
-                ? "恢复会话区和文件区位置"
-                : "交换会话区和文件区位置"
-            }
-            aria-pressed={chatAndFileSwapped}
-            onClick={handleSwapChatAndFilePanels}
-          >
-            <ArrowLeftRight className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent
-          side="bottom"
-          align="center"
-          sideOffset={6}
-          className="whitespace-nowrap"
-        >
-          {chatAndFileSwapped ? "恢复会话/文件位置" : "交换会话/文件位置"}
-        </TooltipContent>
-      </Tooltip>
-    </>
-  );
+  return (
+    <div className="internagents-home ocs-app-shell">
+      <WorkbenchSidebar
+        mode={sidebarMode}
+        setMode={setSidebarMode}
+        activeAssistantId={activeAssistantId}
+        activeResource={activeResource}
+        activeWorkspace={activeWorkspace}
+        environmentLabel={environmentLabel}
+        environmentValue={environmentValue}
+        isActiveLocalResource={isActiveLocalResource}
+        isActiveSshResource={isActiveSshResource}
+        isPickingWorkspace={isPickingWorkspace}
+        ensuringResourceId={ensuringResourceId}
+        pushingBackendCli={pushingBackendCli}
+        remoteResources={remoteResources}
+        selectedFilePath={selectedFilePath}
+        workspaceRefreshKey={workspaceRefreshKey}
+        workspaces={workspaces}
+        configHref={configHref}
+        skillsHref={skillsHref}
+        aboutHref={aboutHref}
+        onEnvironmentChange={handleEnvironmentChange}
+        onFileSelect={handleFileSelect}
+        onMutateReady={(fn) => setMutateThreads(() => fn)}
+        onNewThread={handleNewThread}
+        onPushBackendCli={handlePushBackendCli}
+        onThreadSelect={handleThreadSelect}
+      />
 
-  const chatPanel = (
-    <ResizablePanel
-      key="chat-panel"
-      ref={chatPanelRef}
-      id="chat"
-      className={
-        chatPanelHidden
-          ? "relative min-w-[44px] max-w-[56px] bg-card"
-          : "relative flex min-w-[420px] flex-col bg-card/70"
-      }
-      order={chatAndFileSwapped ? 3 : 2}
-      defaultSize={chatPanelHidden ? 4 : 51}
-      minSize={chatPanelHidden ? 4 : 34}
-      maxSize={chatPanelHidden ? 6 : undefined}
-    >
-      {chatPanelHidden && (
-        <div className="flex h-full w-full items-start justify-center py-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 text-muted-foreground hover:text-primary"
-            aria-label="显示会话区"
-            onClick={handleToggleChatPanel}
-          >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
-      <div
-        className={cn(
-          "h-full min-h-0",
-          chatPanelHidden ? "hidden" : "flex min-w-0 flex-col"
-        )}
-      >
+      <section className="ocs-workspace">
         <ChatProvider
           key={`${activeResource.id}:${activeAssistantId}:${
             activeWorkspace?.id || "workspace"
@@ -758,262 +652,24 @@ function HomePageInner({
             isActiveLocalResource ? activeWorkspace?.label : undefined
           }
         >
-          <ChatInterface
-            assistant={assistant}
-            headerActions={chatHeaderActions}
-          />
+          <ChatInterface assistant={assistant} />
         </ChatProvider>
-      </div>
-    </ResizablePanel>
-  );
+      </section>
 
-  const viewerPanel = (
-    <ResizablePanel
-      key="viewer-panel"
-      ref={viewerPanelRef}
-      id="viewer"
-      order={chatAndFileSwapped ? 2 : 3}
-      defaultSize={viewerPanelCompact ? 4 : 31}
-      minSize={viewerPanelCompact ? 4 : 22}
-      maxSize={viewerPanelCompact ? 6 : undefined}
-      className={
-        viewerPanelCompact
-          ? "relative min-w-[44px] max-w-[56px] border-l border-border bg-card"
-          : "relative min-w-[320px] overflow-hidden border-l border-border bg-card"
-      }
-    >
-      <WorkspaceViewer
-        key={activeWorkspace?.id || activeResource.id}
-        selectedPath={selectedFilePath}
-        resourceId={activeResource.id}
+      <WorkbenchInspector
+        activeAssistantId={activeAssistantId}
+        activeResource={activeResource}
+        activeWorkspace={activeWorkspace}
+        isActiveLocalResource={isActiveLocalResource}
+        selectedFilePath={selectedFilePath}
+        threadId={threadId}
         workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
-        compact={viewerPanelCompact}
-        onCollapse={() => handleViewerPanelCompactChange(true)}
-        onExpand={() => handleViewerPanelCompactChange(false)}
-        onClear={() => void handleClearSelectedFile()}
+        onClearSelectedFile={handleClearSelectedFile}
+        configHref={configHref}
+        skillsHref={skillsHref}
+        aboutHref={aboutHref}
       />
-    </ResizablePanel>
-  );
 
-  return (
-    <div className="internagents-home flex h-[calc(100vh-var(--app-footer-height))] flex-col bg-background text-foreground">
-      <header className="flex h-14 items-center justify-between border-b border-border bg-card/95 px-5 shadow-[0_1px_0_rgba(23,36,36,0.03)]">
-        <div
-          className="flex min-w-0 items-center gap-3"
-          data-tour="local-agent"
-        >
-          <h1 className="text-sm font-semibold tracking-tight text-foreground">
-            InternAgents
-          </h1>
-          <Select
-            value={environmentValue}
-            onValueChange={(value) => void handleEnvironmentChange(value)}
-          >
-            <SelectTrigger className="h-9 w-[260px] border-border bg-background/80 text-sm">
-              <span className="flex min-w-0 items-center gap-2">
-                {isPickingWorkspace ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-                ) : null}
-                {ensuringResourceId ? (
-                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-                ) : null}
-                <span className="min-w-0 truncate">{environmentLabel}</span>
-              </span>
-            </SelectTrigger>
-            <SelectContent
-              align="start"
-              className="internagents-home w-[340px]"
-            >
-              <SelectGroup>
-                <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                  本地工作区
-                </SelectLabel>
-                {workspaces.map((workspace) => (
-                  <SelectItem
-                    key={workspace.id}
-                    value={`workspace:${workspace.id}`}
-                    textValue={workspace.label}
-                    className="py-2"
-                  >
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{workspace.label}</span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {workspace.resolvedPath || workspace.path}
-                      </span>
-                    </span>
-                  </SelectItem>
-                ))}
-                <SelectSeparator />
-                <SelectItem
-                  value={OPEN_WORKSPACE_VALUE}
-                  textValue="打开或新增本地工作区"
-                  className="py-2"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    {isPickingWorkspace ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                    ) : (
-                      <FolderOpen className="h-4 w-4 shrink-0" />
-                    )}
-                    <span>打开或新增本地工作区</span>
-                  </span>
-                </SelectItem>
-              </SelectGroup>
-
-              <SelectSeparator />
-              <SelectGroup>
-                <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                  远程工作区
-                </SelectLabel>
-                {remoteResources.map((resource) => (
-                  <SelectItem
-                    key={resource.id}
-                    value={`resource:${resource.id}`}
-                    textValue={resource.label}
-                    className="py-2"
-                  >
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{resource.label}</span>
-                      {resource.workspacePath && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {resource.workspacePath}
-                        </span>
-                      )}
-                    </span>
-                  </SelectItem>
-                ))}
-                <SelectSeparator />
-                <SelectItem
-                  value={ADD_REMOTE_WORKSPACE_VALUE}
-                  textValue="接入远程工作区"
-                  className="py-2"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Plus className="h-4 w-4 shrink-0" />
-                    <span>接入远程工作区</span>
-                  </span>
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          {isActiveSshResource && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 border-border bg-card"
-              disabled={pushingBackendCli}
-              onClick={() => void handlePushBackendCli()}
-            >
-              {pushingBackendCli ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <UploadCloud className="h-4 w-4" />
-              )}
-              同步远端智能体
-            </Button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-8 border-border bg-card"
-          >
-            <Link
-              href={skillsHref}
-              data-tour="nav-capabilities"
-            >
-              <Sparkles className="h-4 w-4" />
-              能力插件
-            </Link>
-          </Button>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-8 border-border bg-card"
-          >
-            <Link
-              href={configHref}
-              data-tour="nav-config"
-            >
-              <Settings className="h-4 w-4" />
-              配置
-            </Link>
-          </Button>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-8 border-border bg-card"
-          >
-            <Link
-              href={aboutHref}
-              data-tour="nav-about"
-            >
-              <Info className="h-4 w-4" />
-              关于与更新
-            </Link>
-          </Button>
-        </div>
-      </header>
-
-      <div className="flex-1 overflow-hidden bg-background">
-        <ResizablePanelGroup
-          direction="horizontal"
-          autoSaveId="standalone-chat"
-        >
-          <ResizablePanel
-            ref={workspacePanelRef}
-            id="workspace"
-            order={1}
-            defaultSize={workspacePanelCompact ? 4 : 18}
-            minSize={workspacePanelCompact ? 4 : 13}
-            maxSize={workspacePanelCompact ? 6 : 20}
-            className={
-              workspacePanelCompact
-                ? "relative min-w-[44px] max-w-[56px] border-r border-border bg-sidebar"
-                : "relative min-w-[260px] border-r border-border bg-sidebar"
-            }
-            data-tour="workspace-panel"
-          >
-            <WorkspacePanel
-              key={activeWorkspace?.id || activeResource.id}
-              selectedFilePath={selectedFilePath}
-              onFileSelect={handleFileSelect}
-              onThreadSelect={handleThreadSelect}
-              onNewThread={handleNewThread}
-              onMutateReady={(fn) => setMutateThreads(() => fn)}
-              resourceId={activeResource.id}
-              runtimeUrl={activeResource.runtimeUrl}
-              assistantId={activeAssistantId}
-              workspaceId={
-                isActiveLocalResource ? activeWorkspace?.id : undefined
-              }
-              workspaceRefreshKey={workspaceRefreshKey}
-              activeWorkspace={activeWorkspace}
-              onCompactChange={handleWorkspacePanelCompactChange}
-            />
-          </ResizablePanel>
-          <ResizableHandle />
-
-          {chatAndFileSwapped ? (
-            <>
-              {viewerPanel}
-              <ResizableHandle />
-              {chatPanel}
-            </>
-          ) : (
-            <>
-              {chatPanel}
-              <ResizableHandle />
-              {viewerPanel}
-            </>
-          )}
-        </ResizablePanelGroup>
-      </div>
       <RemoteConnectionDialog
         open={remoteDialogOpen}
         onOpenChange={setRemoteDialogOpen}
@@ -1021,6 +677,520 @@ function HomePageInner({
       />
     </div>
   );
+}
+
+type WorkbenchSidebarMode = "sessions" | "files" | "settings";
+
+interface WorkbenchSidebarProps {
+  mode: WorkbenchSidebarMode;
+  setMode: (mode: WorkbenchSidebarMode) => void;
+  activeAssistantId: string;
+  activeResource: ResourceConfig;
+  activeWorkspace: LocalWorkspace | null;
+  environmentLabel: string;
+  environmentValue: string;
+  isActiveLocalResource: boolean;
+  isActiveSshResource: boolean;
+  isPickingWorkspace: boolean;
+  ensuringResourceId: string | null;
+  pushingBackendCli: boolean;
+  remoteResources: ResourceConfig[];
+  selectedFilePath?: string | null;
+  workspaceRefreshKey: number;
+  workspaces: LocalWorkspace[];
+  configHref: string;
+  skillsHref: string;
+  aboutHref: string;
+  onEnvironmentChange: (value: string) => Promise<void>;
+  onFileSelect: (entry: WorkspaceEntry) => void;
+  onMutateReady: (mutate: () => void) => void;
+  onNewThread: () => Promise<void>;
+  onPushBackendCli: () => void;
+  onThreadSelect: (id: string) => void;
+}
+
+function WorkbenchSidebar({
+  mode,
+  setMode,
+  activeAssistantId,
+  activeResource,
+  activeWorkspace,
+  environmentLabel,
+  environmentValue,
+  isActiveLocalResource,
+  isActiveSshResource,
+  isPickingWorkspace,
+  ensuringResourceId,
+  pushingBackendCli,
+  remoteResources,
+  selectedFilePath,
+  workspaceRefreshKey,
+  workspaces,
+  configHref,
+  skillsHref,
+  aboutHref,
+  onEnvironmentChange,
+  onFileSelect,
+  onMutateReady,
+  onNewThread,
+  onPushBackendCli,
+  onThreadSelect,
+}: WorkbenchSidebarProps) {
+  const runtimeLabel = isActiveLocalResource ? "local" : "remote";
+
+  return (
+    <aside
+      className="ocs-sidebar"
+      data-tour="workspace-panel"
+    >
+      <section className="ocs-brand">
+        <div>
+          <h1>InternAgents</h1>
+          <span>agent workbench</span>
+        </div>
+        <Beaker size={24} />
+      </section>
+
+      <section
+        className="ocs-project-picker"
+        data-tour="local-agent"
+      >
+        <span>Project</span>
+        <Select
+          value={environmentValue}
+          onValueChange={(value) => void onEnvironmentChange(value)}
+        >
+          <SelectTrigger className="ocs-project-trigger">
+            <span className="flex min-w-0 items-center gap-2">
+              {isPickingWorkspace || ensuringResourceId ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+              ) : null}
+              <span className="min-w-0 truncate">{environmentLabel}</span>
+            </span>
+          </SelectTrigger>
+          <SelectContent
+            align="start"
+            className="internagents-home ocs-select-content w-[340px]"
+          >
+            <SelectGroup>
+              <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                本地工作区
+              </SelectLabel>
+              {workspaces.map((workspace) => (
+                <SelectItem
+                  key={workspace.id}
+                  value={`workspace:${workspace.id}`}
+                  textValue={workspace.label}
+                  className="py-2"
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{workspace.label}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {workspace.resolvedPath || workspace.path}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+              <SelectSeparator />
+              <SelectItem
+                value={OPEN_WORKSPACE_VALUE}
+                textValue="打开或新增本地工作区"
+                className="py-2"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  {isPickingWorkspace ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                  ) : (
+                    <FolderOpen className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>打开或新增本地工作区</span>
+                </span>
+              </SelectItem>
+            </SelectGroup>
+
+            <SelectSeparator />
+            <SelectGroup>
+              <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                远程工作区
+              </SelectLabel>
+              {remoteResources.map((resource) => (
+                <SelectItem
+                  key={resource.id}
+                  value={`resource:${resource.id}`}
+                  textValue={resource.label}
+                  className="py-2"
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{resource.label}</span>
+                    {resource.workspacePath && (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {resource.workspacePath}
+                      </span>
+                    )}
+                  </span>
+                </SelectItem>
+              ))}
+              <SelectSeparator />
+              <SelectItem
+                value={ADD_REMOTE_WORKSPACE_VALUE}
+                textValue="接入远程工作区"
+                className="py-2"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Plus className="h-4 w-4 shrink-0" />
+                  <span>接入远程工作区</span>
+                </span>
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </section>
+
+      <nav
+        className="ocs-primary-actions"
+        aria-label="workspace actions"
+      >
+        <button
+          type="button"
+          onClick={() => void onNewThread()}
+        >
+          <SquarePen size={18} />
+          <span>New</span>
+        </button>
+        <Link
+          href={skillsHref}
+          data-tour="nav-capabilities"
+        >
+          <Sparkles size={18} />
+          <span>Capabilities</span>
+        </Link>
+        <Link
+          href={configHref}
+          data-tour="nav-config"
+        >
+          <Settings size={18} />
+          <span>Config</span>
+        </Link>
+        <button
+          id="workspace-files"
+          type="button"
+          onClick={() => setMode("files")}
+        >
+          <Files size={18} />
+          <span>Files</span>
+        </button>
+        <Link
+          href={aboutHref}
+          data-tour="nav-about"
+        >
+          <Info size={18} />
+          <span>About</span>
+        </Link>
+        {isActiveSshResource && (
+          <button
+            type="button"
+            disabled={pushingBackendCli}
+            onClick={onPushBackendCli}
+          >
+            {pushingBackendCli ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <UploadCloud size={18} />
+            )}
+            <span>Sync remote</span>
+          </button>
+        )}
+      </nav>
+
+      <div className="ocs-sidebar-tabs">
+        {(["sessions", "files", "settings"] as const).map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={cn(mode === item && "active")}
+            onClick={() => setMode(item)}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+
+      <div className="ocs-sidebar-body">
+        {mode === "sessions" && (
+          <div
+            className="ocs-panel-fill"
+            data-tour="thread-list"
+          >
+            <ThreadList
+              onThreadSelect={onThreadSelect}
+              onNewThread={onNewThread}
+              onMutateReady={onMutateReady}
+              resourceId={activeResource.id}
+              runtimeUrl={activeResource.runtimeUrl}
+              assistantId={activeAssistantId}
+              workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
+            />
+          </div>
+        )}
+        {mode === "files" && (
+          <div className="ocs-panel-fill">
+            <WorkspaceExplorer
+              key={activeWorkspace?.id || activeResource.id}
+              selectedPath={selectedFilePath}
+              resourceId={activeResource.id}
+              workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
+              refreshKey={workspaceRefreshKey}
+              activeWorkspace={activeWorkspace}
+              onFileSelect={onFileSelect}
+            />
+          </div>
+        )}
+        {mode === "settings" && (
+          <WorkbenchSidebarSettings
+            aboutHref={aboutHref}
+            configHref={configHref}
+            skillsHref={skillsHref}
+            activeAssistantId={activeAssistantId}
+            activeResource={activeResource}
+            activeWorkspace={activeWorkspace}
+          />
+        )}
+      </div>
+
+      <footer className="ocs-sidebar-footer">
+        <button
+          type="button"
+          onClick={() => setMode("settings")}
+          aria-label="Settings"
+        >
+          <Settings size={18} />
+        </button>
+        <span>
+          <Radio size={14} />
+          {runtimeLabel}
+        </span>
+      </footer>
+    </aside>
+  );
+}
+
+interface WorkbenchSidebarSettingsProps {
+  aboutHref: string;
+  configHref: string;
+  skillsHref: string;
+  activeAssistantId: string;
+  activeResource: ResourceConfig;
+  activeWorkspace: LocalWorkspace | null;
+}
+
+function WorkbenchSidebarSettings({
+  aboutHref,
+  configHref,
+  skillsHref,
+  activeAssistantId,
+  activeResource,
+  activeWorkspace,
+}: WorkbenchSidebarSettingsProps) {
+  return (
+    <section className="ocs-sidebar-settings">
+      <Settings size={18} />
+      <p>Current runtime and workspace controls.</p>
+      <div className="ocs-settings-row">
+        <span>Assistant</span>
+        <em>{activeAssistantId}</em>
+      </div>
+      <div className="ocs-settings-row">
+        <span>Resource</span>
+        <em>{activeResource.label}</em>
+      </div>
+      <div className="ocs-settings-row">
+        <span>Workspace</span>
+        <em>{activeWorkspace?.label ?? "remote"}</em>
+      </div>
+      <Link href={configHref}>
+        <Settings size={16} />
+        配置
+      </Link>
+      <Link href={skillsHref}>
+        <Sparkles size={16} />
+        能力插件
+      </Link>
+      <Link href={aboutHref}>
+        <Info size={16} />
+        关于与更新
+      </Link>
+    </section>
+  );
+}
+
+type WorkbenchInspectorMode = "preview" | "provenance" | "settings";
+
+interface WorkbenchInspectorProps {
+  activeAssistantId: string;
+  activeResource: ResourceConfig;
+  activeWorkspace: LocalWorkspace | null;
+  isActiveLocalResource: boolean;
+  selectedFilePath?: string | null;
+  threadId?: string | null;
+  workspaceId?: string;
+  configHref: string;
+  skillsHref: string;
+  aboutHref: string;
+  onClearSelectedFile: () => Promise<void>;
+}
+
+function WorkbenchInspector({
+  activeAssistantId,
+  activeResource,
+  activeWorkspace,
+  isActiveLocalResource,
+  selectedFilePath,
+  threadId,
+  workspaceId,
+  configHref,
+  skillsHref,
+  aboutHref,
+  onClearSelectedFile,
+}: WorkbenchInspectorProps) {
+  const [mode, setMode] = useState<WorkbenchInspectorMode>("preview");
+  const selectedName = displayPathName(selectedFilePath);
+
+  return (
+    <aside className="ocs-inspector">
+      <header className="ocs-inspector-header">
+        <div>
+          <span className="ocs-eyebrow">Artifact</span>
+          <h3>{selectedFilePath ? selectedName : "No artifact open"}</h3>
+        </div>
+        <Files size={22} />
+      </header>
+
+      <div className="ocs-artifact-strip">
+        <button
+          type="button"
+          className={cn(selectedFilePath && "active")}
+          onClick={() => setMode("preview")}
+        >
+          <Files size={14} />
+          {selectedFilePath ? selectedName : "File preview"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("settings")}
+        >
+          <Radio size={14} />
+          {activeResource.label}
+        </button>
+      </div>
+
+      <div className="ocs-version-bar">
+        <button
+          type="button"
+          className={cn(mode === "preview" && "active")}
+          onClick={() => setMode("preview")}
+        >
+          <Eye size={15} />
+          Preview
+        </button>
+        <button
+          type="button"
+          className={cn(mode === "provenance" && "active")}
+          onClick={() => setMode("provenance")}
+        >
+          <History size={15} />
+          Provenance
+        </button>
+        <button
+          type="button"
+          className={cn(mode === "settings" && "active")}
+          onClick={() => setMode("settings")}
+        >
+          <Settings size={15} />
+          Settings
+        </button>
+      </div>
+
+      {mode === "preview" && (
+        <div className="ocs-inspector-content ocs-inspector-preview">
+          <WorkspaceViewer
+            key={activeWorkspace?.id || activeResource.id}
+            selectedPath={selectedFilePath}
+            resourceId={activeResource.id}
+            workspaceId={workspaceId}
+            onClear={() => void onClearSelectedFile()}
+          />
+        </div>
+      )}
+
+      {mode === "provenance" && (
+        <section className="ocs-provenance-panel">
+          <nav>
+            <button
+              type="button"
+              className="active"
+            >
+              messages
+            </button>
+            <button type="button">runtime</button>
+            <button type="button">files</button>
+          </nav>
+          <article className="ocs-execution-record">
+            <strong>Thread</strong>
+            <code>{threadId || "new thread"}</code>
+          </article>
+          <article className="ocs-execution-record">
+            <strong>Workspace</strong>
+            <code>
+              {activeWorkspace?.resolvedPath ||
+                activeWorkspace?.path ||
+                activeResource.workspacePath ||
+                "remote workspace"}
+            </code>
+          </article>
+          <article className="ocs-execution-record">
+            <strong>Selected file</strong>
+            <code>{selectedFilePath || "No file selected"}</code>
+          </article>
+        </section>
+      )}
+
+      {mode === "settings" && (
+        <section className="ocs-settings-inspector">
+          <section>
+            <h4>Runtime</h4>
+            <div className="ocs-settings-row">
+              <span>Resource</span>
+              <em>{activeResource.label}</em>
+            </div>
+            <div className="ocs-settings-row">
+              <span>Backend</span>
+              <em>{activeResource.backend || "local"}</em>
+            </div>
+            <div className="ocs-settings-row">
+              <span>Assistant</span>
+              <em>{activeAssistantId}</em>
+            </div>
+            <div className="ocs-settings-row">
+              <span>Scope</span>
+              <em>{isActiveLocalResource ? "local" : "remote"}</em>
+            </div>
+          </section>
+          <section>
+            <h4>Navigation</h4>
+            <Link href={configHref}>配置</Link>
+            <Link href={skillsHref}>能力插件</Link>
+            <Link href={aboutHref}>关于与更新</Link>
+          </section>
+        </section>
+      )}
+    </aside>
+  );
+}
+
+function displayPathName(path?: string | null): string {
+  if (!path) return "File preview";
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] || path;
 }
 
 function HomePageContent() {
