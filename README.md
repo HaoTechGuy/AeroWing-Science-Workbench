@@ -1,6 +1,9 @@
 <div align="center">
   <h1 align="center">InternAgentS</h1>
   <p align="center">
+    <strong>Bringing the Claude Science experience to the open-source community.</strong>
+  </p>
+  <p align="center">
     A local-first research agent workbench for DeepAgents, LangGraph, project files, skills, and scientific workflows.
   </p>
   <p align="center">
