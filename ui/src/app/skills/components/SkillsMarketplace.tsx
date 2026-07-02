@@ -72,12 +72,56 @@ type SkillsTab =
   | typeof SCIENCE_MARKET_TAB
   | typeof INSTALLED_SKILLS_TAB
   | typeof CONNECTIONS_TAB;
+type SkillsMarketplaceView = "all" | "skills" | "connections";
 const UPLOAD_LOCAL_MODE = "local";
 const UPLOAD_CLOUD_MODE = "cloud";
 type UploadSkillMode = typeof UPLOAD_LOCAL_MODE | typeof UPLOAD_CLOUD_MODE;
 type SelectedSkillsUpdate =
   | Set<string>
   | ((currentSelected: Set<string>) => Set<string>);
+
+interface SkillsMarketplaceProps {
+  embedded?: boolean;
+  initialTab?: SkillsTab;
+  view?: SkillsMarketplaceView;
+}
+
+function skillsTabFromSettingsHash(hash: string): SkillsTab | null {
+  const normalized = hash.replace(/^#/, "");
+  if (normalized === "settings-connectors") {
+    return CONNECTIONS_TAB;
+  }
+  if (normalized === "settings-science-skills") {
+    return SCIENCE_MARKET_TAB;
+  }
+  if (normalized === "settings-skills") {
+    return INSTALLED_SKILLS_TAB;
+  }
+  return null;
+}
+
+function settingsHashFromSkillsTab(tab: SkillsTab): string {
+  if (tab === CONNECTIONS_TAB) {
+    return "settings-connectors";
+  }
+  if (tab === SCIENCE_MARKET_TAB) {
+    return "settings-science-skills";
+  }
+  return "settings-skills";
+}
+
+function normalizeTabForView(
+  tab: SkillsTab,
+  view: SkillsMarketplaceView
+): SkillsTab {
+  if (view === "connections") {
+    return CONNECTIONS_TAB;
+  }
+  if (view === "skills" && tab === CONNECTIONS_TAB) {
+    return INSTALLED_SKILLS_TAB;
+  }
+  return tab;
+}
 const FEATURED_SKILL_FOLDERS = [
   "skill-creator",
   "patent-disclosure-skill",
@@ -537,7 +581,11 @@ function ScienceSkillCard({
   );
 }
 
-export function SkillsMarketplace() {
+export function SkillsMarketplace({
+  embedded = false,
+  initialTab = INSTALLED_SKILLS_TAB,
+  view = "all",
+}: SkillsMarketplaceProps) {
   const searchParams = useSearchParams();
   const [data, setData] = useState<SkillsConfigResponse>(() => emptyResponse());
   const [connections, setConnections] = useState<SkillConnectionsResponse>(() =>
@@ -548,7 +596,9 @@ export function SkillsMarketplace() {
   const [connectionsSaving, setConnectionsSaving] = useState<
     "scp" | "mcp" | null
   >(null);
-  const [activeTab, setActiveTab] = useState<SkillsTab>(INSTALLED_SKILLS_TAB);
+  const [activeTab, setActiveTab] = useState<SkillsTab>(() =>
+    normalizeTabForView(initialTab, view)
+  );
   const [uploadSkillDialogOpen, setUploadSkillDialogOpen] = useState(false);
   const [uploadSkillMode, setUploadSkillMode] =
     useState<UploadSkillMode>(UPLOAD_LOCAL_MODE);
@@ -599,6 +649,48 @@ export function SkillsMarketplace() {
   const preparedSearchQuery = useMemo(
     () => prepareSearchQuery(searchQuery),
     [searchQuery]
+  );
+  const connectionsOnly = view === "connections";
+  const skillsOnly = view === "skills";
+  const scrollableSkillContent = embedded && skillsOnly;
+  const activeTabForView = normalizeTabForView(activeTab, view);
+
+  useEffect(() => {
+    if (!embedded || connectionsOnly || typeof window === "undefined") {
+      return;
+    }
+
+    const syncTabFromHash = () => {
+      const nextTab = skillsTabFromSettingsHash(window.location.hash);
+      if (nextTab && !(skillsOnly && nextTab === CONNECTIONS_TAB)) {
+        setActiveTab(nextTab);
+      }
+    };
+
+    syncTabFromHash();
+    window.addEventListener("hashchange", syncTabFromHash);
+    return () => window.removeEventListener("hashchange", syncTabFromHash);
+  }, [connectionsOnly, embedded, skillsOnly]);
+
+  const handleActiveTabChange = useCallback(
+    (value: string) => {
+      const nextTab = normalizeTabForView(value as SkillsTab, view);
+      setActiveTab(nextTab);
+
+      if (!embedded || connectionsOnly || typeof window === "undefined") {
+        return;
+      }
+
+      const nextHash = settingsHashFromSkillsTab(nextTab);
+      if (window.location.hash !== `#${nextHash}`) {
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}#${nextHash}`
+        );
+      }
+    },
+    [connectionsOnly, embedded, view]
   );
 
   useEffect(() => {
@@ -1184,9 +1276,13 @@ export function SkillsMarketplace() {
   }
 
   useEffect(() => {
-    void loadSkills();
+    if (connectionsOnly) {
+      setLoading(false);
+    } else {
+      void loadSkills();
+    }
     void loadConnections();
-  }, [loadConnections, loadSkills]);
+  }, [connectionsOnly, loadConnections, loadSkills]);
 
   useEffect(() => {
     const requiresRestart =
@@ -1223,50 +1319,100 @@ export function SkillsMarketplace() {
   ]);
 
   return (
-    <div className="flex min-h-[calc(100vh-var(--app-footer-height))] flex-col overflow-x-hidden bg-background text-foreground">
-      <header className="flex h-16 items-center justify-between border-b border-border px-6">
-        <div className="flex min-w-0 items-center gap-4">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2"
-          >
-            <Link href={workbenchHref}>
-              <ArrowLeft className="h-4 w-4" />
-              工作台
-            </Link>
-          </Button>
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold">能力配置</h1>
-            <div className="truncate text-xs text-muted-foreground">
-              Skills · 管理项目默认启用的技能，也可以为当前会话临时添加
+    <div
+      className={cn(
+        "overflow-x-hidden text-foreground",
+        embedded
+          ? "flex h-full min-h-0 w-full flex-col bg-transparent"
+          : "flex min-h-[calc(100vh-var(--app-footer-height))] flex-col bg-background"
+      )}
+      onKeyDownCapture={(event) => {
+        if (!embedded || event.key !== "Enter") {
+          return;
+        }
+        const target = event.target as HTMLElement | null;
+        if (target?.tagName === "INPUT") {
+          event.preventDefault();
+        }
+      }}
+    >
+      {!embedded && (
+        <header className="flex h-16 items-center justify-between border-b border-border px-6">
+          <div className="flex min-w-0 items-center gap-4">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+            >
+              <Link href={workbenchHref}>
+                <ArrowLeft className="h-4 w-4" />
+                工作台
+              </Link>
+            </Button>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-semibold">能力配置</h1>
+              <div className="truncate text-xs text-muted-foreground">
+                Skills · 管理项目默认启用的技能，也可以为当前会话临时添加
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 overflow-x-hidden px-6 py-6">
-        {activeTab !== CONNECTIONS_TAB ? (
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:max-w-sm">
+      <main
+        className={cn(
+          "w-full overflow-x-hidden",
+          embedded
+            ? "flex h-full min-h-0 flex-col px-0 py-0"
+            : "mx-auto max-w-6xl flex-1 px-6 py-6"
+        )}
+      >
+        {embedded && (
+          <>
+            <span
+              id="settings-science-skills"
+              className="block scroll-mt-24"
+              aria-hidden="true"
+            />
+          </>
+        )}
+        {activeTabForView !== CONNECTIONS_TAB ? (
+          <div
+            className={cn(
+              "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between",
+              embedded ? "mb-4" : "mb-5"
+            )}
+          >
+            <div
+              className={cn(
+                "relative w-full",
+                embedded ? "lg:max-w-[440px]" : "lg:max-w-sm"
+              )}
+            >
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder={
-                  activeTab === SCIENCE_MARKET_TAB
+                  activeTabForView === SCIENCE_MARKET_TAB
                     ? "搜索科学技能库"
                     : "搜索已安装技能"
                 }
-                className="h-10 rounded-md pl-9"
+                className={cn(
+                  "rounded-md pl-9",
+                  embedded ? "h-9" : "h-10"
+                )}
               />
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row lg:justify-end">
               <Button
                 type="button"
                 variant="outline"
-                className="h-10 w-full shrink-0 rounded-md px-4 sm:w-auto"
+                className={cn(
+                  "w-full shrink-0 rounded-md px-4 sm:w-auto",
+                  embedded ? "h-9" : "h-10"
+                )}
                 onClick={() => {
                   setUploadSkillMode(UPLOAD_LOCAL_MODE);
                   setUploadSkillDialogOpen(true);
@@ -1278,7 +1424,10 @@ export function SkillsMarketplace() {
               <Button
                 type="button"
                 variant="outline"
-                className="h-10 w-full shrink-0 rounded-md px-4 sm:w-auto"
+                className={cn(
+                  "w-full shrink-0 rounded-md px-4 sm:w-auto",
+                  embedded ? "h-9" : "h-10"
+                )}
                 onClick={() => {
                   setUploadSkillMode(UPLOAD_CLOUD_MODE);
                   setUploadSkillDialogOpen(true);
@@ -1290,14 +1439,22 @@ export function SkillsMarketplace() {
             </div>
           </div>
         ) : (
-          <div className="mb-5 flex items-center justify-between gap-3">
+          <div
+            className={cn(
+              "flex items-center justify-between gap-3",
+              embedded ? "mb-4" : "mb-5"
+            )}
+          >
             <div className="min-w-0 text-sm text-muted-foreground">
               连接配置保存在本地 `.env` 和 `.mcp.json`，保存后后台会自动应用。
             </div>
             <Button
               type="button"
               variant="outline"
-              className="h-10 shrink-0 rounded-md px-4"
+              className={cn(
+                "shrink-0 rounded-md px-4",
+                embedded ? "h-9" : "h-10"
+              )}
               onClick={() => void loadConnections()}
               disabled={actionBusy || connectionsLoading}
             >
@@ -1318,15 +1475,28 @@ export function SkillsMarketplace() {
         )}
 
         <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as SkillsTab)}
-          className="gap-6"
+          value={activeTabForView}
+          onValueChange={handleActiveTabChange}
+          className={cn(
+            embedded ? "gap-4" : "gap-6",
+            scrollableSkillContent && "min-h-0 flex-1"
+          )}
         >
-          <div className="border-b border-border">
-            <TabsList className="h-auto gap-6 rounded-none bg-transparent p-0">
+          {!connectionsOnly && (
+            <div className="border-b border-border">
+            <TabsList
+              className={cn(
+                "h-auto rounded-none bg-transparent p-0",
+                embedded ? "gap-5" : "gap-6"
+              )}
+            >
               <TabsTrigger
+                type="button"
                 value={INSTALLED_SKILLS_TAB}
-                className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
+                className={cn(
+                  "data-[state=active]:[&_span]:bg-primary/10 relative rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary",
+                  embedded ? "h-10 after:h-0.5" : "h-11 after:h-[3px]"
+                )}
               >
                 技能管理
                 <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
@@ -1334,28 +1504,49 @@ export function SkillsMarketplace() {
                 </span>
               </TabsTrigger>
               <TabsTrigger
+                type="button"
                 value={SCIENCE_MARKET_TAB}
-                className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
+                className={cn(
+                  "data-[state=active]:[&_span]:bg-primary/10 relative rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary",
+                  embedded ? "h-10 after:h-0.5" : "h-11 after:h-[3px]"
+                )}
               >
                 科学技能库
                 <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
                   {SCIENCE_SKILL_SOURCE.total}
                 </span>
               </TabsTrigger>
-              <TabsTrigger
-                value={CONNECTIONS_TAB}
-                className="data-[state=active]:[&_span]:bg-primary/10 relative h-11 rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:h-[3px] after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary"
-              >
-                连接配置
-                <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
-                  {connections.scp.apiKeySet ? "SCP" : "待配置"}
-                </span>
-              </TabsTrigger>
+              {!skillsOnly && (
+                <TabsTrigger
+                  type="button"
+                  value={CONNECTIONS_TAB}
+                  className={cn(
+                    "data-[state=active]:[&_span]:bg-primary/10 relative rounded-none bg-transparent px-0 text-sm font-medium text-muted-foreground shadow-none transition-colors after:absolute after:-bottom-px after:left-0 after:right-0 after:rounded-full after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:font-bold data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:bg-primary data-[state=active]:[&_span]:text-primary",
+                    embedded ? "h-10 after:h-0.5" : "h-11 after:h-[3px]"
+                  )}
+                >
+                  连接配置
+                  <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
+                    {connections.scp.apiKeySet ? "SCP" : "待配置"}
+                  </span>
+                </TabsTrigger>
+              )}
             </TabsList>
-          </div>
+            </div>
+          )}
 
-          <TabsContent value={SCIENCE_MARKET_TAB}>
-            <section className="mb-8 space-y-8">
+          <TabsContent
+            value={SCIENCE_MARKET_TAB}
+            className={cn(
+              scrollableSkillContent &&
+                "-mr-2 min-h-0 overflow-y-auto overscroll-contain pr-2"
+            )}
+          >
+            <section
+              className={cn(
+                embedded ? "space-y-5" : "mb-8 space-y-8"
+              )}
+            >
               <div
                 className={cn(
                   "flex flex-col gap-3 rounded-lg border px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between",
@@ -1393,7 +1584,13 @@ export function SkillsMarketplace() {
                   variant="outline"
                   size="sm"
                   className="h-8 shrink-0 bg-background/80"
-                  onClick={() => setActiveTab(CONNECTIONS_TAB)}
+                  onClick={() => {
+                    if (skillsOnly && typeof window !== "undefined") {
+                      window.location.hash = "settings-connectors";
+                    } else {
+                      setActiveTab(CONNECTIONS_TAB);
+                    }
+                  }}
                 >
                   <KeyRound className="h-4 w-4" />
                   {connections.scp.apiKeySet ? "查看配置" : "去配置"}
@@ -1543,8 +1740,14 @@ export function SkillsMarketplace() {
             </section>
           </TabsContent>
 
-          <TabsContent value={INSTALLED_SKILLS_TAB}>
-            <section className="space-y-8">
+          <TabsContent
+            value={INSTALLED_SKILLS_TAB}
+            className={cn(
+              scrollableSkillContent &&
+                "-mr-2 min-h-0 overflow-y-auto overscroll-contain pr-2"
+            )}
+          >
+            <section className={embedded ? "space-y-5" : "space-y-8"}>
               <div>
                 <div className="mb-4 flex items-center gap-2">
                   <PackageCheck className="h-3.5 w-3.5 text-primary" />
@@ -1643,8 +1846,9 @@ export function SkillsMarketplace() {
             </section>
           </TabsContent>
 
+          {!skillsOnly && (
           <TabsContent value={CONNECTIONS_TAB}>
-            <section className="space-y-6">
+            <section className={embedded ? "space-y-4" : "space-y-6"}>
               <div className="rounded-lg border border-border bg-card/40">
                 <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
@@ -1818,6 +2022,7 @@ export function SkillsMarketplace() {
               </div>
             </section>
           </TabsContent>
+          )}
         </Tabs>
 
         {backendStatus?.status === "busy" && (

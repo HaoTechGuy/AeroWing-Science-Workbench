@@ -89,6 +89,9 @@ const COPY = {
     folder: "文件夹",
     gridView: "网格视图",
     listView: "列表视图",
+    currentFolder: "当前位置",
+    rootFolder: "根目录",
+    parentFolder: "上级",
 
     artifact: "文件",
     openInspector: "打开右侧栏",
@@ -239,7 +242,7 @@ const COPY = {
     aboutAndUpdates: "关于与更新",
 
     configTitle: "配置",
-    configSubtitle: "模型、项目目录、授权模式、语言和界面风格",
+    configSubtitle: "模型、能力、连接器、项目目录、授权模式和界面风格",
     backToProject: "项目",
     backToWorkbench: "工作台",
     saveAndApplyIdle: "保存并空闲时应用",
@@ -282,6 +285,12 @@ const COPY = {
     unsaved: "未保存",
     savedKeyPlaceholder: "已保存，留空则继续使用当前 key",
     modelId: "模型 ID",
+
+    skillsDescription: "技能和科学能力",
+    skillsSectionHelp: "管理默认启用的技能、科学技能库和当前会话可用能力。",
+    connectors: "连接器",
+    connectorsDescription: "MCP 与 SCP Hub",
+    connectorsSectionHelp: "配置全局 MCP server 和 SCP Hub Key，供科学技能和远程工具调用。",
 
     projectDirectory: "项目目录",
     projectDirectoryDescription: "本机项目根目录",
@@ -415,6 +424,9 @@ const COPY = {
     folder: "Folder",
     gridView: "Grid view",
     listView: "List view",
+    currentFolder: "Current folder",
+    rootFolder: "Root",
+    parentFolder: "Up",
 
     artifact: "Artifact",
     openInspector: "Open right panel",
@@ -566,7 +578,7 @@ const COPY = {
     aboutAndUpdates: "About and updates",
 
     configTitle: "Settings",
-    configSubtitle: "Models, project folder, authorization, language, and appearance",
+    configSubtitle: "Models, capabilities, connectors, project folder, authorization, and appearance",
     backToProject: "Projects",
     backToWorkbench: "Workbench",
     saveAndApplyIdle: "Save and apply when idle",
@@ -609,6 +621,12 @@ const COPY = {
     unsaved: "Not saved",
     savedKeyPlaceholder: "Saved. Leave blank to keep using the current key",
     modelId: "Model ID",
+
+    skillsDescription: "Skills and science capabilities",
+    skillsSectionHelp: "Manage enabled skills, the science skill library, and session capabilities.",
+    connectors: "Connectors",
+    connectorsDescription: "MCP and SCP Hub",
+    connectorsSectionHelp: "Configure global MCP servers and SCP Hub keys for science skills and remote tools.",
 
     projectDirectory: "Project folder",
     projectDirectoryDescription: "Local project root",
