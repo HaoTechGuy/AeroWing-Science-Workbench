@@ -688,6 +688,10 @@ function HomePageInner({
             >
               <ChatInterface
                 assistant={assistant}
+                workspaceRoot={
+                  isActiveLocalResource ? activeWorkspace?.resolvedPath : undefined
+                }
+                onOpenInspector={() => setInspectorOpen(true)}
                 headerActions={
                   !inspectorOpen ? (
                     <button
@@ -1074,7 +1078,7 @@ function InspectorFilesView({
     refresh,
   } = useWorkspaceFiles(resourceId, workspaceId, refreshKey);
   const [filter, setFilter] = useState("");
-  const [viewMode, setViewMode] = useState<InspectorFilesViewMode>("grid");
+  const [viewMode, setViewMode] = useState<InspectorFilesViewMode>("list");
 
   const normalizedFilter = filter.trim().toLowerCase();
   const rootEntries = useMemo(() => directories[""] ?? [], [directories]);

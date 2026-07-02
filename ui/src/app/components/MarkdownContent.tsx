@@ -9,38 +9,39 @@ import { FileText } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
+import {
+  normalizeWorkspacePreviewPath,
+  splitTextByWorkspacePaths,
+  type WorkspacePathTarget,
+} from "@/app/utils/workspacePathLinks";
 
 interface MarkdownContentProps {
   content: string;
   className?: string;
   onOpenWorkspacePath?: (path: string) => void;
-}
-
-const OUTPUT_FILE_PATTERN =
-  /((?:输出文件|输出文档|输出路径|Output file)\s*[:：]\s*)(\/[^\s`<>"'，。；;、)）\]}]+)/gi;
-const WORKSPACE_FILE_PATH_PATTERN =
-  /^\/[^\r\n]+\.(?:csv|doc|docx|html|jpeg|jpg|json|md|markdown|pdf|png|ppt|pptx|txt|xls|xlsx|xml|yaml|yml)$/i;
-
-function isPreviewableWorkspacePath(value: string): boolean {
-  return WORKSPACE_FILE_PATH_PATTERN.test(value.trim());
+  workspaceRoot?: string;
 }
 
 function WorkspacePathButton({
-  path,
+  target,
   onOpenWorkspacePath,
+  children,
 }: {
-  path: string;
+  target: WorkspacePathTarget;
   onOpenWorkspacePath: (path: string) => void;
+  children?: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-primary/35 bg-primary/10 px-1.5 py-0.5 align-baseline font-mono text-[0.9em] font-medium text-primary shadow-sm shadow-black/[0.025] transition-colors hover:border-primary/60 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      title={`打开 ${path}`}
-      onClick={() => onOpenWorkspacePath(path)}
+      title={`打开 ${target.previewPath}`}
+      onClick={() => onOpenWorkspacePath(target.previewPath)}
     >
       <FileText className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 break-all">{path}</span>
+      <span className="min-w-0 break-all">
+        {children || target.displayPath}
+      </span>
       <span className="ml-0.5 shrink-0 rounded-sm bg-primary/15 px-1 py-px font-sans text-[0.7rem] font-semibold leading-none">
         打开
       </span>
@@ -48,48 +49,28 @@ function WorkspacePathButton({
   );
 }
 
-function linkifyOutputFileText(
+function linkifyWorkspacePathText(
   text: string,
-  onOpenWorkspacePath: (path: string) => void
+  onOpenWorkspacePath: (path: string) => void,
+  workspaceRoot?: string
 ): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  let lastIndex = 0;
-
-  for (const match of text.matchAll(OUTPUT_FILE_PATTERN)) {
-    const matchIndex = match.index ?? 0;
-    const prefix = match[1] ?? "";
-    const workspacePath = match[2] ?? "";
-    if (!workspacePath) {
-      continue;
-    }
-
-    if (matchIndex > lastIndex) {
-      nodes.push(text.slice(lastIndex, matchIndex));
-    }
-    nodes.push(prefix);
-    nodes.push(
+  return splitTextByWorkspacePaths(text, { workspaceRoot }).map((part, index) =>
+    typeof part === "string" ? (
+      part
+    ) : (
       <WorkspacePathButton
-        key={`${workspacePath}-${matchIndex}`}
-        path={workspacePath}
+        key={`${part.target.previewPath}-${index}`}
+        target={part.target}
         onOpenWorkspacePath={onOpenWorkspacePath}
       />
-    );
-    lastIndex = matchIndex + match[0].length;
-  }
-
-  if (lastIndex === 0) {
-    return [text];
-  }
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-
-  return nodes;
+    )
+  );
 }
 
-function linkifyOutputFileChildren(
+function linkifyWorkspacePathChildren(
   children: React.ReactNode,
-  onOpenWorkspacePath?: (path: string) => void
+  onOpenWorkspacePath?: (path: string) => void,
+  workspaceRoot?: string
 ): React.ReactNode {
   if (!onOpenWorkspacePath) {
     return children;
@@ -97,13 +78,13 @@ function linkifyOutputFileChildren(
 
   return React.Children.toArray(children).flatMap((child) =>
     typeof child === "string"
-      ? linkifyOutputFileText(child, onOpenWorkspacePath)
+      ? linkifyWorkspacePathText(child, onOpenWorkspacePath, workspaceRoot)
       : child
   );
 }
 
 export const MarkdownContent = React.memo<MarkdownContentProps>(
-  ({ content, className = "", onOpenWorkspacePath }) => {
+  ({ content, className = "", onOpenWorkspacePath, workspaceRoot }) => {
     return (
       <div
         className={cn(
@@ -117,7 +98,13 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
           components={{
             p({ children }: { children?: React.ReactNode }) {
               return (
-                <p>{linkifyOutputFileChildren(children, onOpenWorkspacePath)}</p>
+                <p>
+                  {linkifyWorkspacePathChildren(
+                    children,
+                    onOpenWorkspacePath,
+                    workspaceRoot
+                  )}
+                </p>
               );
             },
             code({
@@ -157,9 +144,17 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
                 </SyntaxHighlighter>
               ) : !match &&
                 onOpenWorkspacePath &&
-                isPreviewableWorkspacePath(codeText) ? (
+                normalizeWorkspacePreviewPath(codeText, {
+                  workspaceRoot,
+                  allowBareFile: true,
+                }) ? (
                 <WorkspacePathButton
-                  path={codeText.trim()}
+                  target={
+                    normalizeWorkspacePreviewPath(codeText, {
+                      workspaceRoot,
+                      allowBareFile: true,
+                    })!
+                  }
                   onOpenWorkspacePath={onOpenWorkspacePath}
                 />
               ) : (
@@ -185,6 +180,25 @@ export const MarkdownContent = React.memo<MarkdownContentProps>(
               href?: string;
               children?: React.ReactNode;
             }) {
+              const target =
+                href && onOpenWorkspacePath
+                  ? normalizeWorkspacePreviewPath(href, {
+                      workspaceRoot,
+                      allowBareFile: true,
+                    })
+                  : null;
+
+              if (target && onOpenWorkspacePath) {
+                return (
+                  <WorkspacePathButton
+                    target={target}
+                    onOpenWorkspacePath={onOpenWorkspacePath}
+                  >
+                    {children}
+                  </WorkspacePathButton>
+                );
+              }
+
               return (
                 <a
                   href={href}

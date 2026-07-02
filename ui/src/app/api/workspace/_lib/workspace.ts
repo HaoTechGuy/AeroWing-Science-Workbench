@@ -152,10 +152,11 @@ const MIME_TYPES: Record<string, string> = {
   ".yml": "application/yaml; charset=utf-8",
 };
 
-export const MAX_TEXT_FILE_SIZE = 2 * 1024 * 1024;
-const MAX_RAW_FILE_SIZE = 16 * 1024 * 1024;
+export const MAX_PREVIEW_FILE_SIZE = 100 * 1024 * 1024;
+export const MAX_TEXT_FILE_SIZE = MAX_PREVIEW_FILE_SIZE;
+const MAX_RAW_FILE_SIZE = MAX_PREVIEW_FILE_SIZE;
 const REMOTE_WORKSPACE_TIMEOUT_MS = 30_000;
-const REMOTE_WORKSPACE_MAX_BUFFER = 32 * 1024 * 1024;
+const REMOTE_WORKSPACE_MAX_BUFFER = 160 * 1024 * 1024;
 
 type WorkspaceBackend = "local_shell" | "ssh_shell";
 
@@ -820,6 +821,21 @@ export function getPreviewKind(filePath: string): WorkspacePreviewKind {
   return "unsupported";
 }
 
+export function getPreviewContentSizeLimit(
+  previewKind: WorkspacePreviewKind
+): number {
+  if (
+    previewKind === "markdown" ||
+    previewKind === "molecule" ||
+    previewKind === "science" ||
+    previewKind === "text"
+  ) {
+    return MAX_PREVIEW_FILE_SIZE;
+  }
+
+  return 0;
+}
+
 export function getMimeType(filePath: string): string {
   const extension = getFileExtension(filePath);
   return MIME_TYPES[extension] || "application/octet-stream";
@@ -905,7 +921,7 @@ async function runRemoteWorkspacePython<T>(
     op: operation,
     root: resource.workspace || ".",
     path: normalizeRelativePath(relativePath),
-    maxTextFileSize: MAX_TEXT_FILE_SIZE,
+    maxPreviewContentSize: MAX_PREVIEW_FILE_SIZE,
     maxRawFileSize: MAX_RAW_FILE_SIZE,
     ignoredNames: Array.from(DEFAULT_IGNORED_NAMES),
     ...extra,
@@ -961,7 +977,7 @@ function runRemoteWorkspacePythonWithInput<T>(
     op: operation,
     root: resource.workspace || ".",
     path: normalizeRelativePath(relativePath),
-    maxTextFileSize: MAX_TEXT_FILE_SIZE,
+    maxPreviewContentSize: MAX_PREVIEW_FILE_SIZE,
     maxRawFileSize: MAX_RAW_FILE_SIZE,
     ignoredNames: Array.from(DEFAULT_IGNORED_NAMES),
     ...extra,
@@ -1131,7 +1147,7 @@ def list_dir(root, target):
     return entries
 
 
-def file_data(root, target, rel, max_text, max_raw, raw):
+def file_data(root, target, rel, max_preview_content, max_raw, raw):
     if not target.is_file():
         raise ValueError("Selected workspace path is not a file.")
     stat = target.stat()
@@ -1147,10 +1163,11 @@ def file_data(root, target, rel, max_text, max_raw, raw):
             raise ValueError("File is too large to stream from remote workspace.")
         payload["dataBase64"] = base64.b64encode(target.read_bytes()).decode("ascii")
         return payload
-    if stat.st_size <= max_text:
-        payload["content"] = target.read_text(encoding="utf-8", errors="replace")
-    else:
-        payload["tooLarge"] = True
+    if max_preview_content > 0:
+        if stat.st_size <= max_preview_content:
+            payload["content"] = target.read_text(encoding="utf-8", errors="replace")
+        else:
+            payload["tooLarge"] = True
     return payload
 
 
@@ -1180,10 +1197,11 @@ def main():
     op = request.get("op")
     if op == "list":
         return {"path": rel, "entries": list_dir(root, target)}
+    max_preview_content = int(request.get("previewContentSizeLimit") or request.get("maxPreviewContentSize") or 0)
     if op == "file":
-        return file_data(root, target, rel, int(request.get("maxTextFileSize") or 0), int(request.get("maxRawFileSize") or 0), False)
+        return file_data(root, target, rel, max_preview_content, int(request.get("maxRawFileSize") or 0), False)
     if op == "raw":
-        return file_data(root, target, rel, int(request.get("maxTextFileSize") or 0), int(request.get("maxRawFileSize") or 0), True)
+        return file_data(root, target, rel, max_preview_content, int(request.get("maxRawFileSize") or 0), True)
     if op == "writeRaw":
         return write_raw_file(root, target, rel, int(request.get("maxRawFileSize") or 0))
     raise ValueError("Unknown workspace operation.")
@@ -1262,12 +1280,15 @@ export async function readWorkspaceFileData(
   resourceId?: string | null,
   workspaceId?: string | null
 ): Promise<WorkspaceFileData> {
+  const previewKind = getPreviewKind(relativePath);
+  const previewContentSizeLimit = getPreviewContentSizeLimit(previewKind);
   const resource = getWorkspaceResource(resourceId);
   if ((resource.backend || "local_shell") === "ssh_shell") {
     return runRemoteWorkspacePython<WorkspaceFileData>(
       resource,
       "file",
-      relativePath
+      relativePath,
+      { previewContentSizeLimit }
     );
   }
 
@@ -1288,18 +1309,12 @@ export async function readWorkspaceFileData(
     modifiedAt: stats.mtime.toISOString(),
     isFile: true,
   };
-  if (stats.size <= MAX_TEXT_FILE_SIZE) {
-    const previewKind = getPreviewKind(resolved.relativePath);
-    if (
-      previewKind === "markdown" ||
-      previewKind === "molecule" ||
-      previewKind === "science" ||
-      previewKind === "text"
-    ) {
+  if (previewContentSizeLimit > 0) {
+    if (stats.size <= previewContentSizeLimit) {
       payload.content = await fs.readFile(resolved.absolutePath, "utf8");
+    } else {
+      payload.tooLarge = true;
     }
-  } else {
-    payload.tooLarge = true;
   }
   return payload;
 }

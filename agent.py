@@ -48,24 +48,27 @@ BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
     sys.path.insert(0, str(BUNDLED_DEEPAGENTS))
 
+IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE = (
+    "当前模型端点不支持图片输入：模型服务拒绝了 image_url 内容块（只接受 text）。"
+    "系统会移除图片内容并仅基于文本继续；如需图片理解，请切换支持视觉输入的模型。"
+)
 IMAGE_INPUT_OMITTED_TEXT = (
-    "[Image attachment omitted because the current model endpoint does not support "
-    "image input.]"
+    f"[{IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE} 这是一条兼容性提示，不要假装已经看到了图片。]"
 )
 IMAGE_INPUT_UNSUPPORTED_NOTICE_TEXT = (
-    "[Image attachment omitted because the current model endpoint does not support "
-    "image input. Tell the user that this model cannot understand images, and "
-    "continue with any text-only parts of the request.]"
+    f"[{IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE} 请明确告诉用户你无法读取图片内容，"
+    "然后只处理请求中的文本部分。]"
 )
 IMAGE_INPUT_UNSUPPORTED_RETRY_NOTICE_TEXT = (
-    "[The previous model call failed because the current model endpoint does not "
-    "support image input. Tell the user that this model cannot understand images, "
-    "then continue with any text-only parts of the request.]"
+    f"[上一轮模型调用失败，原因是：{IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE} "
+    "请先向用户说明这个限制，再继续处理文本部分。]"
 )
 IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS = (
     "no endpoints found that support image input",
     "does not support image input",
     "unsupported image input",
+    "unknown variant `image_url`, expected `text`",
+    "unknown variant image_url, expected text",
 )
 _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS: set[str] = set()
 
@@ -986,6 +989,13 @@ def _is_unsupported_image_input_error(error: BaseException) -> bool:
     )
 
 
+def _specific_model_error_message(message: str) -> str | None:
+    lowered = message.lower()
+    if any(pattern in lowered for pattern in IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS):
+        return IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE
+    return None
+
+
 def _normalize_state_for_remote_runtime(state: InternAgentState) -> dict[str, Any]:
     payload = {
         key: value
@@ -1045,8 +1055,16 @@ def _string_from_error_body(body: Any) -> str | None:
 
 
 def _friendly_remote_runtime_error(message: str) -> str:
+    if specific_message := _specific_model_error_message(message):
+        return specific_message
     if message == "Upstream request failed.":
         return "模型网关上游请求失败，请稍后重试或切换模型。"
+    if message == "An internal error occurred":
+        return (
+            "远端 runtime 返回内部错误，但没有把原始异常带回主进程。"
+            "请按同一 thread_id/run_id 查看 local-runtime 日志中的具体原因；"
+            "如果是模型不支持 image_url/text 图片块，系统会提示并改用文本部分继续。"
+        )
     return message
 
 
@@ -1089,7 +1107,7 @@ def _remote_runtime_exception_message(resource: ResourceConfig, error: Exception
         )
 
     if message:
-        return message
+        return _friendly_remote_runtime_error(message)
 
     return f"远端 runtime {resource.id!r} 返回了空错误。请查看 runtime 日志。"
 

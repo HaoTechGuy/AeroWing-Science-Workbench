@@ -181,6 +181,32 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
             "模型网关上游请求失败，请稍后重试或切换模型。",
         )
 
+    def test_remote_runtime_error_rewrites_generic_internal_error(self) -> None:
+        class Resource:
+            id = "local"
+
+        error = RuntimeError("An internal error occurred")
+
+        self.assertIn(
+            "没有把原始异常带回主进程",
+            _remote_runtime_exception_message(Resource(), error),  # type: ignore[arg-type]
+        )
+
+    def test_remote_runtime_error_explains_deepseek_text_only_image_error(self) -> None:
+        class Resource:
+            id = "local"
+
+        error = RuntimeError(
+            "Error code: 400 - {'error': {'message': 'Failed to deserialize the "
+            "JSON body into the target type: messages[104]: unknown variant "
+            "`image_url`, expected `text` at line 1 column 114042'}}"
+        )
+
+        self.assertEqual(
+            _remote_runtime_exception_message(Resource(), error),  # type: ignore[arg-type]
+            agent.IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE,
+        )
+
     def test_goal_continuation_error_blocks_goal(self) -> None:
         update = _goal_blocked_after_remote_runtime_error(
             {
@@ -286,7 +312,7 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
         self.assertTrue(agent._message_has_image_input(seen_requests[0].messages[0]))
         self.assertFalse(agent._message_has_image_input(seen_requests[1].messages[0]))
         self.assertIn(
-            "current model endpoint does not support image input",
+            "当前模型端点不支持图片输入",
             str(seen_requests[1].messages[0].content),
         )
         self.assertEqual(response.result[0].content, "Image input is unsupported.")
@@ -330,6 +356,53 @@ class RemoteRuntimeImageCompatTest(unittest.TestCase):
         self.assertEqual(len(seen_requests), 2)
         self.assertFalse(agent._message_has_image_input(seen_requests[1].messages[0]))
         self.assertEqual(response.result[0].content, "Image input is unsupported.")
+
+    def test_model_request_middleware_retries_deepseek_text_only_image_error(
+        self,
+    ) -> None:
+        request = ModelRequest(
+            model="openai:deepseek-v4-pro",
+            messages=[
+                HumanMessage(content="Summarize the result."),
+                ToolMessage(
+                    content=[
+                        {
+                            "type": "image",
+                            "base64": "ZmFrZQ==",
+                            "mime_type": "image/png",
+                        },
+                    ],
+                    tool_call_id="tool-image",
+                ),
+            ],
+        )
+        seen_requests: list[ModelRequest] = []
+
+        def handler(next_request: ModelRequest) -> ModelResponse:
+            seen_requests.append(next_request)
+            if len(seen_requests) == 1:
+                raise RuntimeError(
+                    "Error code: 400 - {'error': {'message': 'Failed to "
+                    "deserialize the JSON body into the target type: "
+                    "messages[104]: unknown variant `image_url`, expected "
+                    "`text` at line 1 column 114042', 'type': "
+                    "'invalid_request_error'}}"
+                )
+            return ModelResponse(result=[AIMessage(content="Continuing text-only.")])
+
+        response = ImageContentCompatibilityMiddleware().wrap_model_call(
+            request,
+            handler,
+        )
+
+        self.assertEqual(len(seen_requests), 2)
+        self.assertTrue(agent._message_has_image_input(seen_requests[0].messages[1]))
+        self.assertFalse(agent._message_has_image_input(seen_requests[1].messages[1]))
+        self.assertIn(
+            "当前模型端点不支持图片输入",
+            str(seen_requests[1].messages[-1].content),
+        )
+        self.assertEqual(response.result[0].content, "Continuing text-only.")
 
     def test_model_request_middleware_omits_images_after_model_is_marked_unsupported(
         self,

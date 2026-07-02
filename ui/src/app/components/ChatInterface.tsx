@@ -58,6 +58,7 @@ import {
   extractVisibleStringFromMessageContent,
 } from "@/app/utils/utils";
 import { useChatContext } from "@/providers/ChatProvider";
+import { formatChatError } from "@/lib/chat-errors";
 import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { useQueryState } from "nuqs";
@@ -68,11 +69,14 @@ import {
   parseWorkspaceFileDragPayload,
   type WorkspaceFileDragPayload,
 } from "@/app/utils/workspaceDrag";
+import { normalizeWorkspacePreviewPath } from "@/app/utils/workspacePathLinks";
 import type { SkillEntry, SkillsConfigResponse } from "@/app/skills/types";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
   headerActions?: React.ReactNode;
+  onOpenInspector?: () => void;
+  workspaceRoot?: string;
 }
 
 interface AttachmentCopy {
@@ -92,7 +96,6 @@ const MAX_MENTION_OPTIONS = 10;
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
 const CHAT_COMPOSER_HASH = "#chat-composer";
-const DEFAULT_SEND_SHORTCUT_MODIFIER = "Ctrl";
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -368,83 +371,6 @@ function formatAttachmentSize(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatChatError(error: unknown): string | null {
-  if (!error) {
-    return null;
-  }
-
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-      ? error
-      : JSON.stringify(error);
-
-  if (isMalformedRemoteRuntimeError(message)) {
-    return (
-      "远程 Agent runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应，" +
-      "请查看 backend 和 runtime 日志获取真实失败原因。"
-    );
-  }
-
-  const remoteRuntimeMessage = extractRemoteRuntimeErrorMessage(message);
-  if (remoteRuntimeMessage) {
-    return `远程 Agent runtime 执行失败：${remoteRuntimeMessage}`;
-  }
-
-  if (/ConnectError|connection|connect/i.test(message)) {
-    return "模型服务连接失败，请检查网络或代理后重试。";
-  }
-
-  if (/RemoteException/i.test(message)) {
-    return "远程 Agent runtime 执行失败，请查看 backend 和 runtime 日志。";
-  }
-
-  return message || "运行失败，请重试。";
-}
-
-function isMalformedRemoteRuntimeError(message: string): boolean {
-  return (
-    /Response validation failed/i.test(message) &&
-    /body\.error\.code/i.test(message)
-  );
-}
-
-function extractRemoteRuntimeErrorMessage(message: string): string | null {
-  if (!/RemoteException/i.test(message)) {
-    return null;
-  }
-
-  const normalized = message.replace(/\\"/g, '"').replace(/\\'/g, "'");
-  const extracted =
-    normalized.match(/['"]message['"]\s*:\s*['"]([^'"]+)['"]/)?.[1]?.trim() ??
-    null;
-
-  const normalizedExtracted = extracted?.replace(
-    /^远程 Agent runtime 执行失败[:：]\s*/,
-    ""
-  );
-
-  if (isMalformedRemoteRuntimeError(normalizedExtracted ?? normalized)) {
-    return (
-      "远端 runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应，" +
-      "请查看 backend 和 runtime 日志获取真实失败原因。"
-    );
-  }
-
-  if (/Insufficient credits/i.test(normalizedExtracted ?? normalized)) {
-    return "模型服务额度不足，请处理额度后重试。";
-  }
-
-  if (
-    /User not found|Unauthorized|401/i.test(normalizedExtracted ?? normalized)
-  ) {
-    return "模型服务 API Key 无效或未授权，请在配置页更新 API Key。";
-  }
-
-  return normalizedExtracted ?? null;
 }
 
 function formatGoalElapsed(seconds: number): string {
@@ -1028,7 +954,7 @@ function buildRemoteRuntimeToolMessages(
 }
 
 export const ChatInterface = React.memo<ChatInterfaceProps>(
-  ({ assistant, headerActions }) => {
+  ({ assistant, headerActions, onOpenInspector, workspaceRoot }) => {
     const [metaOpen, setMetaOpen] = useState<
       "goal" | "skills" | "tasks" | "files" | null
     >(null);
@@ -1064,13 +990,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const [titleDraft, setTitleDraft] = useState("");
 
     const openAttachmentPreview = useCallback(
-      (workspacePath: string) => {
-        const normalizedPath = workspacePath.replace(/^\/+/, "");
-        if (normalizedPath) {
-          void setSelectedFilePath(normalizedPath);
+      (path: string) => {
+        const target = normalizeWorkspacePreviewPath(path, {
+          workspaceRoot,
+          allowBareFile: true,
+        });
+        if (target?.previewPath) {
+          onOpenInspector?.();
+          void setSelectedFilePath(target.previewPath);
         }
       },
-      [setSelectedFilePath]
+      [onOpenInspector, setSelectedFilePath, workspaceRoot]
     );
 
     const updateMentionMenuPosition = useCallback(() => {
@@ -1132,9 +1062,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       });
     }, [input, openMentionMenu]);
     const [isSavingTitle, setIsSavingTitle] = useState(false);
-    const [sendShortcutModifier, setSendShortcutModifier] = useState(
-      DEFAULT_SEND_SHORTCUT_MODIFIER
-    );
     const [showIntermediateResults, setShowIntermediateResults] =
       useState(false);
     const { scrollRef, contentRef } = useStickToBottom();
@@ -1487,13 +1414,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     useEffect(() => {
       setShowIntermediateResults(false);
     }, [threadId]);
-
-    useEffect(() => {
-      const platform = window.navigator.platform || window.navigator.userAgent;
-      setSendShortcutModifier(
-        /Mac|iPhone|iPad|iPod/i.test(platform) ? "⌘" : "Ctrl"
-      );
-    }, []);
 
     useEffect(() => {
       if (isLoading) {
@@ -2558,6 +2478,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       graphId={assistant?.graph_id}
                       showTerminalToolIssueNotice={showTerminalToolIssueNotice}
                       onOpenAttachment={openAttachmentPreview}
+                      workspaceRoot={workspaceRoot}
                     />
                   );
                 })}
@@ -2696,6 +2617,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               onResumeInterrupt={resumeInterrupt}
                               graphId={assistant?.graph_id}
                               onOpenAttachment={openAttachmentPreview}
+                              workspaceRoot={workspaceRoot}
                             />
                           );
                         })}
@@ -3409,18 +3331,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       <span>{t("recovering")}</span>
-                    </div>
-                  ) : !isLoading ? (
-                    <div
-                      className="ocs-composer-shortcut flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground"
-                      aria-label={`${sendShortcutModifier} ${t("shortcutPlusEnter")}`}
-                    >
-                      <kbd className="min-w-5 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-center font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
-                        {sendShortcutModifier}
-                      </kbd>
-                      <kbd className="rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
-                        Enter
-                      </kbd>
                     </div>
                   ) : null}
                   <Button
