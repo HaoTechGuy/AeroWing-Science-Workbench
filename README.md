@@ -1,87 +1,129 @@
-# InternAgents
+<div align="center">
+  <h1 align="center">InternAgentS</h1>
+  <p align="center">
+    A local-first research agent workbench for DeepAgents, LangGraph, project files, skills, and scientific workflows.
+  </p>
+  <p align="center">
+    <a href="https://github.com/qzzqzzb/OpenClaudeScience/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/qzzqzzb/OpenClaudeScience?style=social"></a>
+    <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
+    <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs">
+    <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-runtime-1f6feb">
+    <img alt="Status" src="https://img.shields.io/badge/status-active%20development-0f766e">
+  </p>
+  <p>
+    <a href="#quick-start">Quick Start</a>
+    · <a href="#feature-highlights">Features</a>
+    · <a href="#architecture">Architecture</a>
+    · <a href="#development">Development</a>
+    · <a href="#contributing">Contributing</a>
+  </p>
+</div>
 
-InternAgents is a local DeepAgent workspace with a bundled web UI. It runs a
-DeepAgent graph through the LangGraph local API and lets the browser UI connect
-directly to that API.
+InternAgentS gives researchers and developers a local browser workbench for
+agentic research tasks. It combines a DeepAgents/LangGraph runtime, project file
+preview, reusable skills, model configuration, and MCP/SCP connector setup in
+one UI.
 
-```text
-Browser: InternAgents UI at http://127.0.0.1:3000
-  -> LangGraph API at http://127.0.0.1:2024
-  -> agent.py:agent
-  -> create_deep_agent(...)
-  -> LocalShellBackend rooted at this repository
-```
-
-The repository includes:
-
-- `agent.py`: exports the LangGraph graph named `agent`
-- `main.py`: command-line smoke test that reuses the same graph
-- `deepagent.config.json`: backend, system prompt, and optional interrupt config
-- `langgraph.json`: graph registration for `langgraph dev`
-- `ui/`: InternAgents Next.js web UI
-- `scripts/dev.sh`: one-command local development launcher
-
-## Guided Tour Update
-
-This branch updates the desktop first-run experience:
-
-- First launch opens the local workbench and redirects to setup only when the
-  selected model provider still needs credentials.
-- The preferred desktop setup uses an OpenAI-compatible endpoint: the user
-  enters Base URL, API key, and model ID during setup.
-- The first-run setup keeps model credentials in a dedicated configuration
-  screen before entering the workbench.
-- The About/Updates page exposes local update actions.
-- Workspace file/folder open routes and conversation title helpers support the
-  refreshed desktop workflow.
-- UI polish is intentionally light: tighter navigation, cleaner panels, and
-  more consistent buttons, inputs, selectors, and previews.
-
-## Current UI Direction
-
-The web UI is moving toward a three-panel local research workspace:
-
-- left panel: `工作区` file tree on top and `会话` history below
-- middle panel: the existing agent chat experience
-- right panel: a file viewer that previews selected Markdown, text, and PDF
-  files from the local workspace
-
-The file tree and viewer are intentionally separate from the chat components so
-the agent interaction flow can keep evolving independently from workspace
-navigation.
+The project is still early, but it is already useful as a local research
+assistant shell: open a project, configure a model, browse files, start a
+conversation, and add domain skills as your workflow grows.
 
 ## Quick Start
 
-From the repository root:
+### Requirements
+
+- Python 3.11+
+- Node.js and npm
+- An OpenAI-compatible model endpoint, or the option to configure one later
+
+### Start the Workbench
 
 ```bash
 cp .env.example .env
 ./scripts/dev.sh
 ```
 
-The script creates `.venv` when needed, installs the Python project, installs UI
-dependencies when missing, starts both local services, waits for health checks,
-starts the backend and runtime with 5 worker slots each, and opens:
+The launcher prepares the local environment and starts three services:
+
+| Service | Default URL | Purpose |
+| --- | --- | --- |
+| UI | `http://127.0.0.1:3000` | Next.js workbench |
+| Coordinator | `http://127.0.0.1:2024` | LangGraph API for the browser UI |
+| Local runtime | `http://127.0.0.1:22024` | Project-scoped DeepAgent runtime |
+
+Open:
 
 ```text
-http://127.0.0.1:3000/?assistantId=agent
+http://127.0.0.1:3000/?assistantId=agent_local
 ```
 
-If a healthy backend or frontend is already running on the default ports, the
-script reuses it instead of starting a duplicate. Press `Ctrl+C` to stop only
-the processes started by this script.
-
-Runtime logs are written to:
+Logs are written to:
 
 ```text
 .internagents/logs/backend.log
+.internagents/logs/local-runtime.log
 .internagents/logs/ui.log
 ```
 
-## Skill Catalogs
+Press `Ctrl+C` in the launcher terminal to stop the services started by the
+script.
 
-InternAgents looks for local skills in shared user-level catalogs first, then
-falls back to project-level catalogs:
+### Configure a Model
+
+You can configure a model during first setup, or skip it and return later from
+Settings. For an OpenAI-compatible endpoint:
+
+```env
+INTERNAGENTS_MODEL_PROVIDER=openai_compatible
+OPENAI_BASE_URL=https://api.example.com/v1
+OPENAI_API_KEY=sk-...
+DEEPAGENT_MODEL=your-model-id
+```
+
+Keep API keys and machine-specific paths in local `.env` or runtime config
+files. Do not commit secrets.
+
+### Useful Overrides
+
+```bash
+INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
+INTERNAGENTS_BACKEND_PORT=2025 ./scripts/dev.sh
+INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
+INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
+```
+
+## Feature Highlights
+
+### Local-First Research Workspace
+
+InternAgentS is organized as a three-panel workspace:
+
+| Area | What it does |
+| --- | --- |
+| Left sidebar | project navigation, sessions, settings, and skill entry points |
+| Center | chat, composer, attachments, mentions, and agent progress |
+| Right panel | project files, previews, provenance, runtime info, and connector context |
+
+Project files are accessed through the workspace API rather than direct UI file
+system calls. The file panel supports directory navigation, grid/list views,
+search, and previews for common research artifacts.
+
+### DeepAgents + LangGraph Runtime
+
+InternAgentS exports LangGraph assistants from `agent.py`:
+
+- `agent`
+- `agent_local`
+- `agent_remote1` through `agent_remote8`
+
+The coordinator and local runtime are separate processes. This keeps UI
+connection logic, project execution, workspace state, and future remote
+resource support easier to maintain.
+
+### Skills and Science Capability Library
+
+Skills are reusable capabilities that can be enabled for an agent or session.
+InternAgentS searches shared user catalogs first, then project catalogs:
 
 ```text
 ~/.internagents/myskills
@@ -90,103 +132,29 @@ skills
 .internagents/imported-skills
 ```
 
-The configuration page writes selected skill paths into `deepagent.config.json`.
-Local and cloud imports are copied into `~/.internagents/imported-skills` so the
-same skill can be reused across projects; each project keeps only its selected
-skill list and active symlinks under `.internagents/active-skills`.
+The settings UI supports built-in skills, imported skills, and science skills.
+Imported skills are copied into a user-level catalog so the same capability can
+be reused across multiple projects.
 
-LangGraph dev persistence is isolated by process role so the coordinator and
-local runtime do not write the same checkpoint files:
+### Model, Authorization, and Appearance Settings
 
-```text
-.internagents/langgraph-state/backend/.langgraph_api
-.internagents/langgraph-state/local-runtime/.langgraph_api
-```
+The unified settings page manages:
 
-Useful overrides:
+- model provider, Base URL, API key, and model ID
+- project directory
+- tool-call authorization mode
+- language and appearance
+- archived conversations
+- skills and connector configuration
 
-```bash
-INTERNAGENTS_BACKEND_PORT=2025 INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
-INTERNAGENTS_LANGGRAPH_JOBS_PER_WORKER=8 ./scripts/dev.sh
-INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
-INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
-```
+The UI includes both Chinese and English copy.
 
-## Model Configuration
+### MCP and SCP Connectors
 
-The agent reads model and credential settings from the project-local `.env`
-file, or from process environment variables supplied by a packaged desktop
-launcher:
+InternAgentS can load external tools through MCP server configuration and can
+prepare SCP Hub access for science skill workflows.
 
-```env
-INTERNAGENTS_MODEL_PROVIDER=openai_compatible
-OPENAI_API_KEY=
-OPENAI_BASE_URL=
-DEEPAGENT_MODEL=
-```
-
-Set `DEEPAGENT_MODEL` to override the model explicitly:
-
-```env
-DEEPAGENT_MODEL=openai:deepseek-v4-flash
-```
-
-For an OpenAI-compatible provider, set
-`INTERNAGENTS_MODEL_PROVIDER=openai_compatible`, `OPENAI_BASE_URL`, and
-`OPENAI_API_KEY`, then use the provider's model ID. Real keys should stay in an
-untracked `.env` or in the desktop app's Application Support runtime directory;
-they should not be committed.
-
-## DeepAgent Configuration
-
-Runtime settings for `create_deep_agent(...)` live in:
-
-```text
-deepagent.config.json
-```
-
-The current config uses `LocalShellBackend` and roots shell/file access at this
-repository:
-
-```json
-{
-  "backend": {
-    "type": "local_shell",
-    "root_dir": ".",
-    "inherit_env": true,
-    "virtual_mode": false
-  },
-  "system_prompt": "..."
-}
-```
-
-`agent.py` passes `interrupt_on` to `create_deep_agent(...)` only when the
-config defines it. To require approval before local shell execution while
-leaving `task`, `write_file`, and `edit_file` unintercepted, add:
-
-```json
-{
-  "interrupt_on": {
-    "execute": {
-      "allowed_decisions": ["approve", "reject"],
-      "description": "Approve this local shell command before it runs."
-    }
-  }
-}
-```
-
-`root_dir` may be absolute or relative to the repository root.
-
-## MCP Tools
-
-InternAgents can load external tools from MCP (Model Context Protocol) servers
-at agent startup and pass them to `create_deep_agent(...)` alongside built-in
-InternAgents tools. This follows the DeepAgents and LangChain MCP adapter path:
-MCP servers are configured in `mcpServers`, discovered, converted to LangChain
-tools, and merged into the agent tool list.
-
-MCP config is intentionally local. The loader checks these locations from low
-to high precedence:
+Local MCP config locations:
 
 ```text
 ~/.deepagents/.mcp.json
@@ -195,501 +163,78 @@ to high precedence:
 INTERNAGENT_MCP_CONFIG_FILE
 ```
 
-Local `.mcp.json` and `.deepagents/` files are ignored by git so API keys,
-private stdio commands, and local endpoints do not get committed. Header values
-support environment interpolation:
+Connector secrets, private commands, headers, and endpoints should stay local.
 
-```json
-{
-  "mcpServers": {
-    "docs": {
-      "type": "http",
-      "url": "https://example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${INTERNAL_API_TOKEN}"
-      }
-    }
-  }
-}
+## Architecture
+
+```mermaid
+flowchart LR
+  Browser["Browser UI<br/>Next.js"] --> Coordinator["LangGraph coordinator<br/>agent.py"]
+  Coordinator --> Runtime["Local runtime<br/>DeepAgent"]
+  Runtime --> Workspace["Project workspace<br/>files, shell, skills"]
+  Runtime --> MCP["MCP servers"]
+  Runtime --> SCP["SCP Hub"]
 ```
 
-Supported transports are `stdio`, `sse`, and `http`; `streamable_http`,
-`streamable-http`, and `streamableHttp` are accepted as HTTP aliases. Use
-`allowedTools` or `disabledTools` to narrow a server's tool catalog.
-
-To disable MCP discovery for a process:
-
-```bash
-export INTERNAGENT_MCP_DISABLED=1
-```
-
-## Web UI Configuration
-
-The UI auto-connects to the local backend. There is no manual deployment config
-screen in the current InternAgents fork.
-
-Local UI settings live in:
+## Repository Map
 
 ```text
-ui/deepagent-ui.config.json
+agent.py                         LangGraph graph assembly and assistant exports
+deepagent.config.json            local backend, skills, model, and UI defaults
+internagent_resources.py         resource configuration loader
+ssh_backend.py                   SSH-backed workspace adapter
+thread_skill_middleware.py       thread-level skill loading
+mcp_config.py / mcp_tools.py      MCP configuration and tool loading
+scripts/dev.sh                   one-command local development launcher
+ui/                              Next.js workbench UI
+skills/                          bundled project skills
+docs/                            user guides and design notes
 ```
 
-Default values:
+## Development
 
-```json
-{
-  "deploymentUrl": "http://127.0.0.1:2024",
-  "assistantId": "agent",
-  "langsmithApiKey": "",
-  "stream": {
-    "modes": ["messages-tuple", "updates", "values"],
-    "subgraphs": true
-  }
-}
-```
-
-The launcher also injects these environment overrides for the dev server:
-
-```text
-NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL
-NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID
-NEXT_PUBLIC_LANGSMITH_API_KEY
-```
-
-The browser talks to the LangGraph API through the LangGraph JavaScript SDK. It
-does not call a Python `RemoteAgent`, and it does not require LangSmith for
-local development.
-
-## Software Updates
-
-The About page includes a local software update panel. The installed macOS app
-checks a GitHub Releases feed for binary DMG assets. By default it reads:
-
-```text
-InternScience/InternAgents
-```
-
-Set `INTERNAGENTS_UPDATE_REPO=owner/release-repo` when launching the app to use
-a different release repository. The official release repository is
-`InternScience/InternAgents`; it receives the commit and tag to build, runs the
-release workflow there, and hosts GitHub Releases with assets named like
-`InternAgents-0.1.1-arm64.dmg`, `InternAgents-0.1.1-x64.dmg`, and
-`internagents-backend-cli.tar.gz`.
-
-Public release repositories do not require a token. The updater first tries the
-GitHub Releases API and, if the unauthenticated API is rate-limited, falls back
-to the public release page plus `releases/latest/download/...`. Set
-`INTERNAGENTS_UPDATE_GITHUB_TOKEN` only when you want a higher GitHub API rate
-limit or when you intentionally check a private release repository.
-
-The browser never receives a shell command or user-provided repository URL. It
-calls local Next.js API routes under `/api/update/*`; those routes are the only
-place that can query the fixed release feed, download the matching DMG, mount
-it, verify the `.app`, and launch the local installer script that replaces the
-current app and reopens InternAgents.
-
-When a user selects a local-managed SSH workspace, the local Next.js API also
-checks the same release repository for the backend CLI package matching the
-current local app version, for example `v0.1.1`. If the remote runtime has not
-recorded that release tag, the API downloads `internagents-backend-cli.tar.gz`,
-uploads it over SSH, installs it in the remote user state directory, restarts
-that resource runtime, and rewrites the local resource metadata. The resource
-metadata also remembers the remote install mode, custom Python path, or
-Conda/Mamba command chosen during setup so later syncs can reuse the same
-environment strategy. Set
-`INTERNAGENTS_REMOTE_BACKEND_UPDATE_REPO` only when the backend package should
-come from a different release repository than the app updater. Like the app
-updater, the remote backend sync first tries the GitHub Releases API and falls
-back to the public Release page for the local version tag, then downloads that
-Release's `internagents-backend-cli.tar.gz` asset when the API is rate-limited
-or unavailable. Set
-`INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN` only when you need a higher
-GitHub API rate limit or intentionally use a private backend release repository.
-
-Publishing a new desktop release is tag driven from the public release
-repository. Create the tag on the branch or commit you want to ship, then push
-that tag to `InternScience/InternAgents`:
+Run these checks before opening a pull request:
 
 ```bash
-git tag v0.1.1
-git remote add official git@github.com:InternScience/InternAgents.git
-git push official main
-git push official v0.1.1
+git diff --check
+python3 -m json.tool deepagent.config.json >/dev/null
+python3 -m json.tool internagent.resources.json >/dev/null
+python3 -m json.tool ui/deepagent-ui.config.json >/dev/null
+npm --prefix ui run lint
+npm --prefix ui run build
 ```
 
-The workflow uses that tag as the App version, runs on macOS, validates Python
-files, lints and builds the UI, builds the architecture-specific DMGs, clears
-any existing uploaded release assets, and uploads both DMGs plus
-`internagents-backend-cli.tar.gz` to the same `InternScience/InternAgents`
-release. The release job uses the official repository's built-in `GITHUB_TOKEN`;
-no cross-repository release PAT is required for official releases.
-
-### Tool Display Names
-
-Backend tool names stay unchanged because LangGraph still needs the original
-names for tool-call matching, interrupt review, and resume payloads. The Web UI
-maps common tool names to Chinese labels only at render time.
-
-The display mapping lives in:
-
-```text
-ui/src/app/utils/toolDisplayNames.ts
-```
-
-Current examples:
-
-```text
-general-purpose -> 通用科研助手
-execute -> 执行命令
-write_todos / writetodo / writeTodo -> 更新待办
-task -> 调用子助手
-read_file / write_file / edit_file -> 读取文件 / 写入文件 / 编辑文件
-ls / glob / grep -> 查看目录 / 搜索文件 / 搜索文本
-```
-
-### Goal Mode
-
-InternAgents includes a lightweight Codex-style goal mode. When the user sends
-`/goal <objective>` or explicitly asks to create a persistent goal, the agent can
-call `create_goal`. Active goals are stored in the LangGraph thread state,
-surfaced in the chat UI, and injected into subsequent model calls so the agent
-continues pursuing the same objective across turns. The agent can inspect the
-current goal with `get_goal` and mark it `complete` or `blocked` with
-`update_goal` after verification.
-
-## Manual Backend Startup
-
-Use this fallback when debugging the LangGraph server directly:
+For Python backend changes:
 
 ```bash
-source .venv/bin/activate
-python -m langgraph_cli dev \
-  --host 127.0.0.1 \
-  --port 2024 \
-  --no-browser \
-  --n-jobs-per-worker 5 \
-  --config langgraph.json
-
-cd ui
-npm run dev -- --hostname 127.0.0.1 --port 3000
+.venv/bin/python -m compileall agent.py internagent_resources.py ssh_backend.py kb_sync_middleware.py thread_skill_middleware.py
+.venv/bin/python -c "import agent; print(agent.MODEL)"
 ```
 
-Health and API docs:
+## Contributing
 
-- <http://127.0.0.1:2024/ok>
-- <http://127.0.0.1:2024/docs>
+InternAgentS is shaped as an open research tool. Helpful contributions include:
 
-## Manual UI Startup
+- bug reports with clear reproduction steps
+- UI polish that keeps existing workflows stable
+- new skills with examples and safe defaults
+- connector integrations that keep secrets local
+- documentation for installation, configuration, and research workflows
 
-Use this fallback when debugging only the frontend:
+Please keep changes scoped. DeepAgents is treated as an external SDK, so
+InternAgentS should extend it through public APIs, adapters, middleware, tools,
+and local resource configuration rather than patching SDK internals.
 
-```bash
-cd ui
-npm install --legacy-peer-deps --ignore-scripts
-npm run dev -- --hostname 127.0.0.1 --port 3000
-```
+## Roadmap Notes
 
-Open:
+Near-term areas of work:
 
-```text
-http://127.0.0.1:3000/?assistantId=agent
-```
+- clearer skill marketplace and installation flow
+- stronger MCP and SCP configuration UX
+- richer previews for scientific artifacts
+- better remote resource management
+- packaged desktop workflows
 
-## Desktop Packaging
-
-The desktop packaging entrypoint lives in `desktop/`. It builds the Next.js UI
-as a standalone server, copies an InternAgents runtime template, bundles a
-Python runtime, and asks `electron-builder` to produce native desktop artifacts.
-
-```bash
-cd desktop
-npm install
-npm run build
-```
-
-On macOS, `npm run build` produces a DMG for the current machine architecture.
-To build a specific architecture, run `npm run build:arm64` for Apple Silicon
-or `npm run build:x64` for Intel. The bundled Python runtime must match the
-target architecture, so the release workflow builds each DMG on a matching
-GitHub-hosted macOS runner.
-
-By default `desktop/scripts/prepare-dist.mjs` copies `.conda` as the bundled
-Python runtime, falling back to `.venv`. To use a prepared portable runtime,
-set:
-
-```bash
-INTERNAGENTS_PYTHON_RUNTIME_SOURCE=/path/to/python-runtime npm run build
-```
-
-On Windows, provide a Python runtime whose executable is available at
-`venv\Scripts\python.exe`, `python.exe`, `Scripts\python.exe`, or
-`bin\python.exe`, then build the NSIS installer:
-
-```powershell
-cd desktop
-npm install
-$env:INTERNAGENTS_PYTHON_RUNTIME_SOURCE = "C:\path\to\python-runtime"
-npm run build:win
-```
-
-If the NSIS installer dependencies are unavailable on the build machine, create
-a distributable ZIP instead. To build both Windows artifacts from one prepared
-dist directory, use:
-
-```powershell
-npm run build:win:zip
-npm run build:win:all
-```
-
-The same prepare step also builds the remote backend CLI package used by the
-web UI's "new remote workspace" flow:
-
-```text
-dist-app/internagents-template/backend-wheelhouse
-dist-app/internagents-template/internagents-backend-cli.tar.gz
-```
-
-`backend-wheelhouse` contains the pinned Python dependencies for supported
-remote Linux targets, and `internagents-backend-cli.tar.gz` contains the
-runtime source plus that wheelhouse. Packaged desktop builds set
-`INTERNAGENTS_DESKTOP=1`, so remote setup only uploads the prebuilt archive; it
-does not build or download backend dependencies on the user's machine at setup
-time. If the archive is missing from a desktop build, remote setup fails fast
-instead of falling back to source-directory sync.
-
-The remote host still needs a working `python3` with `venv` support. The bundled
-wheelhouse currently targets Linux x86_64, Python 3.11/3.12, and glibc 2.28 or
-newer.
-
-The packaged app writes real user configuration under the platform application
-data directory and starts the UI with:
-
-```text
-INTERNAGENTS_APP_ROOT=<app data>/InternAgents/runtime
-INTERNAGENTS_DESKTOP=1
-NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
-NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
-```
-
-First launch opens the local workbench and redirects to setup when the selected
-model provider is missing credentials. User API keys belong in the desktop
-runtime `.env` and should not be committed.
-
-### Publishing Desktop Releases
-
-Desktop releases are tag driven from the public release repository
-`InternScience/InternAgents`. Create a semver tag on the commit you want to
-ship, then push the branch and tag to that repository:
-
-```bash
-git tag v0.1.1
-git remote add official git@github.com:InternScience/InternAgents.git
-git push official main
-git push official v0.1.1
-```
-
-The GitHub Actions workflow builds Apple Silicon (`arm64`) and Intel (`x64`)
-macOS DMGs plus the Windows x64 installer, then publishes them to the same
-`InternScience/InternAgents` release. The same release also includes
-`internagents-backend-cli.tar.gz`, which SSH workspaces use to sync their remote
-backend runtime to the local app version. Official releases use the official
-repository's built-in `GITHUB_TOKEN`; they do not need
-`INTERNAGENTS_RELEASE_TOKEN`.
-
-If a matching official tag is pushed to `qzzqzzb/InternAgents`, the release
-workflow skips all jobs. Manual test releases can still be run there with
-`workflow_dispatch`.
-
-### Package-Only Builds
-
-Use the `Package` workflow when you want InternScience-hosted Actions to build
-desktop artifacts without creating or updating a GitHub Release. Run it
-manually in `InternScience/InternAgents` and point it at the source ref to
-package:
-
-```bash
-gh workflow run package.yml \
-  --repo InternScience/InternAgents \
-  -f source_repository=qzzqzzb/InternAgents \
-  -f source_ref=main \
-  -f desktop_version=0.1.1
-```
-
-This starts Actions in `InternScience/InternAgents`, builds the same macOS,
-Windows, and remote backend CLI artifacts as the release workflow, and leaves
-them only as workflow artifacts. It does not publish a Release and does not
-replace any existing release assets. For a private source repository, configure
-`INTERNAGENTS_SOURCE_TOKEN` in `InternScience/InternAgents` with read access to
-that source repository. This workflow does not update the
-`InternScience/InternAgents` `main` branch.
-
-## Smoke Tests
-
-CLI smoke test:
-
-```bash
-python3 main.py "你好，介绍一下你能做什么。"
-```
-
-Browser prompts:
-
-```text
-你好，介绍一下你能做什么。
-```
-
-```text
-请列出当前项目根目录有哪些文件。
-```
-
-If `interrupt_on.execute` is enabled, the second prompt should show a tool
-approval before the local shell command runs.
-
-## Research KB Infra
-
-This repository also contains a prototype Git-native research knowledge-base CLI
-under `kb_infra/`.
-
-- KB README: `kb_infra/README.md`
-- Agent bootstrap entrypoint: `kb_infra/docs/kb_bootstrap.md`
-- Local CLI install from `kb_infra/`: `npm install && npm link`
-
-## Multi-Resource InternAgents Sessions
-
-InternAgents exposes one coordinator LangGraph server plus one agent runtime per
-resource. The coordinator is the frontend-facing projection layer; agent work is
-executed by the selected runtime over the LangGraph API. SSH is used only for
-deployment, tunnels, and workspace projection.
-The default resource config is in:
-
-```text
-internagent.resources.json
-```
-
-The committed default only contains the current machine. Per-machine resources
-such as private clusters, cloud hosts, usernames, IPs, SSH aliases, and tunnel
-ports should live in an untracked local file, for example:
-
-```bash
-cp internagent.resources.example.json internagent.resources.local.json
-echo 'INTERNAGENT_RESOURCES_FILE=internagent.resources.local.json' >> .env
-```
-
-The local workspace folder is configurable. Open the UI configuration page and
-set `工作区 -> 本机工作区路径`; InternAgents writes that value to the
-untracked `internagent.resources.local.json` file and points `.env` at it. Local
-workspace changes hot-switch for the file browser and subsequent agent
-filesystem/shell tool calls; model, API key, and authorization changes still
-need the backend to be applied.
-
-The workbench also has a workspace selector. Selecting a workspace resets the
-active `threadId`, filters the conversation list to threads whose metadata
-matches that workspace, and attaches `internagents_workspace_*` metadata to new
-runs. Local runtimes resolve filesystem and shell tools from that run metadata,
-so a conversation created under one workspace keeps operating inside that
-workspace. The folder button next to the workspace selector opens the local
-folder picker, remembers the previous active workspace, and adds the selected
-folder as the active workspace.
-
-You can also edit the local resources file directly:
-
-```json
-{
-  "default_resource": "local",
-  "default_workspace": "local-xxxxxxxxxxxx",
-  "workspaces": [
-    {
-      "id": "local-xxxxxxxxxxxx",
-      "label": "your-project",
-      "path": "/absolute/path/to/your/project"
-    }
-  ],
-  "resources": [
-    {
-      "id": "local",
-      "label": "Current Machine",
-      "backend": "local_shell",
-      "workspace": "/absolute/path/to/your/project",
-      "remote_url": "http://127.0.0.1:22024",
-      "remote_assistant_id": "agent",
-      "enabled": true
-    }
-  ]
-}
-```
-
-Each enabled resource maps to a graph named `agent_<resource-id>`. The committed
-config exposes:
-
-- `agent_local` through the local runtime at `http://127.0.0.1:22024`
-
-`langgraph.json` also registers generic remote slots (`agent_remote1`,
-`agent_remote2`) so a local resource file can add private remote runtimes without
-committing machine-specific details.
-
-The web UI reads matching resource labels and assistant IDs from:
-
-```text
-ui/deepagent-ui.config.json
-```
-
-For browser-visible private resources during local UI development, set
-`NEXT_PUBLIC_INTERNAGENT_RESOURCES` in `ui/.env.local` instead of committing
-host-specific labels:
-
-```bash
-NEXT_PUBLIC_INTERNAGENT_RESOURCES='[{"id":"local","label":"Current Machine","assistantId":"agent_local"},{"id":"remote1","label":"Remote Runtime","assistantId":"agent_remote1"}]'
-NEXT_PUBLIC_INTERNAGENT_RESOURCE_ID=local
-```
-
-Packaged desktop builds do not read a user-authored `ui/.env.local`; the
-desktop launcher injects browser-visible connection and resource settings when
-it starts the Next.js standalone server.
-
-For local development, `scripts/dev.sh` starts the local runtime, the
-coordinator, and the UI:
-
-```bash
-./scripts/dev.sh
-```
-
-The equivalent manual commands are:
-
-```bash
-source .venv/bin/activate
-
-INTERNAGENT_PROCESS_ROLE=runtime \
-INTERNAGENT_RUNTIME_ID=local \
-python -m langgraph_cli dev \
-  --host 127.0.0.1 \
-  --port 22024 \
-  --no-browser \
-  --n-jobs-per-worker 5 \
-  --config langgraph.runtime.json
-
-python -m langgraph_cli dev \
-  --host 127.0.0.1 \
-  --port 2024 \
-  --no-browser \
-  --n-jobs-per-worker 5 \
-  --config langgraph.json
-```
-
-Remote resources can be created from the web UI by selecting either an SSH
-config host or a raw SSH command such as `ssh -p 2222 user@example.com`. The
-setup API uploads the bundled `internagents-backend-cli.tar.gz`, installs it on
-the remote host with `pip install --no-index --find-links backend-wheelhouse`,
-starts `internagents-backend runtime start`, and opens the local SSH tunnel to
-the remote runtime. Store the concrete SSH command, workspace, and tunnel URL
-only in local config.
-
-For manual debugging, the same runtime pattern still applies: start
-`langgraph.runtime.json` on the remote machine with
-`INTERNAGENT_PROCESS_ROLE=runtime` and the matching `INTERNAGENT_RUNTIME_ID`,
-then expose it to the coordinator through an existing SSH tunnel. Do not change
-server network, firewall, SSH daemon, security-group, or routing settings for
-this setup; if a runtime is not reachable with existing access, fix the local
-resource config, credentials, process, package install, or tunnel instead.
-
-If a resource sets `kb_path`, InternAgents will best-effort run `kb sync pull`
-before each agent run and `kb sync push` after the run using that resource's
-backend.
+This README is intentionally lightweight. More detailed design notes live in
+`docs/`, and the public onboarding story will keep evolving as the interface
+stabilizes.
