@@ -68,6 +68,7 @@ const PREVIEW_KIND_LABELS: Record<WorkspaceFileResponse["previewKind"], string> 
     molecule: "Molecule",
     pdf: "PDF",
     pptx: "PPT",
+    science: "Science",
     text: "Text",
     unsupported: "File",
     xlsx: "Excel",
