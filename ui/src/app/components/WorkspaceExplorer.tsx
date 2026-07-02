@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
 import {
@@ -104,6 +105,7 @@ export function WorkspaceExplorer({
   onFileSelect,
   onCollapse,
 }: WorkspaceExplorerProps) {
+  const { t } = useLanguage();
   const {
     directories,
     expandedPaths,
@@ -136,13 +138,13 @@ export function WorkspaceExplorer({
         error?: string;
       };
       if (!response.ok) {
-        throw new Error(payload.error || "无法打开工作区文件夹。");
+        throw new Error(payload.error || t("openProjectFolder"));
       }
     } catch (openError) {
       const message =
         openError instanceof Error
           ? openError.message
-          : "无法打开工作区文件夹。";
+          : t("openProjectFolder");
       toast.error(message);
     } finally {
       setOpeningWorkspaceFolder(false);
@@ -151,6 +153,7 @@ export function WorkspaceExplorer({
     canOpenWorkspaceFolder,
     openingWorkspaceFolder,
     resourceId,
+    t,
     workspaceId,
   ]);
 
@@ -202,7 +205,7 @@ export function WorkspaceExplorer({
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             aria-expanded={isDirectory ? isExpanded : undefined}
             aria-current={isSelected ? "page" : undefined}
-            title={dragPayload ? "拖拽到会话区添加为附件" : undefined}
+            title={dragPayload ? t("dragFileHint") : undefined}
           >
             <span className="flex h-5 w-5 items-center justify-center">
               {isDirectory &&
@@ -239,7 +242,7 @@ export function WorkspaceExplorer({
                   className="px-2 py-1 text-xs text-muted-foreground"
                   style={{ paddingLeft: `${44 + depth * 14}px` }}
                 >
-                  Empty
+                  {t("emptyFolder")}
                 </div>
               ) : (
                 children.map((child) => renderEntry(child, depth + 1))
@@ -257,6 +260,7 @@ export function WorkspaceExplorer({
       onFileSelect,
       resourceId,
       selectedPath,
+      t,
       toggleDirectory,
       workspaceId,
     ]
@@ -282,7 +286,7 @@ export function WorkspaceExplorer({
                       size="icon"
                       onClick={onCollapse}
                       className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-                      aria-label="缩小工作区"
+                      aria-label={t("shrinkProjectFiles")}
                     >
                       <PanelLeftClose className="h-4 w-4" />
                     </Button>
@@ -293,12 +297,12 @@ export function WorkspaceExplorer({
                     sideOffset={6}
                     className="whitespace-nowrap"
                   >
-                    缩小工作区
+                    {t("shrinkProjectFiles")}
                   </TooltipContent>
                 </Tooltip>
               )}
               <h2 className="shrink-0 text-sm font-semibold leading-none tracking-tight text-foreground">
-                项目工作区
+                {t("projectFiles")}
               </h2>
             </div>
           </div>
@@ -313,7 +317,7 @@ export function WorkspaceExplorer({
                     onClick={() => void openWorkspaceFolder()}
                     disabled={openingWorkspaceFolder}
                     className="h-7 w-7 text-muted-foreground hover:text-primary"
-                    aria-label="打开工作区文件夹"
+                    aria-label={t("openProjectFolder")}
                   >
                     {openingWorkspaceFolder ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -328,7 +332,7 @@ export function WorkspaceExplorer({
                   sideOffset={6}
                   className="whitespace-nowrap"
                 >
-                  打开工作区文件夹
+                  {t("openProjectFolder")}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -340,7 +344,7 @@ export function WorkspaceExplorer({
                   size="icon"
                   onClick={refresh}
                   className="h-7 w-7 text-muted-foreground hover:text-primary"
-                  aria-label="刷新工作区文件"
+                  aria-label={t("refreshProjectFiles")}
                 >
                   <RefreshCcw className="h-4 w-4" />
                 </Button>
@@ -351,7 +355,7 @@ export function WorkspaceExplorer({
                 sideOffset={6}
                 className="whitespace-nowrap"
               >
-                刷新工作区文件
+                {t("refreshProjectFiles")}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -361,7 +365,7 @@ export function WorkspaceExplorer({
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter files"
+            placeholder={t("filterFiles")}
             className="h-8 rounded-md border-border bg-card pl-8 text-xs"
           />
         </div>
@@ -389,7 +393,7 @@ export function WorkspaceExplorer({
               renderedEntries
             ) : (
               <div className="flex h-32 items-center justify-center text-center text-xs text-muted-foreground">
-                No files match this filter
+                {t("noMatchingFiles")}
               </div>
             )}
           </div>

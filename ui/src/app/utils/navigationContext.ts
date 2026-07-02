@@ -11,7 +11,6 @@ const WORKBENCH_QUERY_KEYS = [
   "threadId",
   "file",
 ] as const;
-const ONE_SHOT_WORKBENCH_QUERY_KEYS = ["quickstart"] as const;
 
 export function safeWorkbenchHref(value: string | null): string | null {
   if (!value) {
@@ -26,13 +25,43 @@ export function safeWorkbenchHref(value: string | null): string | null {
     ) {
       return null;
     }
-    for (const key of ONE_SHOT_WORKBENCH_QUERY_KEYS) {
-      parsed.searchParams.delete(key);
-    }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return null;
   }
+}
+
+export function safeProjectsHref(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value, "http://internagents.local");
+    if (
+      parsed.origin !== "http://internagents.local" ||
+      parsed.pathname !== "/projects"
+    ) {
+      return null;
+    }
+
+    const next = new URLSearchParams();
+    const nestedWorkbenchHref = safeWorkbenchHref(
+      parsed.searchParams.get("returnTo")
+    );
+    if (nestedWorkbenchHref) {
+      next.set("returnTo", nestedWorkbenchHref);
+    }
+
+    const query = next.toString();
+    return `/projects${query ? `?${query}` : ""}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+export function safeAppReturnHref(value: string | null): string | null {
+  return safeProjectsHref(value) || safeWorkbenchHref(value);
 }
 
 export function workbenchHrefFromSearchParams(searchParams: SearchParamsLike) {
@@ -56,6 +85,26 @@ export function workbenchHrefFromSearchParams(searchParams: SearchParamsLike) {
   return `/?${next.toString()}`;
 }
 
+export function projectsHrefFromSearchParams(searchParams: SearchParamsLike) {
+  const explicitReturnTo = safeWorkbenchHref(searchParams.get("returnTo"));
+  if (!explicitReturnTo) {
+    return "/projects";
+  }
+
+  const next = new URLSearchParams();
+  next.set("returnTo", explicitReturnTo);
+  return `/projects?${next.toString()}`;
+}
+
+export function appReturnHrefFromSearchParams(
+  searchParams: SearchParamsLike
+) {
+  return (
+    safeAppReturnHref(searchParams.get("returnTo")) ||
+    workbenchHrefFromSearchParams(searchParams)
+  );
+}
+
 export function pageHrefWithWorkbenchReturn(
   pathname: string,
   searchParams: SearchParamsLike
@@ -63,4 +112,14 @@ export function pageHrefWithWorkbenchReturn(
   const next = new URLSearchParams();
   next.set("returnTo", workbenchHrefFromSearchParams(searchParams));
   return `${pathname}?${next.toString()}`;
+}
+
+export function pageHrefWithAppReturn(pathname: string, returnHref: string) {
+  const safeReturnHref = safeAppReturnHref(returnHref);
+  const next = new URLSearchParams();
+  if (safeReturnHref) {
+    next.set("returnTo", safeReturnHref);
+  }
+  const query = next.toString();
+  return `${pathname}${query ? `?${query}` : ""}`;
 }

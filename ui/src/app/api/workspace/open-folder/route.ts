@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     const resolved = await resolveWorkspacePath("", resourceId, workspaceId);
 
     if ((resolved.resource.backend || "local_shell") !== "local_shell") {
-      throw new Error("只能打开本机工作区文件夹。");
+      throw new Error("只能打开本机项目文件夹。");
     }
 
     await openLocalFolder(resolved.root);
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "无法打开工作区文件夹。",
+          error instanceof Error ? error.message : "无法打开项目文件夹。",
       },
       { status: 500 }
     );

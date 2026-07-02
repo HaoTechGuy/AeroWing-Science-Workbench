@@ -29,12 +29,14 @@
   "authorization_mode": "auto",
   "model_selection_mode": "manual",
   "manual_model": "deepseek-v4-flash",
-  "model_provider": "openrouter",
-  "openrouter_model": "deepseek-v4-flash",
+  "model_provider": "openai_compatible",
+  "openai_compatible_model": "deepseek-v4-pro",
+  "openai_compatible_base_url": "https://api.deepseek.com/v1",
   "web_search": {
     "enabled": true,
     "provider": "duckduckgo",
     "max_results": 5,
     "timeout_seconds": 10
-  }
+  },
+  "ui_language": "zh"
 }

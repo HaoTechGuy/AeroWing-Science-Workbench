@@ -428,7 +428,7 @@ function expandHomePath(value: string): string {
 async function normalizeWorkspacePath(workspacePath: string): Promise<string> {
   const rawPath = workspacePath.trim();
   if (!rawPath) {
-    throw new Error("工作区路径不能为空。");
+    throw new Error("项目路径不能为空。");
   }
 
   const expandedPath = expandHomePath(rawPath);
@@ -438,7 +438,7 @@ async function normalizeWorkspacePath(workspacePath: string): Promise<string> {
   const realWorkspacePath = await fs.realpath(absolutePath);
   const stats = await fs.stat(realWorkspacePath);
   if (!stats.isDirectory()) {
-    throw new Error("工作区路径必须是一个文件夹。");
+    throw new Error("项目路径必须是一个文件夹。");
   }
 
   return realWorkspacePath;

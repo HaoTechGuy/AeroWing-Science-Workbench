@@ -511,6 +511,56 @@ async function getWindowsProcessInfo(pid: number): Promise<ProcessInfo | null> {
   }
 }
 
+async function listChildPids(pid: number): Promise<number[]> {
+  if (IS_WINDOWS) {
+    return [];
+  }
+
+  try {
+    const { stdout } = await execFileAsync("pgrep", ["-P", String(pid)]);
+    return stdout
+      .split(/\s+/)
+      .map((value) => Number(value))
+      .filter((childPid) => Number.isInteger(childPid) && childPid > 1);
+  } catch {
+    return [];
+  }
+}
+
+async function listDescendantPids(pid: number): Promise<number[]> {
+  const descendants: number[] = [];
+  const seen = new Set<number>([pid]);
+  const queue = [pid];
+
+  while (queue.length > 0) {
+    const parentPid = queue.shift();
+    if (!parentPid) {
+      continue;
+    }
+
+    for (const childPid of await listChildPids(parentPid)) {
+      if (seen.has(childPid)) {
+        continue;
+      }
+      seen.add(childPid);
+      descendants.push(childPid);
+      queue.push(childPid);
+    }
+  }
+
+  return descendants;
+}
+
+function signalProcesses(pids: number[], signal: NodeJS.Signals) {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // The process may have already exited.
+    }
+  }
+}
+
 async function findLangGraphProcess(
   port: number,
   pidFile: string
@@ -576,30 +626,17 @@ async function terminateBackend(info: ProcessInfo): Promise<void> {
     return;
   }
 
-  const target = info.pgid > 1 ? -info.pgid : info.pid;
-  try {
-    process.kill(target, "SIGTERM");
-  } catch {
-    try {
-      process.kill(info.pid, "SIGTERM");
-    } catch {
-      return;
-    }
-  }
+  const descendants = await listDescendantPids(info.pid);
+  signalProcesses([...descendants].reverse(), "SIGTERM");
+  signalProcesses([info.pid], "SIGTERM");
 
   if (await waitForProcessExit(info.pid)) {
     return;
   }
 
-  try {
-    process.kill(target, "SIGKILL");
-  } catch {
-    try {
-      process.kill(info.pid, "SIGKILL");
-    } catch {
-      return;
-    }
-  }
+  const remainingDescendants = await listDescendantPids(info.pid);
+  signalProcesses([...remainingDescendants].reverse(), "SIGKILL");
+  signalProcesses([info.pid], "SIGKILL");
 
   await waitForProcessExit(info.pid, 5000);
 }

@@ -20,11 +20,11 @@ class McpConfigTest(unittest.TestCase):
                         "mcpServers": {
                             "InternAgent": {
                                 "type": "streamableHttp",
-                                "url": "https://scp.intern-ai.org.cn/api/v1/mcp/28/InternAgent",
+                                "url": "https://example.com/api/mcp/InternAgent",
                                 "headers": {
-                                    "SCP-HUB-API-KEY": "${SCP_HUB_API_KEY}",
+                                    "X-API-KEY": "${MCP_API_KEY}",
                                 },
-                                "allowedTools": ["ChemicalStructureAnalyzer"],
+                                "allowedTools": ["DocumentAnalyzer"],
                             }
                         }
                     }
@@ -32,13 +32,13 @@ class McpConfigTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch.dict(os.environ, {"SCP_HUB_API_KEY": "sk-test"}, clear=False):
+            with patch.dict(os.environ, {"MCP_API_KEY": "sk-test"}, clear=False):
                 config = load_mcp_config({}, root_dir=root, home_dir=root / "home")
 
             server = config.servers["InternAgent"]
             self.assertEqual(server.transport, "http")
-            self.assertEqual(server.headers["SCP-HUB-API-KEY"], "sk-test")
-            self.assertEqual(server.allowed_tools, ("ChemicalStructureAnalyzer",))
+            self.assertEqual(server.headers["X-API-KEY"], "sk-test")
+            self.assertEqual(server.allowed_tools, ("DocumentAnalyzer",))
             self.assertEqual(config.errors, ())
 
     def test_bad_server_does_not_block_valid_server_in_same_file(self) -> None:
@@ -120,10 +120,10 @@ class McpToolsTest(unittest.TestCase):
                 json.dumps(
                     {
                         "mcpServers": {
-                            "scp": {
+                            "docs": {
                                 "type": "http",
                                 "url": "https://example.com/mcp",
-                                "allowedTools": ["scp_Chemical*", "FlowSearch"],
+                                "allowedTools": ["docs_Document*", "FlowSearch"],
                             }
                         }
                     }
@@ -131,20 +131,20 @@ class McpToolsTest(unittest.TestCase):
                 encoding="utf-8",
             )
             config = load_mcp_config({}, root_dir=root, home_dir=root / "home")
-            server = config.servers["scp"]
+            server = config.servers["docs"]
 
         filtered = _filter_tools(
             [
-                SimpleNamespace(name="ChemicalStructureAnalyzer"),
+                SimpleNamespace(name="DocumentAnalyzer"),
                 SimpleNamespace(name="FlowSearch"),
-                SimpleNamespace(name="ProteinPropertyCalculator"),
+                SimpleNamespace(name="SpreadsheetReader"),
             ],
             server,
         )
 
         self.assertEqual(
             [tool.name for tool in filtered],
-            ["ChemicalStructureAnalyzer", "FlowSearch"],
+            ["DocumentAnalyzer", "FlowSearch"],
         )
 
     def test_no_config_does_not_require_mcp_dependency(self) -> None:

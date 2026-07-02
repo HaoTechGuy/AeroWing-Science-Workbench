@@ -6,7 +6,6 @@ import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   CloudDownload,
-  ExternalLink,
   FolderPlus,
   Loader2,
   MessageCircle,
@@ -1109,20 +1108,7 @@ export function SkillsMarketplace() {
                 <div className="mb-5">
                   <div className="min-w-0">
                     <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                      快照来自 InternScience/scp，点击安装时会从 GitHub
-                      下载对应技能目录。
-                      <a
-                        href="https://scphub.intern-ai.org.cn/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ml-1 inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
-                      >
-                        SCPHub 提供了 200+ 高质量科学领域技能
-                        <ExternalLink
-                          className="h-3.5 w-3.5"
-                          aria-hidden="true"
-                        />
-                      </a>
+                      精选科学技能会在安装时从对应 GitHub 目录导入。
                     </p>
                   </div>
                 </div>

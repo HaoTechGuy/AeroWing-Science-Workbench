@@ -27,11 +27,11 @@ This branch updates the desktop first-run experience:
 
 - First launch opens the local workbench and redirects to setup only when the
   selected model provider still needs credentials.
-- The preferred desktop setup uses 集思: the user enters an email, receives a
-  user-scoped virtual key, and the real DeepSeek key stays on the service side.
-- A Quickstart tour introduces the workbench, project selector, workspace,
-  conversations, service connection, skills, configuration, and About/Updates.
-- The About/Updates page can restart the tour and exposes local update actions.
+- The preferred desktop setup uses an OpenAI-compatible endpoint: the user
+  enters Base URL, API key, and model ID during setup.
+- The first-run setup keeps model credentials in a dedicated configuration
+  screen before entering the workbench.
+- The About/Updates page exposes local update actions.
 - Workspace file/folder open routes and conversation title helpers support the
   refreshed desktop workflow.
 - UI polish is intentionally light: tighter navigation, cleaner panels, and
@@ -119,11 +119,7 @@ file, or from process environment variables supplied by a packaged desktop
 launcher:
 
 ```env
-INTERNAGENTS_MODEL_PROVIDER=gateway
-INTERNAGENTS_USER_EMAIL=
-INTERNAGENTS_USER_NAME=
-INTERNAGENTS_INVITE_CODE=
-INTERNAGENTS_GATEWAY_KEY=
+INTERNAGENTS_MODEL_PROVIDER=openai_compatible
 OPENAI_API_KEY=
 OPENAI_BASE_URL=
 DEEPAGENT_MODEL=
@@ -135,8 +131,7 @@ Set `DEEPAGENT_MODEL` to override the model explicitly:
 DEEPAGENT_MODEL=openai:deepseek-v4-flash
 ```
 
-集思 exposes a fixed OpenAI-compatible chat-completions endpoint managed by the
-local backend. For any other OpenAI-compatible provider, set
+For an OpenAI-compatible provider, set
 `INTERNAGENTS_MODEL_PROVIDER=openai_compatible`, `OPENAI_BASE_URL`, and
 `OPENAI_API_KEY`, then use the provider's model ID. Real keys should stay in an
 untracked `.env` or in the desktop app's Application Support runtime directory;
@@ -226,37 +221,6 @@ To disable MCP discovery for a process:
 
 ```bash
 export INTERNAGENT_MCP_DISABLED=1
-```
-
-## SCP Skills
-
-InternAgents has a built-in SCP entrypoint that follows the SCP skill tutorial:
-each catalog item maps one skill to one SCP MCP endpoint and one tool. The
-backend registers only a small wrapper tool by default; individual SCP tools are
-inactive until the user selects a skill/tool from the chat composer.
-
-Set the SCP Hub key in an untracked environment file:
-
-```env
-SCP_HUB_API_KEY=sk-...
-```
-
-In the UI, type `/scp` to open the SCP catalog. Selecting an item inserts a
-command like:
-
-```text
-/scp skill=chemical-structure-analysis tool=ChemicalStructureAnalyzer analyze aspirin
-```
-
-The command seeds `scpInvocation` in LangGraph state. During that run,
-`call_scp_tool` may invoke only the selected SCP tool, using the selected
-catalog endpoint and the backend-side `SCP_HUB_API_KEY`. The browser never reads
-or sends the key directly.
-
-The default catalog lives in:
-
-```text
-scp_catalog.json
 ```
 
 ## Web UI Configuration
@@ -507,10 +471,9 @@ NEXT_PUBLIC_LANGGRAPH_DEPLOYMENT_URL=http://127.0.0.1:<dynamic-port>
 NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID=agent_local
 ```
 
-First launch opens the local workbench and redirects to setup if 集思 is missing
-credentials. The user's virtual key belongs in the desktop runtime `.env`; real
-DeepSeek and LiteLLM master keys belong only in the separate
-`internagents-gateway` deployment.
+First launch opens the local workbench and redirects to setup when the selected
+model provider is missing credentials. User API keys belong in the desktop
+runtime `.env` and should not be committed.
 
 ### Publishing Desktop Releases
 

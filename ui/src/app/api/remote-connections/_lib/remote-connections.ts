@@ -630,10 +630,10 @@ function nextRemoteResourceId(
 function assertRemoteWorkspace(value: unknown): string {
   const workspace = typeof value === "string" ? value.trim() : "";
   if (!workspace) {
-    throw new Error("远端工作区路径不能为空。");
+    throw new Error("远端项目路径不能为空。");
   }
   if (!workspace.startsWith("/") && !workspace.startsWith("~/")) {
-    throw new Error("远端工作区需要使用绝对路径或 ~/ 开头路径。");
+    throw new Error("远端项目需要使用绝对路径或 ~/ 开头路径。");
   }
   return workspace;
 }
@@ -2425,7 +2425,7 @@ export async function setupRemoteConnection(
   const workspace = await resolveRemotePath(
     sshCommand,
     requestedWorkspace,
-    "远端工作区路径",
+    "远端项目路径",
     log,
     onLog
   );

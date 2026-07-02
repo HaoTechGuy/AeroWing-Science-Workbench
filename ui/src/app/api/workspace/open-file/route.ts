@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
     );
 
     if ((resolved.resource.backend || "local_shell") !== "local_shell") {
-      throw new Error("只能打开本机工作区文件。");
+      throw new Error("只能打开本机项目文件。");
     }
 
     const stats = await fs.stat(resolved.absolutePath);
     if (!stats.isFile()) {
-      throw new Error("选中的工作区路径不是文件。");
+      throw new Error("选中的项目路径不是文件。");
     }
 
     await openFile(resolved.absolutePath);

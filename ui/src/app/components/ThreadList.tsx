@@ -28,17 +28,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import { useRemoteAgent } from "@/providers/ClientProvider";
 import type { ThreadItem } from "@/app/hooks/useThreads";
 import { useThreads } from "@/app/hooks/useThreads";
 
-const GROUP_LABELS = {
-  interrupted: "需要处理",
-  today: "Today",
-  yesterday: "Yesterday",
-  week: "This Week",
-  older: "Older",
-} as const;
+type ThreadGroup = "interrupted" | "today" | "yesterday" | "week" | "older";
 
 const STATUS_COLORS: Record<ThreadItem["status"], string> = {
   idle: "bg-green-500",
@@ -64,24 +59,32 @@ function getThreadColor(thread: ThreadItem, now = new Date()): string {
   return STATUS_COLORS[thread.status] ?? "bg-gray-400";
 }
 
-function getThreadBadge(thread: ThreadItem, now = new Date()) {
+function getThreadBadge(
+  thread: ThreadItem,
+  labels: {
+    possiblyStuck: string;
+    attentionRequired: string;
+    failed: string;
+  },
+  now = new Date()
+) {
   if (isStaleBusyThread(thread, now)) {
     return {
-      label: "可能卡住",
+      label: labels.possiblyStuck,
       className: "border-orange-200 bg-orange-50 text-orange-700",
     };
   }
 
   if (thread.status === "interrupted") {
     return {
-      label: "需处理",
+      label: labels.attentionRequired,
       className: "border-orange-200 bg-orange-50 text-orange-700",
     };
   }
 
   if (thread.status === "error") {
     return {
-      label: "失败",
+      label: labels.failed,
       className: "border-red-200 bg-red-50 text-red-700",
     };
   }
@@ -89,20 +92,21 @@ function getThreadBadge(thread: ThreadItem, now = new Date()) {
   return null;
 }
 
-function formatTime(date: Date, now = new Date()): string {
+function formatTime(date: Date, yesterdayLabel: string, now = new Date()): string {
   const diff = now.getTime() - date.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
   if (days === 0) return format(date, "HH:mm");
-  if (days === 1) return "Yesterday";
+  if (days === 1) return yesterdayLabel;
   if (days < 7) return format(date, "EEEE");
   return format(date, "MM/dd");
 }
 
 function ErrorState({ message }: { message: string }) {
+  const { t } = useLanguage();
   return (
     <div className="flex flex-col items-center justify-center p-8 text-center">
-      <p className="text-sm text-red-600">会话加载失败</p>
+      <p className="text-sm text-red-600">{t("sessionsLoadFailed")}</p>
       <p className="mt-1 text-xs text-muted-foreground">{message}</p>
     </div>
   );
@@ -122,10 +126,11 @@ function LoadingState() {
 }
 
 function EmptyState() {
+  const { t } = useLanguage();
   return (
     <div className="flex flex-col items-center justify-center p-5 text-center">
       <MessageSquare className="mb-2 h-8 w-8 text-gray-300" />
-      <p className="text-xs text-muted-foreground">暂无会话</p>
+      <p className="text-xs text-muted-foreground">{t("noSessions")}</p>
     </div>
   );
 }
@@ -153,6 +158,7 @@ export function ThreadList({
   assistantId,
   workspaceId,
 }: ThreadListProps) {
+  const { t } = useLanguage();
   const remoteAgent = useRemoteAgent();
   const [currentThreadId, setCurrentThreadId] = useQueryState("threadId");
   const [archivingThreadId, setArchivingThreadId] = useState<string | null>(
@@ -196,7 +202,7 @@ export function ThreadList({
   // Group threads by time and status
   const grouped = useMemo(() => {
     const now = new Date();
-    const groups: Record<keyof typeof GROUP_LABELS, ThreadItem[]> = {
+    const groups: Record<ThreadGroup, ThreadItem[]> = {
       interrupted: [],
       today: [],
       yesterday: [],
@@ -267,17 +273,30 @@ export function ThreadList({
           await setCurrentThreadId(null);
         }
         await threads.mutate();
-        toast.success("会话已归档");
+        toast.success(t("archiveSuccess"));
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "会话归档失败";
+          error instanceof Error ? error.message : t("archiveFailed");
         toast.error(message);
       } finally {
         setArchivingThreadId(null);
       }
     },
-    [currentThreadId, remoteAgent.client.threads, setCurrentThreadId, threads]
+    [currentThreadId, remoteAgent.client.threads, setCurrentThreadId, t, threads]
   );
+
+  const groupLabels: Record<ThreadGroup, string> = {
+    interrupted: t("needsAttention"),
+    today: t("today"),
+    yesterday: t("yesterday"),
+    week: t("thisWeek"),
+    older: t("older"),
+  };
+  const badgeLabels = {
+    possiblyStuck: t("possiblyStuck"),
+    attentionRequired: t("attentionRequired"),
+    failed: t("failed"),
+  };
 
   return (
     <div className="absolute inset-0 flex flex-col bg-sidebar">
@@ -293,7 +312,7 @@ export function ThreadList({
                   size="icon"
                   onClick={onCollapse}
                   className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-                  aria-label="缩小会话"
+                  aria-label={t("sessions")}
                 >
                   <PanelLeftClose className="h-4 w-4" />
                 </Button>
@@ -304,12 +323,12 @@ export function ThreadList({
                 sideOffset={6}
                 className="whitespace-nowrap"
               >
-                缩小会话
+                {t("sessions")}
               </TooltipContent>
             </Tooltip>
           )}
           <h2 className="truncate text-sm font-semibold leading-none tracking-tight text-foreground">
-            项目会话
+            {t("projectSessions")}
           </h2>
         </div>
         <div className="ml-auto flex items-center justify-end gap-1">
@@ -321,7 +340,7 @@ export function ThreadList({
                   size="icon"
                   onClick={onNewThread}
                   className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-                  aria-label="新建会话"
+                  aria-label={t("projectSessions")}
                 >
                   <SquarePen className="h-4 w-4" />
                 </Button>
@@ -332,7 +351,7 @@ export function ThreadList({
                 sideOffset={6}
                 className="whitespace-nowrap"
               >
-                新建会话
+                {t("newThread")}
               </TooltipContent>
             </Tooltip>
           )}
@@ -342,7 +361,7 @@ export function ThreadList({
               size="icon"
               onClick={onClose}
               className="h-7 w-7 text-muted-foreground hover:text-primary"
-              aria-label="关闭会话侧栏"
+                  aria-label={t("sessions")}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -364,7 +383,7 @@ export function ThreadList({
         {!threads.error && !isEmpty && (
           <div className="box-border w-full max-w-full overflow-hidden px-4 py-2">
             {(
-              Object.keys(GROUP_LABELS) as Array<keyof typeof GROUP_LABELS>
+              Object.keys(groupLabels) as ThreadGroup[]
             ).map((group) => {
               const groupThreads = grouped[group];
               if (groupThreads.length === 0) return null;
@@ -375,11 +394,11 @@ export function ThreadList({
                   className="mb-2"
                 >
                   <h4 className="m-0 px-2 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {GROUP_LABELS[group]}
+                    {groupLabels[group]}
                   </h4>
                   <div className="flex flex-col gap-0.5">
                     {groupThreads.map((thread) => {
-                      const threadBadge = getThreadBadge(thread);
+                      const threadBadge = getThreadBadge(thread, badgeLabels);
 
                       return (
                         <div
@@ -405,7 +424,7 @@ export function ThreadList({
                                   {thread.title}
                                 </h3>
                                 <span className="shrink-0 text-xs text-muted-foreground">
-                                  {formatTime(thread.updatedAt)}
+                                  {formatTime(thread.updatedAt, t("yesterday"))}
                                 </span>
                               </div>
                               {/* Description + Status Row */}
@@ -448,7 +467,7 @@ export function ThreadList({
                                   "h-7 w-7 shrink-0 text-muted-foreground opacity-70 transition-opacity hover:text-primary hover:opacity-100",
                                   currentThreadId === thread.id && "opacity-100"
                                 )}
-                                aria-label={`归档会话 ${thread.title}`}
+                                aria-label={`${t("archiveThread")} ${thread.title}`}
                               >
                                 {archivingThreadId === thread.id ? (
                                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -463,7 +482,7 @@ export function ThreadList({
                               sideOffset={8}
                               className="whitespace-nowrap"
                             >
-                              归档会话
+                              {t("archiveThread")}
                             </TooltipContent>
                           </Tooltip>
                         </div>
@@ -485,10 +504,10 @@ export function ThreadList({
                   {isLoadingMore ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading...
+                      {t("loading")}
                     </>
                   ) : (
-                    "Load More"
+                    t("loadMore")
                   )}
                 </Button>
               </div>

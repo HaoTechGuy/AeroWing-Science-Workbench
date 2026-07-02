@@ -9,11 +9,13 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Annotated, Any, Awaitable, Callable, NotRequired, TypedDict
+from urllib.parse import urlparse
 
 from langchain.chat_models import init_chat_model
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from dotenv import load_dotenv
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
@@ -22,7 +24,6 @@ from langchain_core.messages import (
     messages_to_dict,
 )
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_config
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
@@ -32,14 +33,17 @@ DEFAULT_SKILL_CATALOG_PATHS = [
     "skills",
     ".internagents/imported-skills",
 ]
-LOCKED_GATEWAY_URL = "http://43.106.18.167/jisi"
-LOCKED_GATEWAY_API_BASE_URL = f"{LOCKED_GATEWAY_URL}/v1"
 OPENAI_COMPATIBLE_PROVIDER = "openai_compatible"
 OPENAI_COMPATIBLE_PROVIDER_ALIASES = {
     OPENAI_COMPATIBLE_PROVIDER,
     "openai",
     "openrouter",
+    "gateway",
 }
+RETIRED_GATEWAY_HOST = "43.106.18.167"
+MISSING_MODEL_CREDENTIALS_RESPONSE = (
+    "模型服务尚未配置。请先在初始配置页面填写 OpenAI 兼容接口的 API Key。"
+)
 BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
     sys.path.insert(0, str(BUNDLED_DEEPAGENTS))
@@ -81,8 +85,6 @@ from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from mcp_tools import load_configured_mcp_tools
-from scp_middleware import ScpContextMiddleware, scp_system_prompt
-from scp_tools import scp_tools
 from thread_skill_middleware import ThreadSkillMiddleware
 from ssh_backend import SshShellBackend
 from web_search_tools import (
@@ -154,8 +156,6 @@ def _config_model_provider(config: dict[str, Any] | None = None) -> str | None:
 
 
 def _normalize_model_provider(provider: str | None) -> str | None:
-    if provider == "gateway":
-        return "gateway"
     if provider in OPENAI_COMPATIBLE_PROVIDER_ALIASES:
         return OPENAI_COMPATIBLE_PROVIDER
     return None
@@ -205,37 +205,18 @@ def _config_model(config: dict[str, Any] | None = None) -> str | None:
         return None
 
     provider = _effective_model_provider(config)
-    if provider == "gateway":
-        if config.get("model_selection_mode") == "manual":
-            model = config.get("manual_model") or config.get("gateway_model")
-        else:
-            model = "jisi/auto"
-    elif provider == OPENAI_COMPATIBLE_PROVIDER:
-        model = config.get("openai_compatible_model") or config.get("openrouter_model")
+    if provider == OPENAI_COMPATIBLE_PROVIDER:
+        model = (
+            config.get("openai_compatible_model")
+            or config.get("openrouter_model")
+            or config.get("manual_model")
+            or config.get("gateway_model")
+        )
     elif config.get("model_selection_mode") == "manual":
         model = config.get("manual_model")
     else:
         model = "deepseek-v4-flash"
     return model.strip() if isinstance(model, str) and model.strip() else None
-
-
-def _uses_gateway_provider() -> bool:
-    return _effective_model_provider() == "gateway"
-
-
-def _lock_gateway_environment() -> None:
-    if not _uses_gateway_provider():
-        return
-
-    os.environ.pop("INTERNAGENTS_GATEWAY_URL", None)
-    os.environ["INTERNAGENTS_GATEWAY_BASE_URL"] = LOCKED_GATEWAY_API_BASE_URL
-    os.environ["OPENROUTER_API_BASE"] = LOCKED_GATEWAY_API_BASE_URL
-    os.environ["OPENROUTER_BASE_URL"] = LOCKED_GATEWAY_API_BASE_URL
-    os.environ["OPENAI_BASE_URL"] = LOCKED_GATEWAY_API_BASE_URL
-    os.environ["OPENAI_API_BASE"] = LOCKED_GATEWAY_API_BASE_URL
-    gateway_key = _env_value("INTERNAGENTS_GATEWAY_KEY") or _env_value("OPENAI_API_KEY")
-    if gateway_key:
-        os.environ["OPENROUTER_API_KEY"] = gateway_key
 
 
 def _config_openai_compatible_base_url(
@@ -255,10 +236,41 @@ def _config_openai_compatible_base_url(
     return None
 
 
+def _is_retired_gateway_base_url(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        return (
+            re.match(r"^https?://", value) is not None
+            and urlparse(value).hostname == RETIRED_GATEWAY_HOST
+        )
+    except Exception:
+        return False
+
+
+def _clear_retired_gateway_environment() -> None:
+    retired_key = _env_value("INTERNAGENTS_GATEWAY_KEY")
+    for key in ("OPENAI_API_KEY", "OPENROUTER_API_KEY"):
+        value = _env_value(key)
+        if value and retired_key and value == retired_key:
+            os.environ.pop(key, None)
+
+    for key in (
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+        "OPENROUTER_API_BASE",
+        "OPENROUTER_BASE_URL",
+    ):
+        if _is_retired_gateway_base_url(_env_value(key)):
+            os.environ.pop(key, None)
+
+
 def _lock_openai_compatible_environment() -> None:
     config = _read_config_for_model()
     if _effective_model_provider(config) != OPENAI_COMPATIBLE_PROVIDER:
         return
+
+    _clear_retired_gateway_environment()
 
     base_url = (
         _config_openai_compatible_base_url(config)
@@ -267,7 +279,7 @@ def _lock_openai_compatible_environment() -> None:
         or _env_value("OPENROUTER_API_BASE")
         or _env_value("OPENROUTER_BASE_URL")
     )
-    if base_url:
+    if base_url and not _is_retired_gateway_base_url(base_url):
         os.environ["OPENAI_BASE_URL"] = base_url
         os.environ["OPENAI_API_BASE"] = base_url
 
@@ -280,11 +292,6 @@ def _resolve_model() -> str:
     config = _read_config_for_model()
     provider = _effective_model_provider(config)
     config_model = _config_model(config)
-
-    if provider == "gateway":
-        env_model = _env_value("INTERNAGENTS_GATEWAY_MODEL") or _env_value("LLM_MODEL")
-        model = config_model or env_model or "jisi/auto"
-        return _openrouter_model_spec(model)
 
     if provider == OPENAI_COMPATIBLE_PROVIDER:
         if config_model:
@@ -306,7 +313,15 @@ def _resolve_model() -> str:
     return "openrouter:deepseek-v4-flash"
 
 
-_lock_gateway_environment()
+def _model_credentials_missing(model_spec: str) -> bool:
+    provider, separator, _model_name = model_spec.partition(":")
+    if separator and provider == "openai":
+        return not bool(_env_value("OPENAI_API_KEY"))
+    if separator and provider == "openrouter":
+        return not bool(_env_value("OPENROUTER_API_KEY"))
+    return False
+
+
 _lock_openai_compatible_environment()
 MODEL = _resolve_model()
 REASONING_OUTPUT_MODEL_ALIASES = {
@@ -365,88 +380,11 @@ def _supports_reasoning_output(model_spec: str) -> bool:
     )
 
 
-def _trace_value(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).replace("\r", " ").replace("\n", " ").replace("\t", " ").strip()
-    return text[:512] if text else None
-
-
-def _dict_value(mapping: Any, *keys: str) -> str | None:
-    if not isinstance(mapping, dict):
-        return None
-    for key in keys:
-        value = _trace_value(mapping.get(key))
-        if value:
-            return value
-    return None
-
-
-def _current_runnable_config() -> RunnableConfig:
-    try:
-        return get_config()
-    except RuntimeError:
-        return {}
-
-
-def _execution_info_value(request: ModelRequest, key: str) -> str | None:
-    runtime = getattr(request, "runtime", None)
-    execution_info = getattr(runtime, "execution_info", None)
-    return _trace_value(getattr(execution_info, key, None))
-
-
-def _gateway_trace_headers(request: ModelRequest) -> dict[str, str]:
-    config = _current_runnable_config()
-    configurable = config.get("configurable") if isinstance(config, dict) else None
-    metadata = config.get("metadata") if isinstance(config, dict) else None
-
-    thread_id = (
-        _execution_info_value(request, "thread_id")
-        or _dict_value(configurable, "thread_id", "threadId")
-        or _dict_value(metadata, "thread_id", "threadId", "internagents_thread_id")
-    )
-    run_id = (
-        _execution_info_value(request, "run_id")
-        or _dict_value(configurable, "run_id", "runId")
-        or _dict_value(metadata, "run_id", "runId", "internagents_run_id")
-    )
-    conversation_id = (
-        _dict_value(
-            metadata,
-            "conversation_id",
-            "conversationId",
-            "internagents_conversation_id",
-            "internagents_thread_id",
-        )
-        or thread_id
-    )
-
-    headers: dict[str, str] = {}
-    if thread_id:
-        headers["x-internagents-session-id"] = thread_id
-        headers["x-langgraph-thread-id"] = thread_id
-    if conversation_id:
-        headers["x-internagents-conversation-id"] = conversation_id
-    if run_id:
-        headers["x-internagents-request-id"] = run_id
-    return headers
-
-
-def _merge_model_http_headers(
-    model_settings: dict[str, Any],
-    headers: dict[str, str],
-) -> dict[str, Any]:
-    if not headers:
-        return model_settings
-    next_settings = dict(model_settings)
-    existing = next_settings.get("http_headers")
-    merged_headers = dict(existing) if isinstance(existing, dict) else {}
-    merged_headers.update(headers)
-    next_settings["http_headers"] = merged_headers
-    return next_settings
-
-
 def _create_agent_model() -> str | Any:
+    if _model_credentials_missing(MODEL):
+        return FakeListChatModel(responses=[MISSING_MODEL_CREDENTIALS_RESPONSE])
+    if MODEL.startswith("openai:"):
+        return init_chat_model(MODEL, use_responses_api=False)
     if MODEL.startswith("openrouter:") and _supports_reasoning_output(MODEL):
         return init_chat_model(
             MODEL,
@@ -461,7 +399,6 @@ class InternAgentState(TypedDict):
     files: NotRequired[dict[str, str]]
     goal: NotRequired[dict[str, Any]]
     goalContinuationTurns: NotRequired[int]
-    scpInvocation: NotRequired[dict[str, Any]]
     threadSkills: NotRequired[dict[str, Any]]
     email: NotRequired[dict[str, Any]]
     ui: NotRequired[Any]
@@ -608,7 +545,6 @@ def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
 def _resolve_tools(config: dict[str, Any]) -> list[Any]:
     tools = list(goal_tools())
     tools.extend(web_search_tools(config))
-    tools.extend(scp_tools())
     tools.extend(load_configured_mcp_tools(config, root_dir=ROOT_DIR))
     return tools
 
@@ -1373,36 +1309,6 @@ class ImageContentCompatibilityMiddleware(AgentMiddleware):
             )
 
 
-class GatewayTraceMiddleware(AgentMiddleware):
-    """Adds InternAgents thread/run identifiers to gateway model requests."""
-
-    @property
-    def name(self) -> str:
-        return "GatewayTraceMiddleware"
-
-    def _trace_request(self, request: ModelRequest) -> ModelRequest:
-        headers = _gateway_trace_headers(request)
-        if not headers:
-            return request
-        return request.override(
-            model_settings=_merge_model_http_headers(request.model_settings, headers)
-        )
-
-    def wrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelResponse:
-        return handler(self._trace_request(request))
-
-    async def awrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
-    ) -> ModelResponse:
-        return await handler(self._trace_request(request))
-
-
 def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.remote_url:
         remote = RemoteGraph(
@@ -1466,11 +1372,8 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(WebSearchBudgetMiddleware())
-    if _uses_gateway_provider():
-        middleware.append(GatewayTraceMiddleware())
     middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
-    middleware.append(ScpContextMiddleware())
     middleware.append(_thread_skill_middleware(agent_config, backend))
     return create_deep_agent(
         model=_create_agent_model(),
@@ -1478,7 +1381,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
         backend=backend,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(
-            scp_system_prompt(_resource_system_prompt(base_prompt, resource)),
+            _resource_system_prompt(base_prompt, resource),
             agent_config,
         ),
         interrupt_on=agent_config.get("interrupt_on") or None,
@@ -1540,18 +1443,15 @@ def create_runtime_agent():  # noqa: ANN201
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
     middleware.append(WebSearchBudgetMiddleware())
-    if _uses_gateway_provider():
-        middleware.append(GatewayTraceMiddleware())
     middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
-    middleware.append(ScpContextMiddleware())
     middleware.append(_thread_skill_middleware(agent_config, backend))
     return create_deep_agent(
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
         subagents=_thread_skill_subagents(agent_config, backend),
-        system_prompt=_agent_system_prompt(scp_system_prompt(system_prompt), agent_config),
+        system_prompt=_agent_system_prompt(system_prompt, agent_config),
         interrupt_on=agent_config.get("interrupt_on") or None,
         middleware=middleware,
     )

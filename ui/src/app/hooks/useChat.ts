@@ -17,8 +17,6 @@ import type { UseStreamThread } from "@langchain/langgraph-sdk/react";
 import type {
   ChatAttachment,
   GoalState,
-  ScpCatalogItem,
-  ScpInvocationState,
   ThreadSkillsState,
   TodoItem,
 } from "@/app/types/types";
@@ -47,9 +45,6 @@ type RunConfig = Record<string, any>;
 type ParsedGoalCommand = {
   objective: string;
   tokenBudget?: number;
-};
-type SendMessageOptions = {
-  scpSelection?: ScpCatalogItem | null;
 };
 type RetryMessageOptions = {
   checkpoint?: Checkpoint | null;
@@ -88,7 +83,6 @@ export type ThreadRecoveryNotice =
     };
 
 const MAX_GOAL_OBJECTIVE_CHARS = 4_000;
-const MAX_SCP_PROMPT_CHARS = 4_000;
 const THREAD_SNAPSHOT_CACHE_MAX_ENTRIES = 40;
 const THREAD_STATUS_METADATA_KEY = "internagents_thread_status";
 const THREAD_UPDATED_AT_METADATA_KEY = "internagents_thread_updated_at";
@@ -115,7 +109,6 @@ export type StateType = {
   todos: TodoItem[];
   files: Record<string, string>;
   goal?: GoalState | null;
-  scpInvocation?: ScpInvocationState | null;
   threadSkills?: ThreadSkillsState | null;
   email?: {
     id?: string;
@@ -387,7 +380,6 @@ function emptyThreadState(threadId: string): ThreadState<StateType> {
       todos: [],
       files: {},
       goal: null,
-      scpInvocation: null,
       threadSkills: null,
     },
     next: [],
@@ -417,7 +409,6 @@ function pendingRunToState(
       todos: [],
       files: {},
       goal: null,
-      scpInvocation: null,
       threadSkills: null,
     },
     next: [],
@@ -1364,43 +1355,6 @@ function createGoalState(
   };
 }
 
-function parseScpPrompt(content: string): string | null {
-  const match = content.trim().match(/^\/scp(?:\s+([\s\S]+))?$/i);
-  if (!match) {
-    return null;
-  }
-
-  let prompt = match[1]?.trim() ?? "";
-  while (/^(?:skill|tool)=[^\s]+\s*/i.test(prompt)) {
-    prompt = prompt.replace(/^(?:skill|tool)=[^\s]+\s*/i, "").trim();
-  }
-
-  if (!prompt || prompt.length > MAX_SCP_PROMPT_CHARS) {
-    return null;
-  }
-  return prompt;
-}
-
-function createScpInvocationState(
-  selection: ScpCatalogItem,
-  prompt: string,
-  threadId: string
-): ScpInvocationState {
-  const now = Math.floor(Date.now() / 1000);
-  return {
-    id: uuidv4(),
-    threadId,
-    skillName: selection.skillName,
-    displayName: selection.displayName,
-    toolName: selection.toolName,
-    endpoint: selection.endpoint,
-    prompt,
-    status: "active",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
 function normalizeThreadSkills(value: unknown): ThreadSkillsState | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -1835,11 +1789,9 @@ export function useChat({
   const sendMessage = useCallback(
     (
       content: string,
-      attachments: ChatAttachment[] = [],
-      options: SendMessageOptions = {}
+      attachments: ChatAttachment[] = []
     ) => {
       const goalCommand = parseGoalCommand(content);
-      const scpPrompt = options.scpSelection ? parseScpPrompt(content) : null;
       const existingGoal = threadId ? stream.values.goal : null;
       const hasActiveGoal = existingGoal?.status === "active";
       const pendingSkills = normalizeThreadSkills(pendingThreadSkills);
@@ -1852,13 +1804,11 @@ export function useChat({
         selectedSkills ??
         (threadId ? streamSkills ?? snapshotSkills : pendingSkills);
       const shouldSeedGoal = Boolean(goalCommand && !hasActiveGoal);
-      const shouldSeedScp = Boolean(options.scpSelection && scpPrompt);
       const shouldSeedThreadSkills = hasThreadSkills(runThreadSkills);
       const pendingNewThreadTitle = pendingNewThreadTitleRef.current;
       const newThreadId =
         !threadId &&
         (shouldSeedGoal ||
-          shouldSeedScp ||
           shouldSeedThreadSkills ||
           pendingNewThreadTitle)
           ? uuidv4()
@@ -1866,28 +1816,12 @@ export function useChat({
       const seededGoalThreadId = shouldSeedGoal
         ? threadId ?? newThreadId ?? uuidv4()
         : null;
-      const seededScpThreadId = shouldSeedScp
-        ? threadId ?? newThreadId ?? uuidv4()
-        : null;
       const seededGoal =
         shouldSeedGoal && goalCommand && seededGoalThreadId
           ? createGoalState(goalCommand, seededGoalThreadId)
           : null;
-      const seededScp =
-        shouldSeedScp &&
-        options.scpSelection &&
-        scpPrompt &&
-        seededScpThreadId
-          ? createScpInvocationState(
-              options.scpSelection,
-              scpPrompt,
-              seededScpThreadId
-            )
-          : null;
       const seededThreadSkills = shouldSeedThreadSkills ? runThreadSkills : null;
-      const messageContent = seededScp
-        ? seededScp.prompt
-        : seededGoal
+      const messageContent = seededGoal
         ? seededGoal.objective
         : content;
       const additionalKwargs = {
@@ -1899,16 +1833,6 @@ export function useChat({
               internagents_goal_command: {
                 original_content: content,
                 goal_id: seededGoal.id,
-              },
-            }
-          : {}),
-        ...(seededScp
-          ? {
-              internagents_scp_command: {
-                original_content: content,
-                scp_invocation_id: seededScp.id,
-                skill_name: seededScp.skillName,
-                tool_name: seededScp.toolName,
               },
             }
           : {}),
@@ -1934,7 +1858,6 @@ export function useChat({
         {
           messages: [newMessage],
           ...(seededGoal ? { goal: seededGoal } : {}),
-          ...(seededScp ? { scpInvocation: seededScp } : {}),
           ...(seededThreadSkills ? { threadSkills: seededThreadSkills } : {}),
         },
         withStreamSubmitOptions({
@@ -1944,13 +1867,12 @@ export function useChat({
           optimisticValues: (prev: StateType) => ({
             messages: [...(prev.messages ?? []), newMessage],
             ...(seededGoal ? { goal: seededGoal } : {}),
-            ...(seededScp ? { scpInvocation: seededScp } : {}),
             ...(seededThreadSkills
               ? { threadSkills: seededThreadSkills }
               : {}),
           }),
           config: buildRunConfig(),
-          ...(seededGoal || seededScp ? { durability: "async" as const } : {}),
+          ...(seededGoal ? { durability: "async" as const } : {}),
         })
       );
       // Update thread list immediately when sending a message
@@ -2118,7 +2040,6 @@ export function useChat({
       todos: [],
       files: {},
       goal: null,
-      scpInvocation: null,
       threadSkills: null,
     };
   }, [
@@ -2131,7 +2052,6 @@ export function useChat({
     [scopedValues]
   );
   const activeGoal = scopedValues.goal ?? null;
-  const scpInvocation = scopedValues.scpInvocation ?? null;
   const activeThreadSkills = useMemo(() => {
     const stateSkills = normalizeThreadSkills(scopedValues.threadSkills);
     const snapshotSkills = normalizeThreadSkills(
@@ -2444,7 +2364,6 @@ export function useChat({
     todos: scopedValues.todos ?? [],
     files: scopedValues.files ?? {},
     goal: activeGoal,
-    scpInvocation,
     threadSkills: activeThreadSkills,
     email: scopedValues.email,
     ui: scopedValues.ui,

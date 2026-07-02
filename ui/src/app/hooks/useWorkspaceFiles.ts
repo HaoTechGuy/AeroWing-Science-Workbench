@@ -24,7 +24,7 @@ async function fetchDirectory(
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(payload?.error || "工作区文件加载失败。");
+    throw new Error(payload?.error || "项目文件加载失败。");
   }
 
   return response.json();
@@ -74,7 +74,7 @@ export function useWorkspaceFiles(
         }));
         return payload.entries;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "工作区文件加载失败。");
+        setError(err instanceof Error ? err.message : "项目文件加载失败。");
         return [];
       } finally {
         setPathLoading(path, false);
@@ -128,7 +128,7 @@ export function useWorkspaceFiles(
           return next;
         });
       } catch (err) {
-        setError(err instanceof Error ? err.message : "工作区文件加载失败。");
+        setError(err instanceof Error ? err.message : "项目文件加载失败。");
       } finally {
         uniquePaths.forEach((path) => setPathLoading(path, false));
       }
@@ -158,7 +158,7 @@ export function useWorkspaceFiles(
       })
       .catch((err) => {
         if (!isCancelled) {
-          setError(err instanceof Error ? err.message : "工作区文件加载失败。");
+          setError(err instanceof Error ? err.message : "项目文件加载失败。");
         }
       })
       .finally(() => {
