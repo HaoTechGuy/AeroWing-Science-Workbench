@@ -10,22 +10,33 @@ import React, {
 } from "react";
 import Link from "next/link";
 import {
-  Beaker,
+  ArrowLeft,
+  ChevronRight,
+  Columns2,
   Eye,
+  File,
+  FileCode2,
+  FileJson,
+  FileSpreadsheet,
+  FileText,
   Files,
+  Folder,
   FolderOpen,
-  History,
-  Info,
+  LayoutGrid,
   Loader2,
   Plus,
+  Presentation,
   Radio,
+  RefreshCcw,
+  Search,
   Settings,
   Sparkles,
   SquarePen,
+  List,
   UploadCloud,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   getConfig,
@@ -47,18 +58,25 @@ import {
   SelectSeparator,
   SelectTrigger,
 } from "@/components/ui/select";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { ChatProvider } from "@/providers/ChatProvider";
 import { ChatInterface } from "@/app/components/ChatInterface";
 import { RemoteConnectionDialog } from "@/app/components/RemoteConnectionDialog";
 import { ThreadList } from "@/app/components/ThreadList";
-import { WorkspaceExplorer } from "@/app/components/WorkspaceExplorer";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
+import { useLanguage } from "@/app/hooks/useLanguage";
+import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
 import {
   WORKBENCH_RETURN_STORAGE_KEY,
   pageHrefWithWorkbenchReturn,
   workbenchHrefFromSearchParams,
 } from "@/app/utils/navigationContext";
+import { displayResourceLabel } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
@@ -126,11 +144,12 @@ async function shouldOpenOnboarding(): Promise<boolean> {
 }
 
 function StartupState() {
+  const { t } = useLanguage();
   return (
     <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
       <div className="flex items-center gap-2 text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        <span>InternAgents正在启动中...</span>
+        <span>{t("appStarting")}</span>
       </div>
     </div>
   );
@@ -177,6 +196,7 @@ function HomePageInner({
   onWorkspacePick,
   onResourcesRefresh,
 }: HomePageInnerProps) {
+  const { language, t } = useLanguage();
   const remoteAgent = useRemoteAgent();
   const searchParams = useSearchParams();
   const [threadId, setThreadId] = useQueryState("threadId");
@@ -192,8 +212,7 @@ function HomePageInner({
   );
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [pushingBackendCli, setPushingBackendCli] = useState(false);
-  const [sidebarMode, setSidebarMode] =
-    useState<WorkbenchSidebarMode>("sessions");
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const previousObservedThreadIdRef = useRef<string | null>(threadId ?? null);
   const intentionalThreadChangeRef = useRef<string | null>(null);
   const generatedThreadIdRef = useRef<string | null>(null);
@@ -255,6 +274,7 @@ function HomePageInner({
   const handleFileSelect = useCallback(
     async (entry: WorkspaceEntry) => {
       if (entry.kind === "file") {
+        setInspectorOpen(true);
         await setSelectedFilePath(entry.path);
       }
     },
@@ -267,7 +287,7 @@ function HomePageInner({
 
   const ensureRemoteResource = useCallback(
     async (resourceId: string) => {
-      const toastId = toast.loading("正在同步远程 backend runtime...");
+    const toastId = toast.loading(t("remoteRuntimeSyncing"));
       try {
         const response = await fetch("/api/remote-connections/ensure", {
           method: "POST",
@@ -280,11 +300,11 @@ function HomePageInner({
             error?: string;
           } | null;
           toast.dismiss(toastId);
-          throw new Error(payload?.error || "远程 backend runtime 同步失败");
+          throw new Error(payload?.error || t("remoteRuntimeSyncFailed"));
         }
         if (!response.body) {
           toast.dismiss(toastId);
-          throw new Error("远程 backend runtime 同步失败：没有返回同步日志。");
+          throw new Error(t("remoteRuntimeNoLog"));
         }
 
         const reader = response.body.getReader();
@@ -313,7 +333,7 @@ function HomePageInner({
             if (event.type === "done" && event.result) {
               result = event.result;
             } else if (event.type === "error") {
-              streamError = event.error || "远程 backend runtime 同步失败";
+              streamError = event.error || t("remoteRuntimeSyncFailed");
             }
           }
           if (done) break;
@@ -324,7 +344,7 @@ function HomePageInner({
           if (event?.type === "done" && event.result) {
             result = event.result;
           } else if (event?.type === "error") {
-            streamError = event.error || "远程 backend runtime 同步失败";
+            streamError = event.error || t("remoteRuntimeSyncFailed");
           }
         }
 
@@ -333,7 +353,7 @@ function HomePageInner({
           throw new Error(streamError);
         }
         if (!result) {
-          throw new Error("远程 backend runtime 同步失败：没有返回结果。");
+          throw new Error(t("remoteRuntimeNoResult"));
         }
 
         await onResourcesRefresh(result.resources);
@@ -348,7 +368,7 @@ function HomePageInner({
         throw error;
       }
     },
-    [onResourcesRefresh]
+    [onResourcesRefresh, t]
   );
 
   const handleResourceChange = useCallback(
@@ -367,7 +387,9 @@ function HomePageInner({
         mutateThreads?.();
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "远程工作区切换失败";
+          error instanceof Error
+            ? error.message
+            : t("remoteProjectSwitchFailed");
         toast.error(message);
       } finally {
         setEnsuringResourceId(null);
@@ -380,6 +402,7 @@ function HomePageInner({
       onResourceChange,
       setSelectedFilePath,
       setThreadId,
+      t,
     ]
   );
 
@@ -392,11 +415,11 @@ function HomePageInner({
         mutateThreads?.();
       } catch (error) {
         const message =
-          error instanceof Error ? error.message : "工作区切换失败";
+          error instanceof Error ? error.message : t("projectSwitchFailed");
         toast.error(message);
       }
     },
-    [mutateThreads, onWorkspaceChange, setSelectedFilePath, setThreadId]
+    [mutateThreads, onWorkspaceChange, setSelectedFilePath, setThreadId, t]
   );
 
   const handleWorkspacePick = useCallback(async () => {
@@ -407,12 +430,13 @@ function HomePageInner({
       await onWorkspacePick();
       mutateThreads?.();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "工作区选择失败";
+      const message =
+        error instanceof Error ? error.message : t("projectPickFailed");
       toast.error(message);
     } finally {
       setIsPickingWorkspace(false);
     }
-  }, [mutateThreads, onWorkspacePick, setSelectedFilePath, setThreadId]);
+  }, [mutateThreads, onWorkspacePick, setSelectedFilePath, setThreadId, t]);
 
   const handleEnvironmentChange = useCallback(
     async (value: string) => {
@@ -556,16 +580,6 @@ function HomePageInner({
     pushingBackendCli,
   ]);
 
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent("internagents.quickstart.autostart")
-      );
-    }, 300);
-
-    return () => window.clearTimeout(timeoutId);
-  }, []);
-
   const environmentValue =
     isActiveLocalResource && activeWorkspace
       ? `workspace:${activeWorkspace.id}`
@@ -573,7 +587,8 @@ function HomePageInner({
   const remoteResources = config.resources.filter(
     (resource) => resource.id !== "local"
   );
-  const environmentLabel = activeWorkspace?.label || activeResource.label;
+  const environmentLabel =
+    activeWorkspace?.label || displayResourceLabel(activeResource.label, language);
   const currentWorkbenchHref = useMemo(
     () => workbenchHrefFromSearchParams(searchParams),
     [searchParams]
@@ -586,10 +601,7 @@ function HomePageInner({
     () => pageHrefWithWorkbenchReturn("/skills", searchParams),
     [searchParams]
   );
-  const aboutHref = useMemo(
-    () => pageHrefWithWorkbenchReturn("/about", searchParams),
-    [searchParams]
-  );
+  const projectsHref = "/projects";
 
   useEffect(() => {
     try {
@@ -604,71 +616,123 @@ function HomePageInner({
 
   return (
     <div className="internagents-home ocs-app-shell">
-      <WorkbenchSidebar
-        mode={sidebarMode}
-        setMode={setSidebarMode}
-        activeAssistantId={activeAssistantId}
-        activeResource={activeResource}
-        activeWorkspace={activeWorkspace}
-        environmentLabel={environmentLabel}
-        environmentValue={environmentValue}
-        isActiveLocalResource={isActiveLocalResource}
-        isActiveSshResource={isActiveSshResource}
-        isPickingWorkspace={isPickingWorkspace}
-        ensuringResourceId={ensuringResourceId}
-        pushingBackendCli={pushingBackendCli}
-        remoteResources={remoteResources}
-        selectedFilePath={selectedFilePath}
-        workspaceRefreshKey={workspaceRefreshKey}
-        workspaces={workspaces}
-        configHref={configHref}
-        skillsHref={skillsHref}
-        aboutHref={aboutHref}
-        onEnvironmentChange={handleEnvironmentChange}
-        onFileSelect={handleFileSelect}
-        onMutateReady={(fn) => setMutateThreads(() => fn)}
-        onNewThread={handleNewThread}
-        onPushBackendCli={handlePushBackendCli}
-        onThreadSelect={handleThreadSelect}
-      />
-
-      <section className="ocs-workspace">
-        <ChatProvider
-          key={`${activeResource.id}:${activeAssistantId}:${
-            activeWorkspace?.id || "workspace"
-          }:${chatInstanceKey}`}
-          activeAssistant={assistant}
-          streamConfig={config.stream}
-          onHistoryRevalidate={handleRunActivity}
-          onGeneratedThreadId={handleGeneratedThreadId}
-          resourceId={activeResource.id}
-          resourceLabel={activeResource.label}
-          runtimeUrl={activeResource.runtimeUrl}
-          workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
-          workspacePath={
-            isActiveLocalResource ? activeWorkspace?.resolvedPath : undefined
-          }
-          workspaceLabel={
-            isActiveLocalResource ? activeWorkspace?.label : undefined
-          }
+      <ResizablePanelGroup
+        direction="horizontal"
+        autoSaveId="internagents-workbench-layout"
+        className="ocs-workbench-panels"
+      >
+        <ResizablePanel
+          id="workbench-sidebar"
+          order={1}
+          defaultSize={18}
+          minSize={18}
+          maxSize={28}
+          className="ocs-workbench-panel"
         >
-          <ChatInterface assistant={assistant} />
-        </ChatProvider>
-      </section>
+          <WorkbenchSidebar
+            activeAssistantId={activeAssistantId}
+            activeResource={activeResource}
+            activeWorkspace={activeWorkspace}
+            environmentLabel={environmentLabel}
+            environmentValue={environmentValue}
+            isActiveLocalResource={isActiveLocalResource}
+            isActiveSshResource={isActiveSshResource}
+            isPickingWorkspace={isPickingWorkspace}
+            ensuringResourceId={ensuringResourceId}
+            pushingBackendCli={pushingBackendCli}
+            remoteResources={remoteResources}
+            workspaces={workspaces}
+            configHref={configHref}
+            skillsHref={skillsHref}
+            projectsHref={projectsHref}
+            onEnvironmentChange={handleEnvironmentChange}
+            onMutateReady={(fn) => setMutateThreads(() => fn)}
+            onNewThread={handleNewThread}
+            onPushBackendCli={handlePushBackendCli}
+            onThreadSelect={handleThreadSelect}
+          />
+        </ResizablePanel>
 
-      <WorkbenchInspector
-        activeAssistantId={activeAssistantId}
-        activeResource={activeResource}
-        activeWorkspace={activeWorkspace}
-        isActiveLocalResource={isActiveLocalResource}
-        selectedFilePath={selectedFilePath}
-        threadId={threadId}
-        workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
-        onClearSelectedFile={handleClearSelectedFile}
-        configHref={configHref}
-        skillsHref={skillsHref}
-        aboutHref={aboutHref}
-      />
+        <ResizableHandle className="ocs-workbench-resize-handle" />
+
+        <ResizablePanel
+          id="workbench-chat"
+          order={2}
+          defaultSize={inspectorOpen ? 39 : 82}
+          minSize={30}
+          className="ocs-workbench-panel"
+        >
+          <section className="ocs-workspace">
+            <ChatProvider
+              key={`${activeResource.id}:${activeAssistantId}:${
+                activeWorkspace?.id || "workspace"
+              }:${chatInstanceKey}`}
+              activeAssistant={assistant}
+              streamConfig={config.stream}
+              onHistoryRevalidate={handleRunActivity}
+              onGeneratedThreadId={handleGeneratedThreadId}
+              resourceId={activeResource.id}
+              resourceLabel={activeResource.label}
+              runtimeUrl={activeResource.runtimeUrl}
+              workspaceId={
+                isActiveLocalResource ? activeWorkspace?.id : undefined
+              }
+              workspacePath={
+                isActiveLocalResource
+                  ? activeWorkspace?.resolvedPath
+                  : undefined
+              }
+              workspaceLabel={
+                isActiveLocalResource ? activeWorkspace?.label : undefined
+              }
+            >
+              <ChatInterface
+                assistant={assistant}
+                headerActions={
+                  !inspectorOpen ? (
+                    <button
+                      type="button"
+                      className="ocs-split-toggle"
+                      onClick={() => setInspectorOpen(true)}
+                      title={t("openInspector")}
+                      aria-label={t("openInspector")}
+                    >
+                      <Columns2 className="h-4 w-4" />
+                    </button>
+                  ) : null
+                }
+              />
+            </ChatProvider>
+          </section>
+        </ResizablePanel>
+
+        {inspectorOpen && (
+          <>
+            <ResizableHandle className="ocs-workbench-resize-handle" />
+
+            <ResizablePanel
+              id="workbench-inspector"
+              order={3}
+              defaultSize={43}
+              minSize={22}
+              className="ocs-workbench-panel"
+            >
+              <WorkbenchInspector
+                activeResource={activeResource}
+                activeWorkspace={activeWorkspace}
+                selectedFilePath={selectedFilePath}
+                workspaceRefreshKey={workspaceRefreshKey}
+                workspaceId={
+                  isActiveLocalResource ? activeWorkspace?.id : undefined
+                }
+                onClearSelectedFile={handleClearSelectedFile}
+                onClose={() => setInspectorOpen(false)}
+                onFileSelect={handleFileSelect}
+              />
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
 
       <RemoteConnectionDialog
         open={remoteDialogOpen}
@@ -679,11 +743,7 @@ function HomePageInner({
   );
 }
 
-type WorkbenchSidebarMode = "sessions" | "files" | "settings";
-
 interface WorkbenchSidebarProps {
-  mode: WorkbenchSidebarMode;
-  setMode: (mode: WorkbenchSidebarMode) => void;
   activeAssistantId: string;
   activeResource: ResourceConfig;
   activeWorkspace: LocalWorkspace | null;
@@ -695,14 +755,11 @@ interface WorkbenchSidebarProps {
   ensuringResourceId: string | null;
   pushingBackendCli: boolean;
   remoteResources: ResourceConfig[];
-  selectedFilePath?: string | null;
-  workspaceRefreshKey: number;
   workspaces: LocalWorkspace[];
   configHref: string;
   skillsHref: string;
-  aboutHref: string;
+  projectsHref: string;
   onEnvironmentChange: (value: string) => Promise<void>;
-  onFileSelect: (entry: WorkspaceEntry) => void;
   onMutateReady: (mutate: () => void) => void;
   onNewThread: () => Promise<void>;
   onPushBackendCli: () => void;
@@ -710,8 +767,6 @@ interface WorkbenchSidebarProps {
 }
 
 function WorkbenchSidebar({
-  mode,
-  setMode,
   activeAssistantId,
   activeResource,
   activeWorkspace,
@@ -723,49 +778,60 @@ function WorkbenchSidebar({
   ensuringResourceId,
   pushingBackendCli,
   remoteResources,
-  selectedFilePath,
-  workspaceRefreshKey,
   workspaces,
   configHref,
   skillsHref,
-  aboutHref,
+  projectsHref,
   onEnvironmentChange,
-  onFileSelect,
   onMutateReady,
   onNewThread,
   onPushBackendCli,
   onThreadSelect,
 }: WorkbenchSidebarProps) {
-  const runtimeLabel = isActiveLocalResource ? "local" : "remote";
+  const { language, t } = useLanguage();
+  const runtimeLabel = isActiveLocalResource ? t("local") : t("remote");
 
   return (
     <aside
       className="ocs-sidebar"
-      data-tour="workspace-panel"
     >
       <section className="ocs-brand">
+        <Link
+          href={projectsHref}
+          className="ocs-project-list-link"
+          aria-label={t("backToProjects")}
+        >
+          <ArrowLeft size={15} />
+          <span>{t("projectList")}</span>
+        </Link>
         <div>
           <h1>InternAgents</h1>
-          <span>agent workbench</span>
+          <span>{t("projectWorkbench")}</span>
         </div>
-        <Beaker size={24} />
       </section>
 
       <section
         className="ocs-project-picker"
-        data-tour="local-agent"
       >
-        <span>Project</span>
+        <div className="ocs-project-picker-label">
+          <span>{t("currentProject")}</span>
+          <span>{runtimeLabel}</span>
+        </div>
         <Select
           value={environmentValue}
           onValueChange={(value) => void onEnvironmentChange(value)}
         >
           <SelectTrigger className="ocs-project-trigger">
-            <span className="flex min-w-0 items-center gap-2">
+            <span className="ocs-project-trigger-content">
               {isPickingWorkspace || ensuringResourceId ? (
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-              ) : null}
-              <span className="min-w-0 truncate">{environmentLabel}</span>
+              ) : (
+                <span
+                  className="ocs-project-status-dot"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="ocs-project-name">{environmentLabel}</span>
             </span>
           </SelectTrigger>
           <SelectContent
@@ -774,7 +840,7 @@ function WorkbenchSidebar({
           >
             <SelectGroup>
               <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                本地工作区
+                {t("localProjects")}
               </SelectLabel>
               {workspaces.map((workspace) => (
                 <SelectItem
@@ -794,7 +860,7 @@ function WorkbenchSidebar({
               <SelectSeparator />
               <SelectItem
                 value={OPEN_WORKSPACE_VALUE}
-                textValue="打开或新增本地工作区"
+                textValue={t("openOrCreateLocalProject")}
                 className="py-2"
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -803,7 +869,7 @@ function WorkbenchSidebar({
                   ) : (
                     <FolderOpen className="h-4 w-4 shrink-0" />
                   )}
-                  <span>打开或新增本地工作区</span>
+                  <span>{t("openOrCreateLocalProject")}</span>
                 </span>
               </SelectItem>
             </SelectGroup>
@@ -811,17 +877,19 @@ function WorkbenchSidebar({
             <SelectSeparator />
             <SelectGroup>
               <SelectLabel className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                远程工作区
+                {t("remoteProjects")}
               </SelectLabel>
               {remoteResources.map((resource) => (
                 <SelectItem
                   key={resource.id}
                   value={`resource:${resource.id}`}
-                  textValue={resource.label}
+                  textValue={displayResourceLabel(resource.label, language)}
                   className="py-2"
                 >
                   <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{resource.label}</span>
+                    <span className="truncate">
+                      {displayResourceLabel(resource.label, language)}
+                    </span>
                     {resource.workspacePath && (
                       <span className="truncate text-xs text-muted-foreground">
                         {resource.workspacePath}
@@ -833,12 +901,12 @@ function WorkbenchSidebar({
               <SelectSeparator />
               <SelectItem
                 value={ADD_REMOTE_WORKSPACE_VALUE}
-                textValue="接入远程工作区"
+                textValue={t("connectRemoteProject")}
                 className="py-2"
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <Plus className="h-4 w-4 shrink-0" />
-                  <span>接入远程工作区</span>
+                  <span>{t("connectRemoteProject")}</span>
                 </span>
               </SelectItem>
             </SelectGroup>
@@ -848,43 +916,26 @@ function WorkbenchSidebar({
 
       <nav
         className="ocs-primary-actions"
-        aria-label="workspace actions"
+        aria-label="project actions"
       >
         <button
           type="button"
           onClick={() => void onNewThread()}
         >
           <SquarePen size={18} />
-          <span>New</span>
+          <span>{t("newThread")}</span>
         </button>
         <Link
           href={skillsHref}
-          data-tour="nav-capabilities"
         >
           <Sparkles size={18} />
-          <span>Capabilities</span>
+          <span>{t("capabilities")}</span>
         </Link>
         <Link
           href={configHref}
-          data-tour="nav-config"
         >
           <Settings size={18} />
-          <span>Config</span>
-        </Link>
-        <button
-          id="workspace-files"
-          type="button"
-          onClick={() => setMode("files")}
-        >
-          <Files size={18} />
-          <span>Files</span>
-        </button>
-        <Link
-          href={aboutHref}
-          data-tour="nav-about"
-        >
-          <Info size={18} />
-          <span>About</span>
+          <span>{t("settings")}</span>
         </Link>
         {isActiveSshResource && (
           <button
@@ -897,74 +948,32 @@ function WorkbenchSidebar({
             ) : (
               <UploadCloud size={18} />
             )}
-            <span>Sync remote</span>
+            <span>{t("syncRemote")}</span>
           </button>
         )}
       </nav>
 
-      <div className="ocs-sidebar-tabs">
-        {(["sessions", "files", "settings"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={cn(mode === item && "active")}
-            onClick={() => setMode(item)}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-
       <div className="ocs-sidebar-body">
-        {mode === "sessions" && (
-          <div
-            className="ocs-panel-fill"
-            data-tour="thread-list"
-          >
-            <ThreadList
-              onThreadSelect={onThreadSelect}
-              onNewThread={onNewThread}
-              onMutateReady={onMutateReady}
-              resourceId={activeResource.id}
-              runtimeUrl={activeResource.runtimeUrl}
-              assistantId={activeAssistantId}
-              workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
-            />
-          </div>
-        )}
-        {mode === "files" && (
-          <div className="ocs-panel-fill">
-            <WorkspaceExplorer
-              key={activeWorkspace?.id || activeResource.id}
-              selectedPath={selectedFilePath}
-              resourceId={activeResource.id}
-              workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
-              refreshKey={workspaceRefreshKey}
-              activeWorkspace={activeWorkspace}
-              onFileSelect={onFileSelect}
-            />
-          </div>
-        )}
-        {mode === "settings" && (
-          <WorkbenchSidebarSettings
-            aboutHref={aboutHref}
-            configHref={configHref}
-            skillsHref={skillsHref}
-            activeAssistantId={activeAssistantId}
-            activeResource={activeResource}
-            activeWorkspace={activeWorkspace}
+        <div className="ocs-panel-fill">
+          <ThreadList
+            onThreadSelect={onThreadSelect}
+            onNewThread={onNewThread}
+            onMutateReady={onMutateReady}
+            resourceId={activeResource.id}
+            runtimeUrl={activeResource.runtimeUrl}
+            assistantId={activeAssistantId}
+            workspaceId={isActiveLocalResource ? activeWorkspace?.id : undefined}
           />
-        )}
+        </div>
       </div>
 
       <footer className="ocs-sidebar-footer">
-        <button
-          type="button"
-          onClick={() => setMode("settings")}
-          aria-label="Settings"
+        <Link
+          href={configHref}
+          aria-label={t("settings")}
         >
           <Settings size={18} />
-        </button>
+        </Link>
         <span>
           <Radio size={14} />
           {runtimeLabel}
@@ -974,141 +983,382 @@ function WorkbenchSidebar({
   );
 }
 
-interface WorkbenchSidebarSettingsProps {
-  aboutHref: string;
-  configHref: string;
-  skillsHref: string;
-  activeAssistantId: string;
+type WorkbenchInspectorMode = "files" | "preview";
+type InspectorFilesViewMode = "grid" | "list";
+
+interface WorkbenchInspectorProps {
   activeResource: ResourceConfig;
   activeWorkspace: LocalWorkspace | null;
+  selectedFilePath?: string | null;
+  workspaceRefreshKey: number;
+  workspaceId?: string;
+  onClearSelectedFile: () => Promise<void>;
+  onClose: () => void;
+  onFileSelect: (entry: WorkspaceEntry) => void | Promise<void>;
 }
 
-function WorkbenchSidebarSettings({
-  aboutHref,
-  configHref,
-  skillsHref,
-  activeAssistantId,
-  activeResource,
-  activeWorkspace,
-}: WorkbenchSidebarSettingsProps) {
+interface InspectorFilesViewProps {
+  selectedFilePath?: string | null;
+  resourceId: string;
+  workspaceId?: string;
+  refreshKey: number;
+  onFileSelect: (entry: WorkspaceEntry) => void | Promise<void>;
+}
+
+function formatInspectorBytes(bytes?: number): string {
+  if (bytes === undefined) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function InspectorEntryIcon({ entry }: { entry: WorkspaceEntry }) {
+  if (entry.kind === "directory") {
+    return <Folder className="h-4 w-4" />;
+  }
+
+  if (entry.previewKind === "markdown") {
+    return <FileText className="h-4 w-4" />;
+  }
+
+  if (entry.previewKind === "pdf") {
+    return <FileText className="h-4 w-4" />;
+  }
+
+  if (entry.previewKind === "docx") {
+    return <FileText className="h-4 w-4" />;
+  }
+
+  if (entry.previewKind === "xlsx") {
+    return <FileSpreadsheet className="h-4 w-4" />;
+  }
+
+  if (entry.previewKind === "pptx") {
+    return <Presentation className="h-4 w-4" />;
+  }
+
+  if (entry.extension === ".json") {
+    return <FileJson className="h-4 w-4" />;
+  }
+
+  if (
+    [".js", ".jsx", ".py", ".ts", ".tsx", ".sh"].includes(
+      entry.extension || ""
+    )
+  ) {
+    return <FileCode2 className="h-4 w-4" />;
+  }
+
+  return <File className="h-4 w-4" />;
+}
+
+function matchesInspectorFilter(entry: WorkspaceEntry, filter: string): boolean {
+  if (!filter) return true;
+  return entry.path.toLowerCase().includes(filter);
+}
+
+function InspectorFilesView({
+  selectedFilePath,
+  resourceId,
+  workspaceId,
+  refreshKey,
+  onFileSelect,
+}: InspectorFilesViewProps) {
+  const { t } = useLanguage();
+  const {
+    directories,
+    expandedPaths,
+    loadingPaths,
+    error,
+    toggleDirectory,
+    refresh,
+  } = useWorkspaceFiles(resourceId, workspaceId, refreshKey);
+  const [filter, setFilter] = useState("");
+  const [viewMode, setViewMode] = useState<InspectorFilesViewMode>("grid");
+
+  const normalizedFilter = filter.trim().toLowerCase();
+  const rootEntries = useMemo(() => directories[""] ?? [], [directories]);
+  const rootLoading = loadingPaths.has("") && rootEntries.length === 0;
+
+  const visibleEntries = useMemo(() => {
+    const hasMatchingDescendant = (entry: WorkspaceEntry): boolean => {
+      const children = directories[entry.path] ?? [];
+      return children.some(
+        (child) =>
+          matchesInspectorFilter(child, normalizedFilter) ||
+          hasMatchingDescendant(child)
+      );
+    };
+
+    const walk = (
+      entries: WorkspaceEntry[],
+      depth: number
+    ): Array<{ entry: WorkspaceEntry; depth: number }> => {
+      return entries.flatMap((entry) => {
+        const matches = matchesInspectorFilter(entry, normalizedFilter);
+        const childrenMatch =
+          entry.kind === "directory" && hasMatchingDescendant(entry);
+        if (!matches && !childrenMatch) {
+          return [];
+        }
+
+        const isExpanded =
+          entry.kind === "directory" &&
+          (expandedPaths.has(entry.path) || Boolean(normalizedFilter));
+        const children = isExpanded
+          ? walk(directories[entry.path] ?? [], depth + 1)
+          : [];
+
+        return [{ entry, depth }, ...children];
+      });
+    };
+
+    return walk(rootEntries, 0);
+  }, [directories, expandedPaths, normalizedFilter, rootEntries]);
+
+  const handleEntryClick = useCallback(
+    async (entry: WorkspaceEntry) => {
+      if (entry.kind === "directory") {
+        await toggleDirectory(entry.path);
+        return;
+      }
+
+      await onFileSelect(entry);
+    },
+    [onFileSelect, toggleDirectory]
+  );
+
   return (
-    <section className="ocs-sidebar-settings">
-      <Settings size={18} />
-      <p>Current runtime and workspace controls.</p>
-      <div className="ocs-settings-row">
-        <span>Assistant</span>
-        <em>{activeAssistantId}</em>
+    <section className="ocs-inspector-files">
+      <div className="ocs-inspector-files-toolbar">
+        <div className="ocs-inspector-search">
+          <Search className="h-3.5 w-3.5" />
+          <input
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            placeholder={t("filterFiles")}
+          />
+        </div>
+        <div className="ocs-inspector-view-toggle">
+          <button
+            type="button"
+            className={cn(viewMode === "grid" && "active")}
+            onClick={() => setViewMode("grid")}
+            title={t("gridView")}
+            aria-label={t("gridView")}
+          >
+            <LayoutGrid size={15} />
+          </button>
+          <button
+            type="button"
+            className={cn(viewMode === "list" && "active")}
+            onClick={() => setViewMode("list")}
+            title={t("listView")}
+            aria-label={t("listView")}
+          >
+            <List size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            title={t("refreshProjectFiles")}
+            aria-label={t("refreshProjectFiles")}
+          >
+            <RefreshCcw size={15} />
+          </button>
+        </div>
       </div>
-      <div className="ocs-settings-row">
-        <span>Resource</span>
-        <em>{activeResource.label}</em>
-      </div>
-      <div className="ocs-settings-row">
-        <span>Workspace</span>
-        <em>{activeWorkspace?.label ?? "remote"}</em>
-      </div>
-      <Link href={configHref}>
-        <Settings size={16} />
-        配置
-      </Link>
-      <Link href={skillsHref}>
-        <Sparkles size={16} />
-        能力插件
-      </Link>
-      <Link href={aboutHref}>
-        <Info size={16} />
-        关于与更新
-      </Link>
+
+      {error && <div className="ocs-inspector-file-error">{error}</div>}
+
+      {rootLoading ? (
+        <div className="ocs-inspector-empty">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>{t("loading")}</span>
+        </div>
+      ) : visibleEntries.length === 0 ? (
+        <div className="ocs-inspector-empty">{t("noMatchingFiles")}</div>
+      ) : viewMode === "grid" ? (
+        <div className="ocs-inspector-file-grid">
+          {visibleEntries.map(({ entry, depth }) => {
+            const isDirectory = entry.kind === "directory";
+            const isExpanded = expandedPaths.has(entry.path);
+            const isSelected = selectedFilePath === entry.path;
+
+            return (
+              <button
+                key={entry.path}
+                type="button"
+                className={cn(
+                  "ocs-inspector-file-card",
+                  isSelected && "active"
+                )}
+                onClick={() => void handleEntryClick(entry)}
+                title={entry.path}
+              >
+                <span className="ocs-inspector-file-icon">
+                  {isDirectory ? (
+                    <FolderOpen
+                      className={cn("h-4 w-4", !isExpanded && "opacity-60")}
+                    />
+                  ) : (
+                    <InspectorEntryIcon entry={entry} />
+                  )}
+                </span>
+                <span className="ocs-inspector-file-name">{entry.name}</span>
+                <span className="ocs-inspector-file-meta">
+                  {isDirectory
+                    ? t("folder")
+                    : formatInspectorBytes(entry.size) ||
+                      entry.previewKind ||
+                      t("files")}
+                </span>
+                {depth > 0 && (
+                  <span className="ocs-inspector-file-path">{entry.path}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="ocs-inspector-file-list">
+          {visibleEntries.map(({ entry, depth }) => {
+            const isDirectory = entry.kind === "directory";
+            const isExpanded = expandedPaths.has(entry.path);
+            const isLoading = loadingPaths.has(entry.path);
+            const isSelected = selectedFilePath === entry.path;
+
+            return (
+              <button
+                key={entry.path}
+                type="button"
+                className={cn("ocs-inspector-file-row", isSelected && "active")}
+                style={{ paddingLeft: `${10 + depth * 16}px` }}
+                onClick={() => void handleEntryClick(entry)}
+                title={entry.path}
+              >
+                <span className="ocs-inspector-file-expander">
+                  {isDirectory &&
+                    (isLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ChevronRight
+                        className={cn(
+                          "h-4 w-4",
+                          isExpanded && "rotate-90"
+                        )}
+                      />
+                    ))}
+                </span>
+                <span className="ocs-inspector-file-icon">
+                  <InspectorEntryIcon entry={entry} />
+                </span>
+                <span className="ocs-inspector-file-name">{entry.name}</span>
+                <span className="ocs-inspector-file-meta">
+                  {isDirectory ? t("folder") : formatInspectorBytes(entry.size)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
-type WorkbenchInspectorMode = "preview" | "provenance" | "settings";
-
-interface WorkbenchInspectorProps {
-  activeAssistantId: string;
-  activeResource: ResourceConfig;
-  activeWorkspace: LocalWorkspace | null;
-  isActiveLocalResource: boolean;
-  selectedFilePath?: string | null;
-  threadId?: string | null;
-  workspaceId?: string;
-  configHref: string;
-  skillsHref: string;
-  aboutHref: string;
-  onClearSelectedFile: () => Promise<void>;
-}
-
 function WorkbenchInspector({
-  activeAssistantId,
   activeResource,
   activeWorkspace,
-  isActiveLocalResource,
   selectedFilePath,
-  threadId,
+  workspaceRefreshKey,
   workspaceId,
-  configHref,
-  skillsHref,
-  aboutHref,
   onClearSelectedFile,
+  onClose,
+  onFileSelect,
 }: WorkbenchInspectorProps) {
-  const [mode, setMode] = useState<WorkbenchInspectorMode>("preview");
-  const selectedName = displayPathName(selectedFilePath);
+  const { t } = useLanguage();
+  const [mode, setMode] = useState<WorkbenchInspectorMode>(
+    selectedFilePath ? "preview" : "files"
+  );
+  const previousSelectedFilePathRef = useRef<string | null>(
+    selectedFilePath ?? null
+  );
+  const selectedName = displayPathName(selectedFilePath, t("filePreview"));
+
+  useEffect(() => {
+    const previousSelectedFilePath = previousSelectedFilePathRef.current;
+    const nextSelectedFilePath = selectedFilePath ?? null;
+    if (previousSelectedFilePath === nextSelectedFilePath) {
+      return;
+    }
+
+    previousSelectedFilePathRef.current = nextSelectedFilePath;
+    if (selectedFilePath) {
+      setMode("preview");
+    } else {
+      setMode((currentMode) =>
+        currentMode === "preview" ? "files" : currentMode
+      );
+    }
+  }, [selectedFilePath]);
 
   return (
     <aside className="ocs-inspector">
       <header className="ocs-inspector-header">
         <div>
-          <span className="ocs-eyebrow">Artifact</span>
-          <h3>{selectedFilePath ? selectedName : "No artifact open"}</h3>
+          <span className="ocs-eyebrow">
+            {mode === "files" ? t("projectFiles") : t("artifact")}
+          </span>
+          <h3>
+            {mode === "files"
+              ? t("projectFiles")
+              : selectedFilePath
+                ? selectedName
+                : t("noArtifactOpen")}
+          </h3>
         </div>
-        <Files size={22} />
+        <button
+          type="button"
+          className="ocs-inspector-close"
+          onClick={onClose}
+          title={t("closeInspector")}
+          aria-label={t("closeInspector")}
+        >
+          <Columns2 className="h-4 w-4" />
+        </button>
       </header>
-
-      <div className="ocs-artifact-strip">
-        <button
-          type="button"
-          className={cn(selectedFilePath && "active")}
-          onClick={() => setMode("preview")}
-        >
-          <Files size={14} />
-          {selectedFilePath ? selectedName : "File preview"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("settings")}
-        >
-          <Radio size={14} />
-          {activeResource.label}
-        </button>
-      </div>
 
       <div className="ocs-version-bar">
         <button
           type="button"
+          className={cn(mode === "files" && "active")}
+          onClick={() => setMode("files")}
+        >
+          <Files size={15} />
+          {t("files")}
+        </button>
+        <button
+          type="button"
           className={cn(mode === "preview" && "active")}
           onClick={() => setMode("preview")}
+          disabled={!selectedFilePath}
         >
           <Eye size={15} />
-          Preview
-        </button>
-        <button
-          type="button"
-          className={cn(mode === "provenance" && "active")}
-          onClick={() => setMode("provenance")}
-        >
-          <History size={15} />
-          Provenance
-        </button>
-        <button
-          type="button"
-          className={cn(mode === "settings" && "active")}
-          onClick={() => setMode("settings")}
-        >
-          <Settings size={15} />
-          Settings
+          {t("preview")}
         </button>
       </div>
+
+      {mode === "files" && (
+        <div className="ocs-inspector-content">
+          <InspectorFilesView
+            selectedFilePath={selectedFilePath}
+            resourceId={activeResource.id}
+            workspaceId={workspaceId}
+            refreshKey={workspaceRefreshKey}
+            onFileSelect={onFileSelect}
+          />
+        </div>
+      )}
 
       {mode === "preview" && (
         <div className="ocs-inspector-content ocs-inspector-preview">
@@ -1122,78 +1372,19 @@ function WorkbenchInspector({
         </div>
       )}
 
-      {mode === "provenance" && (
-        <section className="ocs-provenance-panel">
-          <nav>
-            <button
-              type="button"
-              className="active"
-            >
-              messages
-            </button>
-            <button type="button">runtime</button>
-            <button type="button">files</button>
-          </nav>
-          <article className="ocs-execution-record">
-            <strong>Thread</strong>
-            <code>{threadId || "new thread"}</code>
-          </article>
-          <article className="ocs-execution-record">
-            <strong>Workspace</strong>
-            <code>
-              {activeWorkspace?.resolvedPath ||
-                activeWorkspace?.path ||
-                activeResource.workspacePath ||
-                "remote workspace"}
-            </code>
-          </article>
-          <article className="ocs-execution-record">
-            <strong>Selected file</strong>
-            <code>{selectedFilePath || "No file selected"}</code>
-          </article>
-        </section>
-      )}
-
-      {mode === "settings" && (
-        <section className="ocs-settings-inspector">
-          <section>
-            <h4>Runtime</h4>
-            <div className="ocs-settings-row">
-              <span>Resource</span>
-              <em>{activeResource.label}</em>
-            </div>
-            <div className="ocs-settings-row">
-              <span>Backend</span>
-              <em>{activeResource.backend || "local"}</em>
-            </div>
-            <div className="ocs-settings-row">
-              <span>Assistant</span>
-              <em>{activeAssistantId}</em>
-            </div>
-            <div className="ocs-settings-row">
-              <span>Scope</span>
-              <em>{isActiveLocalResource ? "local" : "remote"}</em>
-            </div>
-          </section>
-          <section>
-            <h4>Navigation</h4>
-            <Link href={configHref}>配置</Link>
-            <Link href={skillsHref}>能力插件</Link>
-            <Link href={aboutHref}>关于与更新</Link>
-          </section>
-        </section>
-      )}
     </aside>
   );
 }
 
-function displayPathName(path?: string | null): string {
-  if (!path) return "File preview";
+function displayPathName(path: string | null | undefined, fallback: string): string {
+  if (!path) return fallback;
   const parts = path.split("/").filter(Boolean);
   return parts[parts.length - 1] || path;
 }
 
 function HomePageContent() {
+  const { t } = useLanguage();
+  const router = useRouter();
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
   const [workspaces, setWorkspaces] = useState<LocalWorkspace[]>([]);
   const [localBackendReady, setLocalBackendReady] = useState(false);
@@ -1216,7 +1407,7 @@ function HomePageContent() {
           error?: string;
         };
         if (!response.ok) {
-          throw new Error(payload.error || "工作区列表读取失败");
+          throw new Error(payload.error || t("projectListReadFailed"));
         }
         nextResources = payload.resources || [];
         defaultResourceId = payload.defaultResourceId;
@@ -1233,7 +1424,7 @@ function HomePageContent() {
       });
       return nextResources || [];
     },
-    []
+    [t]
   );
 
   const loadWorkspaces = useCallback(async () => {
@@ -1244,15 +1435,12 @@ function HomePageContent() {
       error?: string;
     };
     if (!response.ok) {
-      throw new Error(payload.error || "工作区读取失败");
+      throw new Error(payload.error || t("projectReadFailed"));
     }
     const nextWorkspaces = payload.workspaces || [];
     setWorkspaces(nextWorkspaces);
-    if (!workspaceId && payload.defaultWorkspaceId) {
-      await setWorkspaceId(payload.defaultWorkspaceId);
-    }
     return nextWorkspaces;
-  }, [setWorkspaceId, workspaceId]);
+  }, [t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1271,6 +1459,16 @@ function HomePageContent() {
         return;
       }
       const initialResource = getResource(initialConfig, resourceId);
+      const shouldOpenProjectList =
+        isLocalDeploymentUrl(initialConfig.deploymentUrl) &&
+        (!initialResource || initialResource.id === "local") &&
+        !workspaceId;
+      if (shouldOpenProjectList) {
+        if (!cancelled) {
+          router.replace("/projects");
+        }
+        return;
+      }
       if (!resourceId && initialResource) {
         setResourceId(initialResource.id);
       }
@@ -1281,13 +1479,13 @@ function HomePageContent() {
       }
       void loadWorkspaces().catch((error) => {
         const message =
-          error instanceof Error ? error.message : "工作区读取失败";
+          error instanceof Error ? error.message : t("projectReadFailed");
         toast.error(message);
       });
       if (isLocalDeploymentUrl(initialConfig.deploymentUrl)) {
         void refreshResources().catch((error) => {
           const message =
-            error instanceof Error ? error.message : "工作区列表读取失败";
+            error instanceof Error ? error.message : t("projectListReadFailed");
           toast.error(message);
         });
       }
@@ -1370,14 +1568,19 @@ function HomePageContent() {
       }
       return;
     }
-    if (workspaces.length === 0) return;
-    if (
-      !workspaceId ||
-      !workspaces.some((workspace) => workspace.id === workspaceId)
-    ) {
-      setWorkspaceId(workspaces[0].id);
+    if (!workspaceId) {
+      router.replace("/projects");
+      return;
     }
-  }, [config, resourceId, setWorkspaceId, workspaceId, workspaces]);
+    if (workspaces.length > 0) {
+      const workspaceExists = workspaces.some(
+        (workspace) => workspace.id === workspaceId
+      );
+      if (!workspaceExists) {
+        router.replace("/projects");
+      }
+    }
+  }, [config, resourceId, router, setWorkspaceId, workspaceId, workspaces]);
 
   const langsmithApiKey =
     config?.langsmithApiKey || process.env.NEXT_PUBLIC_LANGSMITH_API_KEY || "";
@@ -1394,14 +1597,12 @@ function HomePageContent() {
   const activeAssistantId = activeResource?.assistantId || config.assistantId;
   const isActiveLocalResource = activeResource?.id === "local";
   const activeWorkspace = isActiveLocalResource
-    ? workspaces.find((workspace) => workspace.id === workspaceId) ||
-      workspaces[0] ||
-      null
+    ? workspaces.find((workspace) => workspace.id === workspaceId) || null
     : {
         id: `resource:${activeResource.id}`,
         label: activeResource.label,
-        path: activeResource.workspacePath || "远程工作区",
-        resolvedPath: activeResource.workspacePath || "远程工作区",
+        path: activeResource.workspacePath || t("remoteProject"),
+        resolvedPath: activeResource.workspacePath || t("remoteProject"),
         resourceId: activeResource.id,
         isRemote: true,
       };
@@ -1448,7 +1649,7 @@ function HomePageContent() {
             error?: string;
           };
           if (!response.ok) {
-            throw new Error(payload.error || "工作区切换失败");
+            throw new Error(payload.error || t("projectSwitchFailed"));
           }
           if (payload.workspaces) {
             setWorkspaces(payload.workspaces);
@@ -1468,7 +1669,7 @@ function HomePageContent() {
             error?: string;
           };
           if (!response.ok) {
-            throw new Error(payload.error || "工作区选择失败");
+            throw new Error(payload.error || t("projectPickFailed"));
           }
           if (payload.cancelled) {
             return;
@@ -1488,15 +1689,18 @@ function HomePageContent() {
   );
 }
 
+function StartupFallback() {
+  const { t } = useLanguage();
+  return (
+    <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
+      <p className="text-muted-foreground">{t("appStarting")}</p>
+    </div>
+  );
+}
+
 export default function HomePage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-[calc(100vh-var(--app-footer-height))] items-center justify-center">
-          <p className="text-muted-foreground">InternAgents正在启动中...</p>
-        </div>
-      }
-    >
+    <Suspense fallback={<StartupFallback />}>
       <HomePageContent />
     </Suspense>
   );

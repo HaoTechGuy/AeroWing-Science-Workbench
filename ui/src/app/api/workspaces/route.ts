@@ -16,8 +16,7 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "无法读取工作区列表。",
+        error: error instanceof Error ? error.message : "无法读取项目列表。",
       },
       { status: 500 }
     );
@@ -32,7 +31,7 @@ export async function PUT(request: NextRequest) {
     const workspacePath =
       typeof body.workspacePath === "string" ? body.workspacePath.trim() : "";
     if (!workspacePath) {
-      throw new Error("工作区路径不能为空。");
+      throw new Error("项目路径不能为空。");
     }
 
     await updateLocalResourceWorkspace(workspacePath);
@@ -40,8 +39,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "无法切换工作区。",
+        error: error instanceof Error ? error.message : "无法切换项目。",
       },
       { status: 500 }
     );
@@ -50,7 +48,7 @@ export async function PUT(request: NextRequest) {
 
 export async function POST() {
   try {
-    const selectedPath = await chooseLocalFolder("选择本机工作区文件夹");
+    const selectedPath = await chooseLocalFolder("选择本机项目文件夹");
     if (!selectedPath) {
       return NextResponse.json({ cancelled: true });
     }
@@ -70,7 +68,7 @@ export async function POST() {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "无法打开本地工作区选择器。",
+          error instanceof Error ? error.message : "无法打开本地项目选择器。",
       },
       { status: 500 }
     );

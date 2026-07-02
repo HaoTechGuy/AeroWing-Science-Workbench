@@ -90,5 +90,5 @@ export async function openLocalFolder(folderPath: string): Promise<void> {
     return;
   }
 
-  throw new Error("当前系统暂不支持打开工作区文件夹。");
+  throw new Error("当前系统暂不支持打开项目文件夹。");
 }

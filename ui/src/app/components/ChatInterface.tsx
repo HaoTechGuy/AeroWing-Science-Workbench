@@ -35,7 +35,6 @@ import {
   Paperclip,
   Pencil,
   Sparkles,
-  Plug,
   RotateCcw,
   Target,
   X,
@@ -50,8 +49,6 @@ import type {
   ReviewConfig,
   ChatAttachment,
   GoalState,
-  ScpCatalogItem,
-  ScpInvocationState,
   ThreadSkillItem,
   ThreadSkillsState,
 } from "@/app/types/types";
@@ -65,6 +62,7 @@ import { cn } from "@/lib/utils";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { useQueryState } from "nuqs";
 import { FilesPopover } from "@/app/components/TasksFilesSidebar";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import {
   WORKSPACE_FILE_DRAG_MIME,
   parseWorkspaceFileDragPayload,
@@ -77,16 +75,24 @@ interface ChatInterfaceProps {
   headerActions?: React.ReactNode;
 }
 
+interface AttachmentCopy {
+  unsupportedType: string;
+  imageTooLarge: string;
+  pdfTooLarge: string;
+  pdfUploadFailed: string;
+  officeTooLarge: string;
+  uploadFailed: string;
+}
+
 const MAX_IMAGE_ATTACHMENT_SIZE = 8 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
 const MAX_PDF_ATTACHMENT_SIZE = 16 * 1024 * 1024;
 const MAX_OFFICE_ATTACHMENT_SIZE = 16 * 1024 * 1024;
-const SUPPORTED_ATTACHMENT_HINT =
-  "支持图片、PDF、Word、Excel、PPT 和文本文件。";
 const MAX_MENTION_OPTIONS = 10;
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
 const CHAT_COMPOSER_HASH = "#chat-composer";
+const DEFAULT_SEND_SHORTCUT_MODIFIER = "Ctrl";
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -135,28 +141,28 @@ const AUTO_ATTACHMENT_THREAD_SKILLS: Record<
   pdf: {
     key: "skills/pdf",
     name: "pdf",
-    description: "自动为 PDF 附件加载。",
+    description: "",
     relativePath: "skills/pdf",
     folderName: "pdf",
   },
   docx: {
     key: "skills/docx",
     name: "docx",
-    description: "自动为 DOCX 附件加载。",
+    description: "",
     relativePath: "skills/docx",
     folderName: "docx",
   },
   xlsx: {
     key: "skills/xlsx",
     name: "xlsx",
-    description: "自动为 XLSX 附件加载。",
+    description: "",
     relativePath: "skills/xlsx",
     folderName: "xlsx",
   },
   pptx: {
     key: "skills/pptx",
     name: "pptx",
-    description: "自动为 PPTX 附件加载。",
+    description: "",
     relativePath: "skills/pptx",
     folderName: "pptx",
   },
@@ -328,7 +334,10 @@ function autoSkillNamesForAttachment(
 
 function addAttachmentThreadSkills(
   current: ThreadSkillsState | null | undefined,
-  attachments: ChatAttachment[]
+  attachments: ChatAttachment[],
+  skillDescriptions: Partial<
+    Record<keyof typeof AUTO_ATTACHMENT_THREAD_SKILLS, string>
+  > = {}
 ): ThreadSkillsState | null {
   let next = current ?? { revision: 0, active: [] };
   let changed = false;
@@ -345,6 +354,7 @@ function addAttachmentThreadSkills(
       }
       next = addThreadSkillItem(next, {
         ...template,
+        description: skillDescriptions[skillName] ?? template.description,
         addedAt,
       });
       changed = true;
@@ -425,13 +435,13 @@ function extractRemoteRuntimeErrorMessage(message: string): string | null {
   }
 
   if (/Insufficient credits/i.test(normalizedExtracted ?? normalized)) {
-    return "集思额度不足，请提额后重试。";
+    return "模型服务额度不足，请处理额度后重试。";
   }
 
   if (
     /User not found|Unauthorized|401/i.test(normalizedExtracted ?? normalized)
   ) {
-    return "集思 key 无效或未授权，请在配置页重新绑定邮箱。";
+    return "模型服务 API Key 无效或未授权，请在配置页更新 API Key。";
   }
 
   return normalizedExtracted ?? null;
@@ -453,17 +463,6 @@ function formatGoalElapsed(seconds: number): string {
   return `${days}d ${hours % 24}h`;
 }
 
-function goalStatusLabel(status: GoalState["status"]): string {
-  switch (status) {
-    case "complete":
-      return "已完成";
-    case "blocked":
-      return "受阻";
-    default:
-      return "进行中";
-  }
-}
-
 function goalStatusClassName(status: GoalState["status"]): string {
   switch (status) {
     case "complete":
@@ -472,83 +471,6 @@ function goalStatusClassName(status: GoalState["status"]): string {
       return "border-warning/30 bg-warning/10 text-warning";
     default:
       return "border-primary/30 bg-primary/10 text-primary";
-  }
-}
-
-function scpStatusLabel(status: ScpInvocationState["status"]): string {
-  switch (status) {
-    case "complete":
-      return "已完成";
-    case "blocked":
-      return "受阻";
-    case "error":
-      return "失败";
-    default:
-      return "进行中";
-  }
-}
-
-function scpStatusClassName(status: ScpInvocationState["status"]): string {
-  switch (status) {
-    case "complete":
-      return "border-success/30 bg-success/10 text-success";
-    case "blocked":
-      return "border-warning/30 bg-warning/10 text-warning";
-    case "error":
-      return "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300";
-    default:
-      return "border-primary/30 bg-primary/10 text-primary";
-  }
-}
-
-function isScpCommandInput(value: string): boolean {
-  return /^\/scp(?:\s|$)/i.test(value.trim());
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function inputContainsScpSelection(
-  value: string,
-  selection: ScpCatalogItem
-): boolean {
-  const trimmed = value.trim();
-  return (
-    new RegExp(`\\bskill=${escapeRegExp(selection.skillName)}\\b`, "i").test(
-      trimmed
-    ) &&
-    new RegExp(`\\btool=${escapeRegExp(selection.toolName)}\\b`, "i").test(
-      trimmed
-    )
-  );
-}
-
-function extractScpPromptDraft(value: string): string {
-  const match = value.trim().match(/^\/scp(?:\s+([\s\S]+))?$/i);
-  if (!match) return value.trim();
-
-  let prompt = match[1]?.trim() ?? "";
-  while (/^(?:skill|tool)=[^\s]+\s*/i.test(prompt)) {
-    prompt = prompt.replace(/^(?:skill|tool)=[^\s]+\s*/i, "").trim();
-  }
-  return prompt;
-}
-
-function buildScpCommand(selection: ScpCatalogItem, prompt: string): string {
-  const trimmedPrompt = prompt.trim();
-  const prefix = `/scp skill=${selection.skillName} tool=${selection.toolName}`;
-  return trimmedPrompt ? `${prefix} ${trimmedPrompt}` : `${prefix} `;
-}
-
-function todoStatusLabel(status: TodoItem["status"]): string {
-  switch (status) {
-    case "completed":
-      return "已完成";
-    case "in_progress":
-      return "进行中";
-    default:
-      return "待处理";
   }
 }
 
@@ -698,7 +620,7 @@ async function uploadWorkspaceOfficeAttachment(
   };
   if (!response.ok || !responsePayload.attachment) {
     throw new Error(
-      responsePayload.error || `工作区附件处理失败（${response.status}）`
+      responsePayload.error || `项目附件处理失败（${response.status}）`
     );
   }
   return responsePayload.attachment;
@@ -764,7 +686,8 @@ async function writeTextToClipboard(text: string): Promise<void> {
 
 async function prepareAttachment(
   file: File,
-  context: AttachmentUploadContext
+  context: AttachmentUploadContext,
+  copy: AttachmentCopy
 ): Promise<ChatAttachment> {
   const baseAttachment = {
     id: createAttachmentId(),
@@ -778,7 +701,7 @@ async function prepareAttachment(
       return {
         ...baseAttachment,
         kind: "image",
-        error: "图片超过 8 MB",
+        error: copy.imageTooLarge,
       };
     }
 
@@ -794,7 +717,7 @@ async function prepareAttachment(
       return {
         ...baseAttachment,
         kind: "pdf",
-        error: "PDF 超过 16 MB",
+        error: copy.pdfTooLarge,
       };
     }
 
@@ -809,7 +732,7 @@ async function prepareAttachment(
       return {
         ...baseAttachment,
         kind: "pdf",
-        error: error instanceof Error ? error.message : "PDF 上传失败",
+        error: error instanceof Error ? error.message : copy.pdfUploadFailed,
       };
     }
   }
@@ -819,7 +742,7 @@ async function prepareAttachment(
       return {
         ...baseAttachment,
         kind: "file",
-        error: "Office 文件超过 16 MB",
+        error: copy.officeTooLarge,
       };
     }
 
@@ -834,7 +757,7 @@ async function prepareAttachment(
       return {
         ...baseAttachment,
         kind: "file",
-        error: error instanceof Error ? error.message : "附件上传失败",
+        error: error instanceof Error ? error.message : copy.uploadFailed,
       };
     }
   }
@@ -852,7 +775,7 @@ async function prepareAttachment(
   return {
     ...baseAttachment,
     kind: "file",
-    error: `不支持的附件类型。${SUPPORTED_ATTACHMENT_HINT}`,
+    error: copy.unsupportedType,
   };
 }
 
@@ -924,7 +847,7 @@ async function workspaceDragPayloadToFile(
     const errorPayload = (await response.json().catch(() => ({}))) as {
       error?: string;
     };
-    throw new Error(errorPayload.error || "无法读取工作区文件。");
+    throw new Error(errorPayload.error || "无法读取项目文件。");
   }
 
   const blob = await response.blob();
@@ -1107,7 +1030,7 @@ function buildRemoteRuntimeToolMessages(
 export const ChatInterface = React.memo<ChatInterfaceProps>(
   ({ assistant, headerActions }) => {
     const [metaOpen, setMetaOpen] = useState<
-      "goal" | "scp" | "skills" | "tasks" | "files" | null
+      "goal" | "skills" | "tasks" | "files" | null
     >(null);
     const tasksContainerRef = useRef<HTMLDivElement | null>(null);
     const composerRef = useRef<HTMLFormElement | null>(null);
@@ -1115,7 +1038,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const scpCatalogRequestInFlightRef = useRef(false);
     const chatDragDepthRef = useRef(0);
     const suppressSkillsMetaToggleUntilRef = useRef(0);
     const [, setSelectedFilePath] = useQueryState("file");
@@ -1210,13 +1132,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       });
     }, [input, openMentionMenu]);
     const [isSavingTitle, setIsSavingTitle] = useState(false);
+    const [sendShortcutModifier, setSendShortcutModifier] = useState(
+      DEFAULT_SEND_SHORTCUT_MODIFIER
+    );
     const [showIntermediateResults, setShowIntermediateResults] =
       useState(false);
-    const [scpCatalog, setScpCatalog] = useState<ScpCatalogItem[]>([]);
-    const [isScpCatalogLoading, setIsScpCatalogLoading] = useState(false);
-    const [scpCatalogError, setScpCatalogError] = useState<string | null>(null);
-    const [pendingScpSelection, setPendingScpSelection] =
-      useState<ScpCatalogItem | null>(null);
     const { scrollRef, contentRef } = useStickToBottom();
 
     const {
@@ -1226,7 +1146,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       todos,
       files,
       goal,
-      scpInvocation,
       threadSkills,
       ui,
       setFiles,
@@ -1248,6 +1167,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       resourceId,
       workspaceId,
     } = useChatContext();
+    const { t } = useLanguage();
 
     const composerBusy = isLoading || isStreamRecovering;
     const submitDisabled = composerBusy || !assistant;
@@ -1259,11 +1179,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const hasSendableAttachments = attachments.some(
       (attachment) => !attachment.error
     );
+    const canSendMessage = input.trim().length > 0 || hasSendableAttachments;
     const applyAutoAttachmentSkills = useCallback(
       async (nextAttachments: ChatAttachment[]) => {
         const nextThreadSkills = addAttachmentThreadSkills(
           threadSkills,
-          nextAttachments
+          nextAttachments,
+          {
+            pdf: t("autoPdfAttachmentSkill"),
+            docx: t("autoDocxAttachmentSkill"),
+            xlsx: t("autoXlsxAttachmentSkill"),
+            pptx: t("autoPptxAttachmentSkill"),
+          }
         );
         if (!nextThreadSkills) {
           return;
@@ -1273,9 +1200,49 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         setMetaOpen(null);
         await updateThreadSkills(nextThreadSkills);
       },
-      [threadSkills, updateThreadSkills]
+      [threadSkills, t, updateThreadSkills]
     );
     const errorMessage = formatChatError(error);
+    const attachmentHint = t("supportedAttachmentHint");
+    const attachmentCopy = useMemo<AttachmentCopy>(
+      () => ({
+        unsupportedType: t("unsupportedAttachmentType", {
+          hint: attachmentHint,
+        }),
+        imageTooLarge: t("imageTooLarge"),
+        pdfTooLarge: t("pdfTooLarge"),
+        pdfUploadFailed: t("pdfUploadFailed"),
+        officeTooLarge: t("officeTooLarge"),
+        uploadFailed: t("attachmentUploadFailed"),
+      }),
+      [attachmentHint, t]
+    );
+    const goalStatusText = useCallback(
+      (status: GoalState["status"]) => {
+        switch (status) {
+          case "complete":
+            return t("complete");
+          case "blocked":
+            return t("blocked");
+          default:
+            return t("inProgress");
+        }
+      },
+      [t]
+    );
+    const todoStatusText = useCallback(
+      (status: TodoItem["status"]) => {
+        switch (status) {
+          case "completed":
+            return t("complete");
+          case "in_progress":
+            return t("inProgress");
+          default:
+            return t("pending");
+        }
+      },
+      [t]
+    );
     const mentionQuery = mentionContext?.query ?? "";
     const sortedMentionSkills = useMemo(
       () =>
@@ -1310,7 +1277,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           };
 
         if (!response.ok) {
-          throw new Error(payload.error || "能力插件列表加载失败");
+          throw new Error(payload.error || t("capabilityListLoadFailed"));
         }
 
         setMentionSkills(Array.isArray(payload.skills) ? payload.skills : []);
@@ -1319,12 +1286,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         setMentionSkillsError(
           loadError instanceof Error
             ? loadError.message
-            : "能力插件列表加载失败"
+            : t("capabilityListLoadFailed")
         );
       } finally {
         setMentionSkillsLoading(false);
       }
-    }, [mentionSkillsLoaded, mentionSkillsLoading]);
+    }, [mentionSkillsLoaded, mentionSkillsLoading, t]);
 
     useEffect(() => {
       if (mentionMenuOpen) {
@@ -1392,7 +1359,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       });
 
       if (composerBusy) {
-        toast.error("当前会话正在运行，结束后再启用技能。", {
+        toast.error(t("enableSkillAfterRun"), {
           position: "top-center",
         });
         return () => {
@@ -1417,7 +1384,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             };
 
           if (!response.ok) {
-            throw new Error(payload.error || "能力插件列表加载失败");
+            throw new Error(payload.error || t("capabilityListLoadFailed"));
           }
 
           const skill = (payload.skills ?? []).find((candidate) =>
@@ -1425,7 +1392,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           );
 
           if (!skill) {
-            throw new Error("没有找到要启用的技能。");
+            throw new Error(t("noSkillToEnable"));
           }
 
           if (cancelled || activeThreadSkillKeys.has(skill.key)) {
@@ -1441,7 +1408,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             toast.error(
               enableError instanceof Error
                 ? enableError.message
-                : "技能启用失败",
+                : t("skillEnableFailed"),
               { position: "top-center" }
             );
           }
@@ -1458,6 +1425,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       activeThreadSkillKeys,
       composerBusy,
       isThreadLoading,
+      t,
       threadSkills,
       updateThreadSkills,
     ]);
@@ -1510,74 +1478,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       };
     }, [mentionMenuOpen, updateMentionMenuPosition]);
 
-    const isScpComposerCommand = isScpCommandInput(input);
-    const scpPromptDraft = useMemo(() => extractScpPromptDraft(input), [input]);
-
-    useEffect(() => {
-      if (
-        !isScpComposerCommand ||
-        scpCatalog.length > 0 ||
-        scpCatalogRequestInFlightRef.current
-      ) {
-        return;
-      }
-
-      let cancelled = false;
-      scpCatalogRequestInFlightRef.current = true;
-      setIsScpCatalogLoading(true);
-      setScpCatalogError(null);
-
-      void fetch("/api/scp/catalog", { cache: "no-store" })
-        .then(async (response) => {
-          const payload = (await response.json()) as {
-            skills?: ScpCatalogItem[];
-            error?: string;
-          };
-          if (!response.ok) {
-            throw new Error(payload.error || "无法读取 SCP catalog");
-          }
-          if (!cancelled) {
-            setScpCatalog(Array.isArray(payload.skills) ? payload.skills : []);
-          }
-        })
-        .catch((catalogError) => {
-          if (!cancelled) {
-            setScpCatalogError(
-              catalogError instanceof Error
-                ? catalogError.message
-                : "无法读取 SCP catalog"
-            );
-          }
-        })
-        .finally(() => {
-          scpCatalogRequestInFlightRef.current = false;
-          if (!cancelled) {
-            setIsScpCatalogLoading(false);
-          }
-        });
-
-      return () => {
-        cancelled = true;
-        scpCatalogRequestInFlightRef.current = false;
-      };
-    }, [isScpComposerCommand, scpCatalog.length]);
-
-    const retryScpCatalogLoad = useCallback(() => {
-      setScpCatalog([]);
-      setScpCatalogError(null);
-    }, []);
-
-    const filteredScpCatalog = scpCatalog;
-
-    const selectScpCatalogItem = useCallback(
-      (item: ScpCatalogItem) => {
-        setPendingScpSelection(item);
-        setInput(buildScpCommand(item, scpPromptDraft));
-        requestAnimationFrame(() => textareaRef.current?.focus());
-      },
-      [scpPromptDraft]
-    );
-
     useEffect(() => {
       if (!isEditingTitle) {
         setTitleDraft(threadTitle);
@@ -1587,6 +1487,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     useEffect(() => {
       setShowIntermediateResults(false);
     }, [threadId]);
+
+    useEffect(() => {
+      const platform = window.navigator.platform || window.navigator.userAgent;
+      setSendShortcutModifier(
+        /Mac|iPhone|iPad|iPod/i.test(platform) ? "⌘" : "Ctrl"
+      );
+    }, []);
 
     useEffect(() => {
       if (isLoading) {
@@ -1607,7 +1514,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const saveTitleEdit = useCallback(async () => {
       const nextTitle = titleDraft.trim();
       if (!nextTitle) {
-        toast.error("标题不能为空");
+        toast.error(t("titleRequired"));
         return;
       }
 
@@ -1615,15 +1522,15 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       try {
         await updateThreadTitle(nextTitle);
         setIsEditingTitle(false);
-        toast.success("标题已更新");
+        toast.success(t("titleUpdated"));
       } catch (titleError) {
         toast.error(
-          titleError instanceof Error ? titleError.message : "标题更新失败"
+          titleError instanceof Error ? titleError.message : t("titleUpdateFailed")
         );
       } finally {
         setIsSavingTitle(false);
       }
-    }, [titleDraft, updateThreadTitle]);
+    }, [t, titleDraft, updateThreadTitle]);
 
     const handleInputChange = useCallback(
       (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1632,14 +1539,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         const nextMentionContext = getMentionContext(nextInput, cursor);
 
         setInput(nextInput);
-        if (!isScpCommandInput(nextInput)) {
-          setPendingScpSelection(null);
-        } else if (
-          pendingScpSelection &&
-          !inputContainsScpSelection(nextInput, pendingScpSelection)
-        ) {
-          setPendingScpSelection(null);
-        }
 
         if (nextMentionContext) {
           openMentionMenu(nextMentionContext);
@@ -1647,13 +1546,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           closeMentionMenu();
         }
       },
-      [closeMentionMenu, openMentionMenu, pendingScpSelection]
+      [closeMentionMenu, openMentionMenu]
     );
 
     const selectMentionSkill = useCallback(
       (skill: SkillEntry) => {
         if (composerBusy) {
-          toast.error("当前会话正在运行，结束后再添加技能。", {
+          toast.error(t("addSkillAfterRun"), {
             position: "top-center",
           });
           closeMentionMenu();
@@ -1675,7 +1574,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           setMetaOpen(null);
           void updateThreadSkills(nextThreadSkills).catch((error) => {
             toast.error(
-              error instanceof Error ? error.message : "技能添加失败",
+              error instanceof Error ? error.message : t("skillAddFailed"),
               { position: "top-center" }
             );
           });
@@ -1692,6 +1591,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         composerBusy,
         input,
         mentionContext,
+        t,
         threadSkills,
         updateThreadSkills,
       ]
@@ -1714,35 +1614,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           return;
         }
 
-        if (isScpCommandInput(messageText)) {
-          if (!pendingScpSelection) {
-            toast.error("请先选择一个 SCP skill/tool。");
-            return;
-          }
-          if (!extractScpPromptDraft(messageText)) {
-            toast.error("请输入要交给 SCP tool 的任务。");
-            return;
-          }
-        }
-
-        sendMessage(
-          messageText,
-          sendableAttachments,
-          pendingScpSelection
-            ? { scpSelection: pendingScpSelection }
-            : undefined
-        );
+        sendMessage(messageText, sendableAttachments);
         setInput("");
         setAttachments([]);
         closeMentionMenu();
-        setPendingScpSelection(null);
       },
       [
         attachments,
         closeMentionMenu,
         composerBusy,
         input,
-        pendingScpSelection,
         sendMessage,
         setInput,
         submitDisabled,
@@ -1756,7 +1637,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
         const preparedAttachments = await Promise.all(
           files.map((file) =>
-            prepareAttachment(file, { resourceId, workspaceId, threadId })
+            prepareAttachment(
+              file,
+              { resourceId, workspaceId, threadId },
+              attachmentCopy
+            )
           )
         );
         try {
@@ -1765,13 +1650,20 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           toast.error(
             skillError instanceof Error
               ? skillError.message
-              : "自动加载技能失败",
+              : t("autoLoadSkillsFailed"),
             { position: "top-center" }
           );
         }
         setAttachments((current) => [...current, ...preparedAttachments]);
       },
-      [applyAutoAttachmentSkills, resourceId, threadId, workspaceId]
+      [
+        applyAutoAttachmentSkills,
+        attachmentCopy,
+        resourceId,
+        t,
+        threadId,
+        workspaceId,
+      ]
     );
 
     const resetChatDropState = useCallback(() => {
@@ -1834,7 +1726,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         resetChatDropState();
 
         if (submitDisabled) {
-          toast.error("当前会话正在运行，完成后再添加附件。");
+          toast.error(t("cannotAttachWhileRunning"));
           return;
         }
 
@@ -1848,13 +1740,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
         const payload = parseWorkspaceFileDragPayload(workspacePayload);
         if (!payload) {
-          toast.error("无法识别这个工作区文件。");
+          toast.error(t("unableToReadProjectFile"));
           return;
         }
 
         if (!isWorkspaceFileAttachmentAllowed(payload)) {
           toast.warning(
-            `不支持添加 ${payload.name}。${SUPPORTED_ATTACHMENT_HINT}`
+            t("unsupportedProjectFile", {
+              name: payload.name,
+              hint: attachmentHint,
+            })
           );
           return;
         }
@@ -1883,7 +1778,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
               } satisfies ChatAttachment)
             : await prepareAttachment(
                 await workspaceDragPayloadToFile(payload, attachmentContext),
-                attachmentContext
+                attachmentContext,
+                attachmentCopy
               );
 
           if (attachment.error) {
@@ -1897,17 +1793,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             toast.error(
               skillError instanceof Error
                 ? skillError.message
-                : "自动加载技能失败",
+                : t("autoLoadSkillsFailed"),
               { position: "top-center" }
             );
           }
           setAttachments((current) => [...current, attachment]);
-          toast.success(`已添加 ${attachment.name}`);
+          toast.success(t("attachmentAdded", { name: attachment.name }));
         } catch (dropError) {
           toast.error(
             dropError instanceof Error
               ? dropError.message
-              : "无法添加工作区文件。"
+              : t("unableToReadProjectFile")
           );
         } finally {
           setIsPreparingDroppedAttachment(false);
@@ -1917,8 +1813,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         handleAttachmentFiles,
         applyAutoAttachmentSkills,
         resetChatDropState,
+        attachmentCopy,
         resourceId,
         submitDisabled,
+        t,
+        attachmentHint,
         threadId,
         workspaceId,
       ]
@@ -2330,31 +2229,31 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
     const handleCopyRecoveredInput = useCallback(async () => {
       if (!recoveredInputText) {
-        toast.error("没有可复制的原始输入。");
+        toast.error(t("noOriginalInputToCopy"));
         return;
       }
 
       try {
         await writeTextToClipboard(recoveredInputText);
-        toast.success("已复制原始输入。");
+        toast.success(t("copiedOriginalInput"));
       } catch {
         const selected = selectRecoveredInputText();
         toast.error(
           selected
-            ? "复制失败，已选中原始请求，请按 Cmd/Ctrl+C 复制。"
-            : "复制失败，请手动选择原始请求复制。"
+            ? t("copyOriginalFallbackSelected")
+            : t("copyOriginalFallbackManual")
         );
       }
-    }, [recoveredInputText, selectRecoveredInputText]);
+    }, [recoveredInputText, selectRecoveredInputText, t]);
 
     const handleRetryRecoveredInput = useCallback(() => {
       if (!recoveredInputMessage) {
-        toast.error("没有可重新运行的原始输入。");
+        toast.error(t("noOriginalInputToRerun"));
         return;
       }
 
       retryMessage(recoveredInputMessage, { previousMessages: [] });
-    }, [recoveredInputMessage, retryMessage]);
+    }, [recoveredInputMessage, retryMessage, t]);
 
     const completedAiMessage = useMemo<Message | null>(() => {
       if (
@@ -2383,17 +2282,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
     const handleCopyCompletedMessage = useCallback(async () => {
       if (!completedMessageCopyText) {
-        toast.error("没有可复制的 AI 输出。");
+        toast.error(t("noAiOutputToCopy"));
         return;
       }
 
       try {
         await writeTextToClipboard(completedMessageCopyText);
-        toast.success("已复制到剪贴板");
+        toast.success(t("copiedToClipboard"));
       } catch {
-        toast.error("复制失败，请手动选择内容复制。");
+        toast.error(t("copyFailedManual"));
       }
-    }, [completedMessageCopyText]);
+    }, [completedMessageCopyText, t]);
 
     const intermediateMessages = useMemo(() => {
       if (showRuntimeDetails) {
@@ -2430,68 +2329,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     };
 
     const hasGoal = Boolean(goal?.objective);
-    const hasScpInvocation = Boolean(scpInvocation?.prompt);
-    const terminalToolIssueCalls = useMemo(
-      () =>
-        processedMessages
-          .filter(
-            (data) =>
-              data.message.id &&
-              terminalToolIssueMessageIds.has(data.message.id)
-          )
-          .flatMap((data) =>
-            data.toolCalls.filter(
-              (toolCall) =>
-                Boolean(toolCall.result) &&
-                (toolCall.status === "error" ||
-                  toolCall.status === "interrupted")
-            )
-          ),
-      [processedMessages, terminalToolIssueMessageIds]
-    );
-    const scpDisplay = useMemo(() => {
-      const status = scpInvocation?.status ?? "active";
-      const shouldOverrideActiveScp =
-        Boolean(scpInvocation) &&
-        status === "active" &&
-        terminalToolIssueCalls.length > 0 &&
-        !isLoading &&
-        !isStreamRecovering &&
-        !interrupt &&
-        runStatus !== "running";
-
-      if (!shouldOverrideActiveScp) {
-        return {
-          className: scpStatusClassName(status),
-          label: scpStatusLabel(status),
-          summary: scpInvocation?.summary,
-        };
-      }
-
-      const hasMissingResult = terminalToolIssueCalls.some(
-        (toolCall) => toolCall.status === "error"
-      );
-      const settledStatus: ScpInvocationState["status"] = hasMissingResult
-        ? "error"
-        : "blocked";
-
-      return {
-        className: scpStatusClassName(settledStatus),
-        label: hasMissingResult ? "未返回结果" : "已中断",
-        summary:
-          scpInvocation?.summary ||
-          (hasMissingResult
-            ? "运行已结束，但工具没有返回最终结果。"
-            : "运行已结束，工具调用被中断。"),
-      };
-    }, [
-      interrupt,
-      isLoading,
-      isStreamRecovering,
-      runStatus,
-      scpInvocation,
-      terminalToolIssueCalls,
-    ]);
     const hasTasks = hasGoal && displayTodos.length > 0;
     const hasFiles = Object.keys(files).length > 0;
 
@@ -2523,18 +2360,31 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
     const dropOverlayVisible = isChatDropActive || isPreparingDroppedAttachment;
     const dropOverlayTitle = isPreparingDroppedAttachment
-      ? "正在添加附件..."
+      ? t("addingAttachment")
       : submitDisabled
-      ? "当前运行中，暂不能添加附件"
-      : "松开添加到会话";
+      ? t("cannotAttachWhileRunning")
+      : t("releaseToAttach");
     const dropOverlayDescription = submitDisabled
-      ? "请等待本轮运行完成。"
-      : SUPPORTED_ATTACHMENT_HINT;
+      ? t("waitForCurrentRun")
+      : attachmentHint;
+    const isEmptyThread =
+      !shouldShowThreadLoading &&
+      displayMessages.length === 0 &&
+      !hasGoal &&
+      !hasTasks &&
+      !hasFiles &&
+      !hasThreadSkills &&
+      !errorMessage &&
+      orphanActionRequests.length === 0 &&
+      !isLoading &&
+      !isStreamRecovering &&
+      !recoveryNotice;
 
     return (
       <div
         className={cn(
           "relative flex flex-1 flex-col overflow-hidden bg-card/70 transition-[box-shadow,background-color]",
+          isEmptyThread && "ocs-empty-thread",
           dropOverlayVisible && "bg-primary/5 ring-1 ring-inset ring-primary/35"
         )}
         onDragEnter={handleChatDragEnter}
@@ -2562,7 +2412,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 disabled={isSavingTitle}
                 autoFocus
                 className="h-7 max-w-xl"
-                aria-label="会话标题"
+                aria-label={t("chatTitle")}
               />
             ) : (
               <h2 className="truncate text-sm font-semibold text-foreground">
@@ -2580,7 +2430,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 className="h-7 w-7"
                 onClick={() => void saveTitleEdit()}
                 disabled={isSavingTitle}
-                aria-label="保存会话标题"
+                aria-label={t("saveChatTitle")}
               >
                 {isSavingTitle ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -2595,7 +2445,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 className="h-7 w-7"
                 onClick={cancelTitleEdit}
                 disabled={isSavingTitle}
-                aria-label="取消更改标题"
+                aria-label={t("cancelChatTitleEdit")}
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -2612,7 +2462,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
                     onClick={startTitleEdit}
                     disabled={isThreadLoading}
-                    aria-label="更改会话标题"
+                    aria-label={t("editChatTitle")}
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
@@ -2623,7 +2473,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   sideOffset={6}
                   className="whitespace-nowrap"
                 >
-                  更改会话标题
+                  {t("editChatTitle")}
                 </TooltipContent>
               </Tooltip>
             </div>
@@ -2632,6 +2482,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
 
         <div
           className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain bg-card/70"
+          data-chat-messages="true"
           ref={scrollRef}
         >
           <div
@@ -2640,7 +2491,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           >
             {shouldShowThreadLoading ? (
               <div className="flex items-center justify-center p-8">
-                <p className="text-muted-foreground">Loading...</p>
+                <p className="text-muted-foreground">{t("loading")}</p>
               </div>
             ) : (
               <>
@@ -2655,7 +2506,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           goalStatusClassName(goal.status)
                         )}
                       >
-                        {goalStatusLabel(goal.status)}
+                        {goalStatusText(goal.status)}
                       </span>
                       <span className="normal-case tracking-normal">
                         {formatGoalElapsed(goal.timeUsedSeconds || 0)}
@@ -2727,7 +2578,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     </div>
                     <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span>正在思考中...</span>
+                      <span>{t("thinking")}</span>
                     </div>
                   </div>
                 )}
@@ -2741,13 +2592,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       <div className="min-w-0 flex-1">
                         <div className="font-medium">
                           {isStaleActiveRunNotice
-                            ? "后台任务可能已经卡住"
-                            : "本次运行失败，未保存最终结果"}
+                            ? t("staleRunTitle")
+                            : t("failedRunTitle")}
                         </div>
                         <p className="mt-1 text-sm text-amber-900/85 dark:text-amber-100/85">
                           {isStaleActiveRunNotice
-                            ? "这个会话长时间没有新进展。建议复制原始请求，归档这个会话，然后开一个新对话。"
-                            : "已恢复原始输入。子任务记录不会作为主回复显示，避免把中间 checkpoint 当成会话结果。"}
+                            ? t("staleRunDescription")
+                            : t("recoveredInputDescription")}
                         </p>
                         {isStaleActiveRunNotice && recoveredInputText && (
                           <pre
@@ -2768,7 +2619,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               disabled={!recoveredInputText}
                             >
                               <Copy className="h-3.5 w-3.5" />
-                              复制原始请求
+                              {t("copyOriginalRequest")}
                             </Button>
                           )}
                           {!isStaleActiveRunNotice && (
@@ -2785,7 +2636,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               }
                             >
                               <RotateCcw className="h-3.5 w-3.5" />
-                              重新运行
+                              {t("rerun")}
                             </Button>
                           )}
                           {intermediateMessages.length > 0 && (
@@ -2797,7 +2648,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               onClick={() => setShowIntermediateResults(true)}
                             >
                               <ChevronDown className="h-3.5 w-3.5" />
-                              查看中间过程
+                              {t("viewIntermediateSteps")}
                             </Button>
                           )}
                         </div>
@@ -2815,7 +2666,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       }
                       aria-expanded={showIntermediateResults}
                     >
-                      <span>中间过程 · {intermediateMessages.length} 步</span>
+                      <span>
+                        {t("intermediateSteps")} ·{" "}
+                        {intermediateMessages.length} {t("steps")}
+                      </span>
                       {showIntermediateResults ? (
                         <ChevronUp className="h-4 w-4 shrink-0" />
                       ) : (
@@ -2852,7 +2706,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 {completedAiMessage && (
                   <div className="ml-10 mt-2 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
                     <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                    <span>已完成</span>
+                    <span>{t("complete")}</span>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -2862,10 +2716,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           className="h-6 gap-1.5 px-1.5 text-xs text-muted-foreground hover:text-primary"
                           onClick={() => void handleCopyCompletedMessage()}
                           disabled={!completedMessageCopyText}
-                          aria-label="复制最后一条 AI 输出"
+                          aria-label={t("copyLastAiOutput")}
                         >
                           <Copy className="h-3.5 w-3.5" />
-                          复制
+                          {t("copy")}
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent
@@ -2874,7 +2728,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         sideOffset={6}
                         className="whitespace-nowrap"
                       >
-                        复制最后一条 AI 输出
+                        {t("copyLastAiOutput")}
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -2902,19 +2756,17 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           </div>
         </div>
 
-        <div className="flex-shrink-0 border-t border-border/70 bg-background/80">
+        <div
+          className="flex-shrink-0 border-t border-border/70 bg-background/80"
+          data-chat-composer-shell="true"
+        >
           <div
             className={cn(
-              "mx-4 mb-5 mt-3 flex flex-shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-lg shadow-black/[0.04]",
-              "mx-auto w-[calc(100%-32px)] max-w-[1180px] transition-colors duration-200 ease-in-out"
+              "mx-auto mb-4 mt-3 flex w-[calc(100%-32px)] max-w-[1180px] flex-shrink-0 flex-col",
+              "transition-colors duration-200 ease-in-out"
             )}
-            data-tour="chat-input"
           >
-            {(hasGoal ||
-              hasScpInvocation ||
-              hasTasks ||
-              hasFiles ||
-              hasThreadSkills) && (
+            {(hasGoal || hasTasks || hasFiles || hasThreadSkills) && (
               <div className="flex max-h-72 flex-col overflow-y-auto border-b border-border bg-muted/50 empty:hidden">
                 {!metaOpen && (
                   <>
@@ -2953,7 +2805,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                     key="label"
                                     className="ml-[1px] min-w-0 truncate text-sm"
                                   >
-                                    所有子任务已完成
+                                    {t("allSubtasksComplete")}
                                   </span>,
                                 ];
                               }
@@ -2967,7 +2819,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                     key="label"
                                     className="ml-[1px] min-w-0 truncate text-sm"
                                   >
-                                    子任务{" "}
+                                    {t("subtasks")}{" "}
                                     {totalTasks - groupedTodos.pending.length} /{" "}
                                     {totalTasks}
                                   </span>,
@@ -2990,7 +2842,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                   key="label"
                                   className="ml-[1px] min-w-0 truncate text-sm"
                                 >
-                                  子任务{" "}
+                                  {t("subtasks")}{" "}
                                   {totalTasks - groupedTodos.pending.length} /{" "}
                                   {totalTasks}
                                 </span>,
@@ -3018,38 +2870,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               className="text-primary"
                             />
                             <span className="ml-[1px] min-w-0 truncate text-sm">
-                              Goal · {goalStatusLabel(goal.status)}
+                              {t("goal")} · {goalStatusText(goal.status)}
                             </span>
                             <span className="min-w-0 truncate text-sm text-muted-foreground">
                               {goal.objective}
-                            </span>
-                          </button>
-                        );
-                      })();
-
-                      const scpTrigger = (() => {
-                        if (!hasScpInvocation || !scpInvocation) return null;
-                        return (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setMetaOpen((prev) =>
-                                prev === "scp" ? null : "scp"
-                              )
-                            }
-                            className="grid min-w-0 flex-1 cursor-pointer grid-cols-[auto_auto_1fr] items-center gap-3 px-[18px] py-3 text-left transition-colors hover:bg-accent/70"
-                            aria-expanded={metaOpen === "scp"}
-                          >
-                            <Plug
-                              size={16}
-                              className="text-primary"
-                            />
-                            <span className="ml-[1px] min-w-0 truncate text-sm">
-                              SCP · {scpDisplay.label}
-                            </span>
-                            <span className="min-w-0 truncate text-sm text-muted-foreground">
-                              {scpInvocation.displayName} /{" "}
-                              {scpInvocation.toolName}
                             </span>
                           </button>
                         );
@@ -3079,7 +2903,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               className="text-primary"
                             />
                             <span className="ml-[1px] min-w-0 truncate text-sm">
-                              技能 · {threadSkills.active.length}
+                              {t("skills")} · {threadSkills.active.length}
                             </span>
                             <span className="min-w-0 truncate text-sm text-muted-foreground">
                               {threadSkills.active
@@ -3104,7 +2928,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                             aria-expanded={metaOpen === "files"}
                           >
                             <FileIcon size={16} />
-                            Files (State)
+                            {t("filesState")}
                             <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-xs leading-[16px]">
                               {Object.keys(files).length}
                             </span>
@@ -3115,7 +2939,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       return (
                         <div className="flex flex-wrap items-center">
                           {goalTrigger}
-                          {scpTrigger}
                           {skillsTrigger}
                           {tasksTrigger}
                           {filesTrigger}
@@ -3140,22 +2963,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           aria-expanded={metaOpen === "goal"}
                         >
                           <Target className="h-4 w-4 text-primary" />
-                          Goal
-                        </button>
-                      )}
-                      {hasScpInvocation && (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-2 py-3 pr-4 text-muted-foreground first:pl-[18px] hover:text-foreground aria-expanded:font-semibold aria-expanded:text-foreground"
-                          onClick={() =>
-                            setMetaOpen((prev) =>
-                              prev === "scp" ? null : "scp"
-                            )
-                          }
-                          aria-expanded={metaOpen === "scp"}
-                        >
-                          <Plug className="h-4 w-4 text-primary" />
-                          SCP
+                          {t("goal")}
                         </button>
                       )}
                       {hasTasks && (
@@ -3169,7 +2977,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           }
                           aria-expanded={metaOpen === "tasks"}
                         >
-                          子任务
+                          {t("subtasks")}
                         </button>
                       )}
                       {hasThreadSkills && threadSkills && (
@@ -3184,7 +2992,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           aria-expanded={metaOpen === "skills"}
                         >
                           <Sparkles className="h-4 w-4 text-primary" />
-                          技能
+                          {t("skills")}
                           <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-xs leading-[16px]">
                             {threadSkills.active.length}
                           </span>
@@ -3201,14 +3009,14 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           }
                           aria-expanded={metaOpen === "files"}
                         >
-                          Files (State)
+                          {t("filesState")}
                           <span className="text-primary-foreground h-4 min-w-4 rounded-full bg-primary px-0.5 text-center text-xs leading-[16px]">
                             {Object.keys(files).length}
                           </span>
                         </button>
                       )}
                       <button
-                        aria-label="Close"
+                        aria-label={t("close")}
                         className="flex-1"
                         onClick={() => setMetaOpen(null)}
                       />
@@ -3226,7 +3034,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                                 goalStatusClassName(goal.status)
                               )}
                             >
-                              {goalStatusLabel(goal.status)}
+                              {goalStatusText(goal.status)}
                             </span>
                             <span>
                               {formatGoalElapsed(goal.timeUsedSeconds || 0)}
@@ -3243,31 +3051,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         </div>
                       )}
 
-                      {metaOpen === "scp" && scpInvocation && (
-                        <div className="mb-5 rounded-md border border-border bg-card px-3 py-3">
-                          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <span
-                              className={cn(
-                                "rounded-full border px-2 py-0.5 text-xs font-semibold",
-                                scpDisplay.className
-                              )}
-                            >
-                              {scpDisplay.label}
-                            </span>
-                            <span>{scpInvocation.displayName}</span>
-                            <span>{scpInvocation.toolName}</span>
-                          </div>
-                          <div className="text-sm leading-6 text-foreground">
-                            {scpInvocation.prompt}
-                          </div>
-                          {scpDisplay.summary && (
-                            <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                              {scpDisplay.summary}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
                       {metaOpen === "tasks" &&
                         Object.entries(groupedTodos)
                           .filter(([_, todos]) => todos.length > 0)
@@ -3277,7 +3060,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               className="mb-4"
                             >
                               <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-tertiary">
-                                {todoStatusLabel(status as TodoItem["status"])}
+                                {todoStatusText(status as TodoItem["status"])}
                               </h3>
                               <div className="grid grid-cols-[auto_1fr] gap-3 rounded-sm p-1 pl-0 text-sm">
                                 {todos.map((todo, index) => (
@@ -3397,12 +3180,12 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     }}
                     className="fixed z-50 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg shadow-black/10"
                     role="listbox"
-                    aria-label="选择技能"
+                    aria-label={t("chooseSkill")}
                   >
                     <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-foreground">
-                          选择技能
+                          {t("chooseSkill")}
                         </div>
                       </div>
                       {mentionSkillsLoading && (
@@ -3416,11 +3199,11 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     ) : mentionSkillsLoading && mentionSkills.length === 0 ? (
                       <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        正在加载技能...
+                        {t("loadingSkills")}
                       </div>
                     ) : filteredMentionSkills.length === 0 ? (
                       <div className="px-3 py-4 text-sm text-muted-foreground">
-                        没有匹配的技能
+                        {t("noMatchingSkills")}
                       </div>
                     ) : (
                       <div className="scrollbar-subtle max-h-56 overflow-y-auto p-1">
@@ -3466,7 +3249,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                               </span>
                               {selectedForThread && (
                                 <span className="text-xs text-muted-foreground">
-                                  已启用
+                                  {t("enabled")}
                                 </span>
                               )}
                             </button>
@@ -3477,82 +3260,6 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   </div>,
                   document.body
                 )}
-              {isScpComposerCommand && (
-                <div className="border-b border-border bg-muted/40 px-[18px] py-2">
-                  {pendingScpSelection ? (
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
-                      <span className="border-primary/30 bg-primary/10 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium text-primary">
-                        <Plug className="h-3.5 w-3.5" />
-                        {pendingScpSelection.displayName}
-                      </span>
-                      <span className="min-w-0 truncate text-xs text-muted-foreground">
-                        {pendingScpSelection.toolName}
-                      </span>
-                      <button
-                        type="button"
-                        className="ml-auto rounded-sm px-2 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
-                        onClick={() => setPendingScpSelection(null)}
-                      >
-                        更换
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                        <Plug className="h-3.5 w-3.5 text-primary" />
-                        SCP
-                      </div>
-                      {isScpCatalogLoading ? (
-                        <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          加载中
-                        </div>
-                      ) : scpCatalogError ? (
-                        <div className="flex items-center gap-2 py-2 text-xs text-red-600 dark:text-red-300">
-                          <span className="min-w-0 flex-1">
-                            {scpCatalogError}
-                          </span>
-                          <button
-                            type="button"
-                            className="rounded-sm border border-red-500/30 px-2 py-1 text-xs hover:bg-red-500/10"
-                            onClick={retryScpCatalogLoad}
-                          >
-                            重试
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="grid gap-1">
-                          {filteredScpCatalog.slice(0, 8).map((item) => (
-                            <button
-                              key={`${item.skillName}:${item.toolName}`}
-                              type="button"
-                              className="grid min-w-0 grid-cols-[1fr_auto] gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-background"
-                              onClick={() => selectScpCatalogItem(item)}
-                            >
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm font-medium text-foreground">
-                                  {item.displayName}
-                                </span>
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  {item.description}
-                                </span>
-                              </span>
-                              <span className="max-w-48 truncate rounded-sm border border-border bg-card px-1.5 py-0.5 text-xs text-muted-foreground">
-                                {item.toolName}
-                              </span>
-                            </button>
-                          ))}
-                          {filteredScpCatalog.length === 0 && (
-                            <div className="py-2 text-xs text-muted-foreground">
-                              暂无 SCP tools
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 border-b border-border px-[18px] py-2">
                   {attachments.map((attachment) => (
@@ -3581,7 +3288,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           onClick={() =>
                             openAttachmentPreview(attachment.workspacePath!)
                           }
-                          title={`打开 ${attachment.workspacePath}`}
+                          title={t("openProjectFile", {
+                            path: attachment.workspacePath,
+                          })}
                         >
                           {attachment.name}
                         </button>
@@ -3598,7 +3307,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         type="button"
                         onClick={() => removeAttachment(attachment.id)}
                         className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                        aria-label={`移除 ${attachment.name}`}
+                        aria-label={t("removeAttachment", {
+                          name: attachment.name,
+                        })}
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -3613,15 +3324,15 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 onKeyDown={handleKeyDown}
                 placeholder={
                   isStreamRecovering
-                    ? "正在恢复会话..."
+                    ? t("recoveringSession")
                     : isLoading
-                    ? "正在运行..."
-                    : "你希望我做些什么？"
+                    ? t("running")
+                    : t("chatPlaceholder")
                 }
-                className="font-inherit field-sizing-content min-h-[68px] flex-1 resize-none border-0 bg-transparent px-[18px] pb-[13px] pt-[16px] text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
+                className="font-inherit field-sizing-content min-h-[64px] flex-1 resize-none border-0 bg-transparent px-4 pb-2.5 pt-4 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
                 rows={2}
               />
-              <div className="flex items-center justify-between gap-2 border-t border-border/60 p-3">
+              <div className="ocs-composer-toolbar flex items-center justify-between gap-2 border-t border-border/60 px-3 py-2">
                 <div className="flex items-center gap-1">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -3629,10 +3340,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        className="ocs-composer-icon-button h-8 w-8 text-muted-foreground hover:text-primary"
                         onClick={() => imageInputRef.current?.click()}
                         disabled={submitDisabled}
-                        aria-label="添加图片"
+                        aria-label={t("addImage")}
                       >
                         <ImagePlus className="h-4 w-4" />
                       </Button>
@@ -3643,7 +3354,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       sideOffset={6}
                       className="whitespace-nowrap"
                     >
-                      添加图片
+                      {t("addImage")}
                     </TooltipContent>
                   </Tooltip>
                   <Tooltip>
@@ -3652,10 +3363,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        className="ocs-composer-icon-button h-8 w-8 text-muted-foreground hover:text-primary"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={submitDisabled}
-                        aria-label="添加附件"
+                        aria-label={t("addAttachment")}
                       >
                         <Paperclip className="h-4 w-4" />
                       </Button>
@@ -3666,7 +3377,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       sideOffset={6}
                       className="whitespace-nowrap"
                     >
-                      添加附件
+                      {t("addAttachment")}
                     </TooltipContent>
                   </Tooltip>
                   <Tooltip>
@@ -3675,10 +3386,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        className="ocs-composer-icon-button h-8 w-8 text-muted-foreground hover:text-primary"
                         onClick={insertMentionTrigger}
                         disabled={isLoading}
-                        aria-label="提及能力或专家"
+                        aria-label={t("mentionCapability")}
                       >
                         <AtSign className="h-4 w-4" />
                       </Button>
@@ -3689,7 +3400,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       sideOffset={6}
                       className="whitespace-nowrap"
                     >
-                      提及能力或专家
+                      {t("mentionCapability")}
                     </TooltipContent>
                   </Tooltip>
                 </div>
@@ -3697,28 +3408,45 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                   {isStreamRecovering ? (
                     <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span>恢复中</span>
+                      <span>{t("recovering")}</span>
+                    </div>
+                  ) : !isLoading ? (
+                    <div
+                      className="ocs-composer-shortcut flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground"
+                      aria-label={`${sendShortcutModifier} ${t("shortcutPlusEnter")}`}
+                    >
+                      <kbd className="min-w-5 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-center font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
+                        {sendShortcutModifier}
+                      </kbd>
+                      <kbd className="rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground shadow-sm shadow-black/[0.025]">
+                        Enter
+                      </kbd>
                     </div>
                   ) : null}
                   <Button
                     type={isLoading ? "button" : "submit"}
-                    variant={isLoading ? "destructive" : "default"}
+                    variant={
+                      isLoading
+                        ? "destructive"
+                        : canSendMessage
+                        ? "default"
+                        : "outline"
+                    }
                     onClick={isLoading ? stopStream : handleSubmit}
                     disabled={
-                      !isLoading &&
-                      (submitDisabled ||
-                        (!input.trim() && !hasSendableAttachments))
+                      !isLoading && (submitDisabled || !canSendMessage)
                     }
+                    className="ocs-composer-send h-9 rounded-lg px-3 shadow-none"
                   >
                     {isLoading ? (
                       <>
                         <Square size={14} />
-                        <span>停止</span>
+                        <span>{t("stop")}</span>
                       </>
                     ) : (
                       <>
                         <ArrowUp size={18} />
-                        <span>发送</span>
+                        <span>{t("send")}</span>
                       </>
                     )}
                   </Button>

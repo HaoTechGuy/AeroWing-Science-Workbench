@@ -25,6 +25,7 @@ import type {
   WorkspaceFileResponse,
   WorkspaceOfficePreviewBlock,
 } from "@/app/types/workspace";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
 interface WorkspaceViewerProps {
   selectedPath?: string | null;
@@ -111,6 +112,7 @@ async function fetchWorkspaceFile(
 }
 
 function EmptyViewer() {
+  const { t } = useLanguage();
   return (
     <div className="flex h-full items-center justify-center px-8 text-center">
       <div className="max-w-xs">
@@ -118,7 +120,7 @@ function EmptyViewer() {
           <PanelRight className="h-5 w-5 text-muted-foreground" />
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          从工作区选择代码、文本、图片、PDF、Office 或分子结构文件后，会在这里预览。
+          {t("emptyPreview")}
         </p>
       </div>
     </div>
@@ -126,6 +128,7 @@ function EmptyViewer() {
 }
 
 function CollapsePreviewButton({ onCollapse }: { onCollapse?: () => void }) {
+  const { t } = useLanguage();
   if (!onCollapse) {
     return null;
   }
@@ -138,7 +141,7 @@ function CollapsePreviewButton({ onCollapse }: { onCollapse?: () => void }) {
           variant="ghost"
           size="icon"
           className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-          aria-label="缩小文件预览"
+          aria-label={t("collapseFilePreview")}
           onClick={onCollapse}
         >
           <PanelRightClose className="h-4 w-4" />
@@ -150,13 +153,14 @@ function CollapsePreviewButton({ onCollapse }: { onCollapse?: () => void }) {
         sideOffset={6}
         className="whitespace-nowrap"
       >
-        缩小文件预览
+        {t("collapseFilePreview")}
       </TooltipContent>
     </Tooltip>
   );
 }
 
 function ClearPreviewButton({ onClear }: { onClear?: () => void }) {
+  const { t } = useLanguage();
   if (!onClear) {
     return null;
   }
@@ -169,7 +173,7 @@ function ClearPreviewButton({ onClear }: { onClear?: () => void }) {
           variant="ghost"
           size="icon"
           className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
-          aria-label="关闭文件预览"
+          aria-label={t("closeFilePreview")}
           onClick={onClear}
         >
           <X className="h-4 w-4" />
@@ -181,7 +185,7 @@ function ClearPreviewButton({ onClear }: { onClear?: () => void }) {
         sideOffset={6}
         className="whitespace-nowrap"
       >
-        关闭文件预览
+        {t("closeFilePreview")}
       </TooltipContent>
     </Tooltip>
   );
@@ -209,10 +213,11 @@ function hasOfficeBlockContent(block: WorkspaceOfficePreviewBlock): boolean {
 }
 
 function OfficeFallback({ message }: { message?: string }) {
+  const { t } = useLanguage();
   return (
     <div className="flex h-full items-center justify-center px-8 text-center">
       <div className="max-w-sm rounded-md border border-border bg-muted p-5 text-sm leading-6 text-muted-foreground">
-        {message || "无法生成预览，可用系统查看器打开文件。"}
+        {message || t("noPreviewAvailable")}
       </div>
     </div>
   );
@@ -225,11 +230,10 @@ function OfficeTextBlock({
   block: WorkspaceOfficePreviewBlock;
   documentMode?: boolean;
 }) {
+  const { t } = useLanguage();
   const lines = block.lines || [];
   if (lines.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">没有可预览的文本内容。</p>
-    );
+    return <p className="text-sm text-muted-foreground">{t("noPreviewText")}</p>;
   }
 
   return (
@@ -251,14 +255,13 @@ function OfficeTextBlock({
 }
 
 function OfficeSheetBlock({ block }: { block: WorkspaceOfficePreviewBlock }) {
+  const { t } = useLanguage();
   const rows = block.rows || [];
   const maxColumns = Math.max(...rows.map((row) => row.length), 0);
   const columns = Array.from({ length: maxColumns }, (_, index) => index);
 
   if (rows.length === 0 || maxColumns === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">没有可预览的表格内容。</p>
-    );
+    return <p className="text-sm text-muted-foreground">{t("noPreviewSheet")}</p>;
   }
 
   return (
@@ -294,6 +297,7 @@ function OfficeSheetBlock({ block }: { block: WorkspaceOfficePreviewBlock }) {
 }
 
 function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
+  const { t } = useLanguage();
   const preview = file.officePreview;
   const blocks = preview?.blocks || [];
   const hasContent = blocks.some(hasOfficeBlockContent);
@@ -308,7 +312,7 @@ function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
         <div className="w-full min-w-0 px-4 py-5 sm:px-6">
           {preview.truncated && (
             <div className="mx-auto mb-4 max-w-[740px] rounded-md border border-border bg-background px-3 py-2 text-xs leading-5 text-muted-foreground shadow-sm shadow-black/[0.025]">
-              预览已截断，仅显示文件前部分内容。
+              {t("previewTruncated")}
             </div>
           )}
           <article className="mx-auto min-h-[72vh] w-full max-w-[740px] rounded-md border border-border bg-background px-6 py-7 shadow-sm shadow-black/[0.04] sm:px-10 sm:py-10">
@@ -322,7 +326,7 @@ function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
                       </h3>
                       {block.truncated && (
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          已截断
+                          {t("truncated")}
                         </span>
                       )}
                     </div>
@@ -342,7 +346,7 @@ function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
       <div className="min-w-0 space-y-4 px-5 py-4">
         {preview.truncated && (
           <div className="rounded-md border border-border bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">
-            预览已截断，仅显示文件前部分内容。
+            {t("previewTruncated")}
           </div>
         )}
         {blocks.map((block, index) => (
@@ -356,7 +360,7 @@ function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
               </h3>
               {block.truncated && (
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  已截断
+                  {t("truncated")}
                 </span>
               )}
             </div>
@@ -381,6 +385,7 @@ export function WorkspaceViewer({
   onExpand,
   onClear,
 }: WorkspaceViewerProps) {
+  const { t } = useLanguage();
   const [file, setFile] = useState<WorkspaceFileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -407,7 +412,7 @@ export function WorkspaceViewer({
       .catch((err) => {
         if (!isCancelled) {
           setFile(null);
-          setError(err instanceof Error ? err.message : "Unable to load file.");
+          setError(err instanceof Error ? err.message : t("unableToLoadFile"));
         }
       })
       .finally(() => {
@@ -419,7 +424,7 @@ export function WorkspaceViewer({
     return () => {
       isCancelled = true;
     };
-  }, [resourceId, selectedPath, workspaceId]);
+  }, [resourceId, selectedPath, t, workspaceId]);
 
   const language = useMemo(() => {
     return file?.extension ? LANGUAGE_MAP[file.extension] || "text" : "text";
@@ -445,11 +450,13 @@ export function WorkspaceViewer({
         error?: string;
       };
       if (!response.ok) {
-        throw new Error(payload.error || "无法打开本地文件。");
+        throw new Error(payload.error || t("unableToOpenLocalFile"));
       }
     } catch (openError) {
       const message =
-        openError instanceof Error ? openError.message : "无法打开本地文件。";
+        openError instanceof Error
+          ? openError.message
+          : t("unableToOpenLocalFile");
       toast.error(message);
     } finally {
       setIsOpeningFile(false);
@@ -466,7 +473,7 @@ export function WorkspaceViewer({
               variant="ghost"
               size="icon"
               className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
-              aria-label="展开文件预览"
+              aria-label={t("expandFilePreview")}
               onClick={onExpand}
             >
               <PanelRightOpen className="h-4 w-4" />
@@ -478,7 +485,7 @@ export function WorkspaceViewer({
             sideOffset={8}
             className="whitespace-nowrap"
           >
-            展开文件预览
+            {t("expandFilePreview")}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -489,7 +496,7 @@ export function WorkspaceViewer({
     return (
       <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-card">
         <ViewerHeader
-          title="文件预览"
+          title={t("filePreview")}
           onCollapse={onCollapse}
         />
         <EmptyViewer />
@@ -520,8 +527,8 @@ export function WorkspaceViewer({
               className="h-8 w-8"
               onClick={() => void openFileInSystemViewer()}
               disabled={isOpeningFile}
-              aria-label="用系统查看器打开文件"
-              title="用系统查看器打开文件"
+              aria-label={t("openWithSystemViewer")}
+              title={t("openWithSystemViewer")}
             >
               {isOpeningFile ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -539,7 +546,7 @@ export function WorkspaceViewer({
         {isLoading && (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            正在加载文件...
+            {t("loadingFile")}
           </div>
         )}
 
@@ -584,7 +591,7 @@ export function WorkspaceViewer({
             <div className="min-w-0 p-4">
               {file.tooLarge ? (
                 <div className="rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
-                  这个文本文件太大，无法在这里直接预览。
+                  {t("textFileTooLarge")}
                 </div>
               ) : (
                 <SyntaxHighlighter
@@ -640,7 +647,7 @@ export function WorkspaceViewer({
           !isOfficePreviewKind(file.previewKind) && (
             <div className="flex h-full items-center justify-center px-8 text-center">
               <div className="max-w-xs rounded-md border border-border bg-muted p-5 text-sm text-muted-foreground">
-                这个文件类型暂时不能在这里直接预览。
+                {t("unsupportedPreview")}
               </div>
             </div>
           )}

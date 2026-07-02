@@ -5,37 +5,41 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Archive,
   Cpu,
   FolderOpen,
   KeyRound,
   Loader2,
-  Mail,
   Moon,
   Save,
   ServerCog,
   Shield,
   ShieldCheck,
   Sun,
-  Ticket,
-  User,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import type { CopyKey, UiLanguage } from "@/lib/i18n";
 import {
   applyTheme,
   getStoredTheme,
   type ThemeMode,
 } from "@/lib/theme";
+import { LanguageToggle } from "@/app/components/LanguageToggle";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
-import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
+import {
+  appReturnHrefFromSearchParams,
+} from "@/app/utils/navigationContext";
 
 type AuthorizationMode = "auto" | "write" | "all";
 type ModelSelectionMode = "auto" | "manual";
-type ModelProvider = "gateway" | "openai_compatible";
-type OnboardingMissing = "gatewayEmail" | "openaiCompatibleApiKey";
+type ModelProvider = "openai_compatible";
+type OnboardingMissing = "openaiCompatibleApiKey";
 
 interface ConfigResponse {
   configPath: string;
@@ -48,22 +52,16 @@ interface ConfigResponse {
   modelSelectionMode: ModelSelectionMode;
   autoModel: string;
   effectiveModel: string;
-  gatewayEmail: string;
-  gatewayUsername: string;
-  gatewayInviteCode: string;
-  gatewayModel: string;
-  gatewayApiKeySet: boolean;
-  gatewayApiKeyPreview: string;
-  gatewayCreditRmb: string;
-  gatewayRemainingRmb: string;
   openaiCompatibleModel: string;
   openaiCompatibleBaseUrl: string;
   openaiCompatibleApiKey: string;
   openaiCompatibleApiKeySet: boolean;
   openaiCompatibleApiKeyPreview: string;
   authorizationMode: AuthorizationMode;
+  language: UiLanguage;
   desktopMode: boolean;
   needsOnboarding: boolean;
+  onboardingSkipped: boolean;
   missing: OnboardingMissing[];
   workspaceError?: string;
   message?: string;
@@ -86,201 +84,112 @@ interface BackendStatusResult {
   interruptedThreads: number;
 }
 
-interface GatewayModelOption {
-  id: string;
-  title: string;
-  provider: string;
-  description: string;
-  upstreamModel?: string;
-  upstreamProvider?: string;
-  inputPriceRmbPer1m?: number;
-  outputPriceRmbPer1m?: number;
-  isDefault?: boolean;
-}
-
-interface GatewayModelsPayload {
-  defaultModel?: unknown;
-  models?: unknown;
-  error?: unknown;
-}
-
 const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
   resourcesPath: "",
   workspacePath: ".",
   workspaceResolvedPath: "",
-  modelProvider: "gateway",
+  modelProvider: "openai_compatible",
   model: "deepseek-v4-flash",
   modelSelectionMode: "manual",
-  autoModel: "jisi/auto",
+  autoModel: "",
   effectiveModel: "deepseek-v4-flash",
-  gatewayEmail: "",
-  gatewayUsername: "",
-  gatewayInviteCode: "",
-  gatewayModel: "deepseek-v4-flash",
-  gatewayApiKeySet: false,
-  gatewayApiKeyPreview: "",
-  gatewayCreditRmb: "",
-  gatewayRemainingRmb: "",
   openaiCompatibleModel: "deepseek-v4-flash",
   openaiCompatibleBaseUrl: "https://openrouter.ai/api/v1",
   openaiCompatibleApiKey: "",
   openaiCompatibleApiKeySet: false,
   openaiCompatibleApiKeyPreview: "",
   authorizationMode: "auto",
+  language: "zh",
   desktopMode: false,
   needsOnboarding: false,
+  onboardingSkipped: false,
   missing: [],
 };
 
-const QUICKSTART_START_PARAM = "quickstart";
-
-const MODEL_PROVIDER_OPTIONS: Array<{
-  id: ModelProvider;
-  title: string;
-  subtitle?: string;
-  badge?: string;
-  description: string;
-}> = [
-  {
-    id: "gateway",
-    title: "集思",
-    subtitle: "上海人工智能实验室研发",
-    badge: "推荐",
-    description: "免费，提供国产模型支持。",
-  },
-  {
-    id: "openai_compatible",
-    title: "OpenAI 兼容",
-    subtitle: "Base URL + API Key",
-    description: "接入任意兼容 Chat Completions 的模型服务。",
-  },
-];
-
 const AUTHORIZATION_OPTIONS: Array<{
   id: AuthorizationMode;
-  title: string;
-  badge?: string;
-  description: string;
-  detail: string;
+  title: CopyKey;
+  badge?: CopyKey;
+  description: CopyKey;
+  detail: CopyKey;
 }> = [
   {
     id: "auto",
-    title: "自动授权",
-    badge: "推荐",
-    description: "常用权限直接放行，不弹出审批。",
-    detail: "适合只在自己电脑上使用、并且信任当前项目和模型的开发场景。",
+    title: "authAutoTitle",
+    badge: "recommended",
+    description: "authAutoDescription",
+    detail: "authAutoDetail",
   },
   {
     id: "write",
-    title: "写入需审批",
-    description: "读取权限直接放行，写入权限需确认。",
-    detail: "适合日常使用，本地文件变更会先停下来等你确认。",
+    title: "authWriteTitle",
+    description: "authWriteDescription",
+    detail: "authWriteDetail",
   },
   {
     id: "all",
-    title: "全部需审批",
-    description: "所有权限都需要确认后再继续。",
-    detail: "最保守，适合敏感项目或希望逐步确认的场景。",
+    title: "authAllTitle",
+    description: "authAllDescription",
+    detail: "authAllDetail",
   },
 ];
 
 const THEME_OPTIONS: Array<{
   id: ThemeMode;
-  title: string;
-  description: string;
+  title: CopyKey;
+  description: CopyKey;
 }> = [
   {
     id: "light",
-    title: "白天",
-    description: "明亮界面，适合白天和高亮度环境。",
+    title: "light",
+    description: "lightDescription",
   },
   {
     id: "dark",
-    title: "黑夜",
-    description: "深色界面，适合夜间和低亮度环境。",
+    title: "dark",
+    description: "darkDescription",
   },
 ];
 
-function normalizeGatewayModelOption(value: unknown): GatewayModelOption | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  if (typeof record.id !== "string" || !record.id.trim()) {
-    return null;
-  }
-  const id = record.id.trim();
-  return {
-    id,
-    title:
-      typeof record.title === "string" && record.title.trim()
-        ? record.title.trim()
-        : id,
-    provider:
-      typeof record.provider === "string" && record.provider.trim()
-        ? record.provider.trim()
-        : "集思",
-    description:
-      typeof record.description === "string" && record.description.trim()
-        ? record.description.trim()
-        : "集思网关可用模型。",
-    upstreamModel:
-      typeof record.upstreamModel === "string" ? record.upstreamModel : undefined,
-    upstreamProvider:
-      typeof record.upstreamProvider === "string"
-        ? record.upstreamProvider
-        : undefined,
-    inputPriceRmbPer1m:
-      typeof record.inputPriceRmbPer1m === "number"
-        ? record.inputPriceRmbPer1m
-        : undefined,
-    outputPriceRmbPer1m:
-      typeof record.outputPriceRmbPer1m === "number"
-        ? record.outputPriceRmbPer1m
-        : undefined,
-    isDefault: record.isDefault === true,
-  };
-}
-
-async function fetchGatewayModels(signal: AbortSignal): Promise<GatewayModelOption[]> {
-  const response = await fetch("/api/gateway/models", {
-    cache: "no-store",
-    signal,
-  });
-  const payload = (await response.json().catch(() => ({}))) as GatewayModelsPayload;
-  if (!response.ok) {
-    throw new Error(
-      typeof payload.error === "string"
-        ? payload.error
-        : "集思模型列表读取失败。"
-    );
-  }
-  const models = Array.isArray(payload.models)
-    ? payload.models
-        .map(normalizeGatewayModelOption)
-        .filter((model): model is GatewayModelOption => Boolean(model))
-    : [];
-  if (models.length === 0) {
-    throw new Error("集思未返回可用模型。");
-  }
-  return models;
-}
-
-function priceSummary(option: GatewayModelOption) {
-  if (
-    typeof option.inputPriceRmbPer1m !== "number" ||
-    typeof option.outputPriceRmbPer1m !== "number"
-  ) {
-    return "";
-  }
-  return `¥${option.inputPriceRmbPer1m}/百万输入 · ¥${option.outputPriceRmbPer1m}/百万输出`;
-}
-
-function isValidEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-}
+const SETTINGS_SECTIONS: Array<{
+  id: string;
+  title: CopyKey;
+  description: CopyKey;
+  icon: LucideIcon;
+}> = [
+  {
+    id: "settings-model",
+    title: "model",
+    description: "modelDescription",
+    icon: Cpu,
+  },
+  {
+    id: "settings-workspace",
+    title: "projectDirectory",
+    description: "projectDirectoryDescription",
+    icon: FolderOpen,
+  },
+  {
+    id: "settings-authorization",
+    title: "authorization",
+    description: "authorizationDescription",
+    icon: ShieldCheck,
+  },
+  {
+    id: "settings-appearance",
+    title: "appearance",
+    description: "appearanceDescription",
+    icon: Sun,
+  },
+  {
+    id: "settings-archives",
+    title: "archivedThreads",
+    description: "archivedThreadsDescription",
+    icon: Archive,
+  },
+];
 
 async function waitForWorkbenchReady(url: string) {
   const configUrl = new URL("/api/config", url).toString();
@@ -312,6 +221,7 @@ async function waitForWorkbenchReady(url: string) {
 
 function ConfigPageContent() {
   const searchParams = useSearchParams();
+  const { language, setLanguage, t } = useLanguage();
   const [config, setConfig] = useState<ConfigResponse>(DEFAULT_CONFIG);
   const [savedConfig, setSavedConfig] =
     useState<ConfigResponse>(DEFAULT_CONFIG);
@@ -328,62 +238,38 @@ function ConfigPageContent() {
   const [restartResult, setRestartResult] =
     useState<BackendRestartResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [gatewayModelOptions, setGatewayModelOptions] = useState<
-    GatewayModelOption[]
-  >([]);
-  const [gatewayModelsLoading, setGatewayModelsLoading] = useState(false);
-  const [gatewayModelsError, setGatewayModelsError] = useState<string | null>(
-    null
-  );
   const actionBusy = loading || saving || restarting;
   const isBusy = actionBusy || checkingStatus;
   const hasChanges = useMemo(() => {
     return (
-      config.modelProvider !== savedConfig.modelProvider ||
-      config.gatewayEmail !== savedConfig.gatewayEmail ||
-      config.gatewayUsername !== savedConfig.gatewayUsername ||
-      config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
       config.openaiCompatibleApiKey.trim() !== "" ||
       config.openaiCompatibleBaseUrl !== savedConfig.openaiCompatibleBaseUrl ||
       config.openaiCompatibleModel !== savedConfig.openaiCompatibleModel ||
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode ||
-      config.workspacePath !== savedConfig.workspacePath
+      config.workspacePath !== savedConfig.workspacePath ||
+      config.language !== savedConfig.language
     );
   }, [
     config.authorizationMode,
-    config.gatewayEmail,
-    config.gatewayInviteCode,
-    config.gatewayUsername,
     config.model,
-    config.modelProvider,
     config.modelSelectionMode,
     config.openaiCompatibleApiKey,
     config.openaiCompatibleBaseUrl,
     config.openaiCompatibleModel,
+    config.language,
     config.workspacePath,
     savedConfig.authorizationMode,
-    savedConfig.gatewayEmail,
-    savedConfig.gatewayInviteCode,
-    savedConfig.gatewayUsername,
     savedConfig.model,
-    savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
     savedConfig.openaiCompatibleBaseUrl,
     savedConfig.openaiCompatibleModel,
+    savedConfig.language,
     savedConfig.workspacePath,
   ]);
-  const selectedJisiModel = useMemo(
-    () => gatewayModelOptions.find((option) => option.id === config.model),
-    [config.model, gatewayModelOptions]
-  );
   const restartSensitiveChanged = useMemo(() => {
     return (
-      config.modelProvider !== savedConfig.modelProvider ||
-      config.gatewayEmail !== savedConfig.gatewayEmail ||
-      config.gatewayUsername !== savedConfig.gatewayUsername ||
-      config.gatewayInviteCode !== savedConfig.gatewayInviteCode ||
       config.openaiCompatibleApiKey.trim() !== "" ||
       config.openaiCompatibleBaseUrl !== savedConfig.openaiCompatibleBaseUrl ||
       config.openaiCompatibleModel !== savedConfig.openaiCompatibleModel ||
@@ -393,21 +279,13 @@ function ConfigPageContent() {
     );
   }, [
     config.authorizationMode,
-    config.gatewayEmail,
-    config.gatewayInviteCode,
-    config.gatewayUsername,
     config.model,
-    config.modelProvider,
     config.modelSelectionMode,
     config.openaiCompatibleApiKey,
     config.openaiCompatibleBaseUrl,
     config.openaiCompatibleModel,
     savedConfig.authorizationMode,
-    savedConfig.gatewayEmail,
-    savedConfig.gatewayInviteCode,
-    savedConfig.gatewayUsername,
     savedConfig.model,
-    savedConfig.modelProvider,
     savedConfig.modelSelectionMode,
     savedConfig.openaiCompatibleBaseUrl,
     savedConfig.openaiCompatibleModel,
@@ -419,28 +297,27 @@ function ConfigPageContent() {
   const onboardingMode = onboardingRequested;
   const canFinishOnboarding =
     !actionBusy &&
-    (config.modelProvider === "gateway"
-      ? Boolean(
-          config.gatewayEmail.trim() &&
-            config.gatewayUsername.trim() &&
-            config.gatewayInviteCode.trim()
-        )
-      : Boolean(
-          config.openaiCompatibleBaseUrl.trim() &&
-            (config.openaiCompatibleApiKey.trim() ||
-              config.openaiCompatibleApiKeySet)
-        ));
+    Boolean(
+      config.openaiCompatibleBaseUrl.trim() &&
+        (config.openaiCompatibleApiKey.trim() ||
+          config.openaiCompatibleApiKeySet)
+    );
   const backendStatusMessage = backendStatus?.message.trim();
   const showBackendStatus = Boolean(backendStatusMessage) && !restartResult;
-  const workbenchHref = useMemo(
-    () => workbenchHrefFromSearchParams(searchParams),
+  const returnHref = useMemo(
+    () => appReturnHrefFromSearchParams(searchParams),
     [searchParams]
   );
+  const returnLabel = returnHref.startsWith("/projects")
+    ? t("backToProject")
+    : t("backToWorkbench");
 
-  function buildQuickstartWorkbenchUrl() {
-    const homeUrl = new URL(workbenchHref, window.location.origin);
-    homeUrl.searchParams.set(QUICKSTART_START_PARAM, "1");
-    return homeUrl;
+  function updateLanguage(nextLanguage: UiLanguage) {
+    setLanguage(nextLanguage);
+    setConfig((current) => ({
+      ...current,
+      language: nextLanguage,
+    }));
   }
 
   async function loadConfig() {
@@ -450,13 +327,14 @@ function ConfigPageContent() {
       const response = await fetch("/api/config", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "配置读取失败");
+        throw new Error(payload.error || t("configReadFailed"));
       }
       const nextConfig = {
         ...DEFAULT_CONFIG,
         ...payload,
         openaiCompatibleApiKey: "",
       } as ConfigResponse;
+      setLanguage(nextConfig.language);
       setConfig(nextConfig);
       setSavedConfig(nextConfig);
       setRequiresRestart(false);
@@ -464,7 +342,7 @@ function ConfigPageContent() {
       setBackendStatus(null);
     } catch (loadError) {
       const message =
-        loadError instanceof Error ? loadError.message : "配置读取失败";
+        loadError instanceof Error ? loadError.message : t("configReadFailed");
       setError(message);
       toast.error(message);
     } finally {
@@ -473,10 +351,16 @@ function ConfigPageContent() {
   }
 
   async function saveConfig(
-    options: { scheduleIdle?: boolean; silent?: boolean } = {}
+    options: {
+      onboardingSkipped?: boolean;
+      scheduleIdle?: boolean;
+      silent?: boolean;
+    } = {}
   ): Promise<{ saved: boolean; needsRestart: boolean }> {
     const scheduleIdle = options.scheduleIdle ?? true;
-    const needsRestart = restartSensitiveChanged;
+    const needsRestart = options.onboardingSkipped
+      ? false
+      : restartSensitiveChanged;
     setSaving(true);
     setError(null);
     try {
@@ -484,39 +368,23 @@ function ConfigPageContent() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model:
-            config.modelProvider === "openai_compatible"
-              ? config.openaiCompatibleModel || "deepseek-v4-flash"
-              : config.model || "deepseek-v4-flash",
-          modelProvider: config.modelProvider,
+          model: config.openaiCompatibleModel || "deepseek-v4-flash",
+          modelProvider: "openai_compatible",
           modelSelectionMode: "manual",
-          gatewayEmail:
-            config.modelProvider === "gateway"
-              ? config.gatewayEmail.trim() || undefined
-              : undefined,
-          gatewayUsername:
-            config.modelProvider === "gateway"
-              ? config.gatewayUsername.trim() || undefined
-              : undefined,
-          gatewayInviteCode:
-            config.modelProvider === "gateway"
-              ? config.gatewayInviteCode.trim() || undefined
-              : undefined,
-          openaiCompatibleApiKey:
-            config.modelProvider === "openai_compatible"
-              ? config.openaiCompatibleApiKey.trim() || undefined
-              : undefined,
+          openaiCompatibleApiKey: options.onboardingSkipped
+            ? undefined
+            : config.openaiCompatibleApiKey.trim() || undefined,
           openaiCompatibleBaseUrl:
-            config.modelProvider === "openai_compatible"
-              ? config.openaiCompatibleBaseUrl.trim() || undefined
-              : undefined,
+            config.openaiCompatibleBaseUrl.trim() || undefined,
           authorizationMode: config.authorizationMode,
+          language: config.language,
+          onboardingSkipped: options.onboardingSkipped === true,
           workspacePath: onboardingMode ? undefined : config.workspacePath,
         }),
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "配置保存失败");
+        throw new Error(payload.error || t("configSaveFailed"));
       }
       const nextConfig = {
         ...DEFAULT_CONFIG,
@@ -531,23 +399,40 @@ function ConfigPageContent() {
       setAutoRestart(scheduleIdle && needsRestart);
       if (!options.silent) {
         toast.success(
-          needsRestart
+          options.onboardingSkipped
+            ? t("configSkipped")
+            : needsRestart
             ? scheduleIdle
-              ? "配置已保存，将在空闲时自动应用"
-              : "配置已保存"
-            : "工作区已保存，已热切换"
+              ? t("configSavedIdle")
+              : t("configSaved")
+            : t("projectDirectorySaved")
         );
       }
       return { saved: true, needsRestart };
     } catch (saveError) {
       const message =
-        saveError instanceof Error ? saveError.message : "配置保存失败";
+        saveError instanceof Error ? saveError.message : t("configSaveFailed");
       setError(message);
       toast.error(message);
       return { saved: false, needsRestart: false };
     } finally {
       setSaving(false);
     }
+  }
+
+  async function navigateAfterOnboarding({
+    waitForReady,
+  }: {
+    waitForReady: boolean;
+  }) {
+    const nextHref = returnHref;
+    if (waitForReady && nextHref.startsWith("/?")) {
+      const homeUrl = new URL(nextHref, window.location.origin);
+      await waitForWorkbenchReady(homeUrl.toString());
+      window.location.replace(homeUrl.toString());
+      return;
+    }
+    window.location.replace(nextHref);
   }
 
   async function checkBackendStatus(): Promise<BackendStatusResult> {
@@ -575,13 +460,13 @@ function ConfigPageContent() {
       const status = await checkBackendStatus();
       const confirmed = window.confirm(
         [
-          "立即应用会重新加载配置。",
+          t("confirmApplyNowTitle"),
           "",
-          "风险：正在运行或等待审批的任务可能中断。历史会话会保留，但当前未完成的步骤可能需要重新发送。",
+          t("confirmApplyNowRisk"),
           "",
           status.status === "idle"
-            ? "当前检测结果：后台空闲。确认立即应用？"
-            : `当前检测结果：${status.message} 确认仍然立即应用？`,
+            ? t("confirmApplyIdle")
+            : `${status.message} ${t("applyNow")}?`,
         ].join("\n")
       );
       if (!confirmed) {
@@ -600,21 +485,21 @@ function ConfigPageContent() {
       setRequiresRestart(restart.status !== "restarted");
 
       if (!response.ok || restart.status !== "restarted") {
-        throw new Error(restart.message || "配置应用失败");
+        throw new Error(restart.message || t("applyConfigFailed"));
       }
 
       setAutoRestart(false);
       setBackendStatus(null);
-      toast.success(restart.message || "配置已应用");
+      toast.success(restart.message || t("configApplied"));
       if (redirectHome) {
-        const homeUrl = buildQuickstartWorkbenchUrl();
-        await waitForWorkbenchReady(homeUrl.toString());
-        window.location.replace(homeUrl.toString());
+        await navigateAfterOnboarding({ waitForReady: true });
       }
       return true;
     } catch (restartError) {
       const message =
-        restartError instanceof Error ? restartError.message : "配置应用失败";
+        restartError instanceof Error
+          ? restartError.message
+          : t("applyConfigFailed");
       setError(message);
       toast.error(message);
       return false;
@@ -652,11 +537,11 @@ function ConfigPageContent() {
 
     if (result.needsRestart) {
       setAutoRestart(true);
-      toast.success("配置已保存，将在空闲时自动应用");
+      toast.success(t("configSavedIdle"));
       return;
     }
 
-    toast.success("配置已保存");
+    toast.success(t("configSaved"));
   }
 
   async function applyNow() {
@@ -667,25 +552,12 @@ function ConfigPageContent() {
   }
 
   async function finishOnboarding() {
-    if (config.modelProvider === "gateway") {
-      if (!isValidEmail(config.gatewayEmail)) {
-        const message = "请输入完整邮箱，例如 name@example.com。";
-        setError(message);
-        toast.error(message);
-        return;
-      }
-      if (!config.gatewayUsername.trim() || !config.gatewayInviteCode.trim()) {
-        const message = "请填写用户名和邀请码。";
-        setError(message);
-        toast.error(message);
-        return;
-      }
-    } else if (
+    if (
       !config.openaiCompatibleBaseUrl.trim() ||
       (!config.openaiCompatibleApiKey.trim() &&
         !config.openaiCompatibleApiKeySet)
     ) {
-      const message = "请填写 OpenAI 兼容接口 Base URL 和 API Key。";
+      const message = t("missingOpenAiFields");
       setError(message);
       toast.error(message);
       return;
@@ -699,21 +571,18 @@ function ConfigPageContent() {
       await restartBackendNow({ manual: false, redirectHome: true });
       return;
     }
-    const homeUrl = buildQuickstartWorkbenchUrl();
-    await waitForWorkbenchReady(homeUrl.toString());
-    window.location.replace(homeUrl.toString());
+    await navigateAfterOnboarding({ waitForReady: true });
   }
 
-  function updateModelProvider(modelProvider: ModelProvider) {
-    setConfig((current) => ({
-      ...current,
-      modelProvider,
-      modelSelectionMode: "manual",
-      model: "deepseek-v4-flash",
-      openaiCompatibleModel: "deepseek-v4-flash",
-      openaiCompatibleBaseUrl:
-        current.openaiCompatibleBaseUrl || "https://openrouter.ai/api/v1",
-    }));
+  async function skipOnboarding() {
+    const result = await saveConfig({
+      onboardingSkipped: true,
+      scheduleIdle: false,
+    });
+    if (!result.saved) {
+      return;
+    }
+    await navigateAfterOnboarding({ waitForReady: false });
   }
 
   function updateTheme(nextTheme: ThemeMode) {
@@ -769,53 +638,11 @@ function ConfigPageContent() {
     actionBusy,
   ]);
 
-  useEffect(() => {
-    if (loading || onboardingMode || config.modelProvider !== "gateway") {
-      setGatewayModelOptions([]);
-      setGatewayModelsLoading(false);
-      setGatewayModelsError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    const debounce = window.setTimeout(() => {
-      setGatewayModelsLoading(true);
-      setGatewayModelsError(null);
-      void fetchGatewayModels(controller.signal)
-        .then((models) => {
-          if (!controller.signal.aborted) {
-            setGatewayModelOptions(models);
-          }
-        })
-        .catch((modelError) => {
-          if (!controller.signal.aborted) {
-            const message =
-              modelError instanceof Error
-                ? modelError.message
-                : "集思模型列表读取失败。";
-            setGatewayModelOptions([]);
-            setGatewayModelsError(message);
-          }
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) {
-            setGatewayModelsLoading(false);
-          }
-        });
-    }, 300);
-
-    return () => {
-      controller.abort();
-      window.clearTimeout(debounce);
-    };
-  }, [config.modelProvider, loading, onboardingMode]);
-
   return (
     <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
       {!onboardingMode && (
         <header
           className="flex h-16 items-center justify-between border-b border-border px-6"
-          data-tour="config-header"
         >
           <div className="flex min-w-0 items-center gap-4">
             <Button
@@ -824,20 +651,27 @@ function ConfigPageContent() {
               size="sm"
               className="h-8 px-2"
             >
-              <Link href={workbenchHref}>
+              <Link href={returnHref}>
                 <ArrowLeft className="h-4 w-4" />
-                工作台
+                {returnLabel}
               </Link>
             </Button>
             <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold">配置</h1>
+              <h1 className="truncate text-xl font-semibold">
+                {t("configTitle")}
+              </h1>
               <div className="truncate text-xs text-muted-foreground">
-                模型、工作区、授权模式和界面风格
+                {t("configSubtitle")}
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            <LanguageToggle
+              language={config.language || language}
+              onChange={updateLanguage}
+              compact
+            />
             <>
               <Button
                 type="button"
@@ -846,8 +680,8 @@ function ConfigPageContent() {
                 disabled={!canApplyWhenIdle}
                 title={
                   hasAnyChanges
-                    ? "保存当前配置，并在后台空闲时自动应用。"
-                    : "后台空闲时自动重启并加载当前配置。"
+                    ? t("saveIdleTitle")
+                    : t("applyIdleTitle")
                 }
                 className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
               >
@@ -856,7 +690,7 @@ function ConfigPageContent() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                {hasAnyChanges ? "保存并空闲时应用" : "空闲时应用"}
+                {hasAnyChanges ? t("saveAndApplyIdle") : t("applyIdle")}
               </Button>
               <Button
                 type="button"
@@ -866,8 +700,8 @@ function ConfigPageContent() {
                 disabled={!canApplyNow}
                 title={
                   hasAnyChanges
-                    ? "保存当前配置并立即应用。"
-                    : "立即重启并加载当前配置。"
+                    ? t("saveNowTitle")
+                    : t("applyNowTitle")
                 }
                 className="h-9"
               >
@@ -876,7 +710,7 @@ function ConfigPageContent() {
                 ) : (
                   <ServerCog className="h-4 w-4" />
                 )}
-                {hasAnyChanges ? "保存并立即应用" : "立即应用"}
+                {hasAnyChanges ? t("saveAndApplyNow") : t("applyNow")}
               </Button>
             </>
           </div>
@@ -893,11 +727,17 @@ function ConfigPageContent() {
       >
         {onboardingMode && (
           <div className="mb-4 text-center">
+            <div className="mb-4 flex justify-center">
+              <LanguageToggle
+                language={config.language || language}
+                onChange={updateLanguage}
+              />
+            </div>
             <h1 className="text-2xl font-semibold tracking-tight">
-              首次设置 InternAgents
+              {t("firstRunTitle")}
             </h1>
             <div className="mt-2 text-sm text-muted-foreground">
-              默认使用 deepseek-v4-flash；进入工作台后可在配置页更改。
+              {t("firstRunSubtitle")}
             </div>
           </div>
         )}
@@ -923,15 +763,19 @@ function ConfigPageContent() {
               void applyWhenIdle();
             }
           }}
-          className={cn(onboardingMode ? "w-full space-y-4" : "space-y-5")}
+          className={cn(
+            onboardingMode
+              ? "w-full space-y-4"
+              : "grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start"
+          )}
         >
           {!onboardingMode && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span>
-                模型和授权模式需要重启后端后生效；工作区和界面风格会立即生效。
-              </span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground lg:col-span-2">
+              <span>{t("configEffectHint")}</span>
               {hasPendingRestart && !hasAnyChanges && (
-                <span className="text-amber-700 dark:text-[#f5b85b]">有配置等待应用。</span>
+                <span className="text-amber-700 dark:text-[#f5b85b]">
+                  {t("configPending")}
+                </span>
               )}
               {restartResult && (
                 <span
@@ -960,12 +804,49 @@ function ConfigPageContent() {
             </div>
           )}
 
+          {!onboardingMode && (
+            <aside className="sticky top-5 hidden rounded-lg border border-border bg-card/90 p-2 shadow-sm backdrop-blur lg:block">
+              <div className="px-2 pb-2 pt-1">
+                <div className="text-sm font-semibold">{t("settings")}</div>
+                <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t("quickJump")}
+                </div>
+              </div>
+              <nav
+                aria-label={t("configNavLabel")}
+                className="space-y-1"
+              >
+                {SETTINGS_SECTIONS.map((section) => {
+                  const SectionIcon = section.icon;
+                  return (
+                    <a
+                      key={section.id}
+                      href={`#${section.id}`}
+                      className="flex items-start gap-3 rounded-md px-2 py-2 text-sm transition hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <SectionIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0">
+                        <span className="block font-medium">
+                          {t(section.title)}
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                          {t(section.description)}
+                        </span>
+                      </span>
+                    </a>
+                  );
+                })}
+              </nav>
+            </aside>
+          )}
+
           <section
+            id="settings-model"
             className={cn(
-              "rounded-lg border border-border bg-card shadow-sm",
+              "scroll-mt-5 rounded-lg border border-border bg-card shadow-sm",
+              !onboardingMode && "lg:col-start-2",
               onboardingMode ? "p-4" : "p-5"
             )}
-            data-tour="config-model"
           >
             {!onboardingMode && (
               <div className="mb-5 flex items-start gap-3">
@@ -973,9 +854,9 @@ function ConfigPageContent() {
                   <Cpu className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-base font-semibold">模型</h2>
+                  <h2 className="text-base font-semibold">{t("model")}</h2>
                   <div className="mt-1 text-sm text-muted-foreground">
-                    使用集思或 OpenAI 兼容接口管理模型服务。
+                    {t("modelSectionHelp")}
                   </div>
                 </div>
               </div>
@@ -984,7 +865,7 @@ function ConfigPageContent() {
             {loading ? (
               <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                正在读取配置...
+                {t("loadingConfig")}
               </div>
             ) : (
               <div
@@ -992,399 +873,176 @@ function ConfigPageContent() {
                   onboardingMode ? "space-y-4" : "space-y-5"
                 )}
               >
-                <div className="space-y-3">
-                  {!onboardingMode && <Label>模型服务</Label>}
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {MODEL_PROVIDER_OPTIONS.map((option) => {
-                      const active = config.modelProvider === option.id;
-                      const ProviderIcon =
-                        option.id === "gateway" ? ServerCog : KeyRound;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => updateModelProvider(option.id)}
-                          className={cn(
-                            "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent dark:hover:border-[hsl(var(--primary)/0.5)]",
-                            active
-                              ? "border-primary ring-2 ring-primary/20 dark:border-[hsl(var(--primary))] dark:ring-[hsl(var(--primary)/0.2)]"
-                              : "border-border"
-                          )}
-                        >
-                          <div className="mb-3 flex items-center justify-between gap-2">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
-                              <ProviderIcon className="h-4 w-4" />
-                            </div>
-                            {option.badge && (
-                              <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
-                                {option.badge}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-sm font-semibold">
-                            {option.title}
-                          </div>
-                          <div className="mt-1.5 text-sm text-foreground">
-                            {option.description}
-                          </div>
-                          {option.subtitle && (
-                            <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                              {option.subtitle}
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
                 {!onboardingMode && (
                   <div className="text-xs leading-5 text-muted-foreground">
-                    默认模型：deepseek-v4-flash
+                    {t("openAiCompatibleDescription")}
                   </div>
                 )}
 
-                {config.modelProvider === "gateway" ? (
-                  <>
-                    {!onboardingMode && (
-                      <div className="mt-5 mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <Label htmlFor="gateway-email">
-                            集思账号绑定
-                          </Label>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            保存时会校验邮箱、用户名和邀请码，并完成账号绑定。
-                          </div>
-                        </div>
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-1 text-xs font-medium",
-                            config.gatewayApiKeySet
-                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
-                              : "bg-muted text-muted-foreground"
-                          )}
-                        >
-                          {config.gatewayApiKeySet ? "已绑定" : "未绑定"}
-                        </span>
-                      </div>
-                    )}
-
-                    <div
-                      className={cn(
-                        "grid md:grid-cols-3",
-                        onboardingMode ? "mt-4 gap-3" : "gap-4"
-                      )}
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <Mail className="h-3.5 w-3.5" />
-                          邮箱
-                        </div>
-                        <Input
-                          id="gateway-email"
-                          type="email"
-                          autoComplete="email"
-                          value={config.gatewayEmail}
-                          disabled={loading}
-                          onChange={(event) =>
-                            setConfig((current) => ({
-                              ...current,
-                              gatewayEmail: event.target.value,
-                            }))
-                          }
-                          placeholder="you@example.com"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <User className="h-3.5 w-3.5" />
-                          用户名
-                        </div>
-                        <Input
-                          id="gateway-username"
-                          type="text"
-                          autoComplete="name"
-                          value={config.gatewayUsername}
-                          disabled={loading}
-                          onChange={(event) =>
-                            setConfig((current) => ({
-                              ...current,
-                              gatewayUsername: event.target.value,
-                            }))
-                          }
-                          placeholder="你的用户名"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <Ticket className="h-3.5 w-3.5" />
-                          邀请码
-                        </div>
-                        <Input
-                          id="gateway-invite-code"
-                          type="text"
-                          autoComplete="off"
-                          value={config.gatewayInviteCode}
-                          disabled={loading}
-                          onChange={(event) =>
-                            setConfig((current) => ({
-                              ...current,
-                              gatewayInviteCode: event.target.value,
-                            }))
-                          }
-                          placeholder="JISI-XXXXXXXXXX"
-                        />
-                      </div>
+                <div
+                  className={cn(
+                    onboardingMode ? "mt-4 space-y-3" : "space-y-4"
+                  )}
+                >
+                  {!onboardingMode && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Label htmlFor="openai-compatible-api-key">
+                        {t("openAiCompatible")}
+                      </Label>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-1 text-xs font-medium",
+                          config.openaiCompatibleApiKeySet
+                            ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {config.openaiCompatibleApiKeySet
+                          ? t("saved")
+                          : t("unsaved")}
+                      </span>
                     </div>
-
-                    {!onboardingMode && (
-                      <div className="mt-5 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <Label>集思模型</Label>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              从集思读取可用模型，选择后保存生效。
-                            </div>
-                          </div>
-                          {selectedJisiModel ? (
-                            <span className="rounded-full bg-primary px-2 py-1 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
-                              当前：{selectedJisiModel.title}
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                              当前：请选择模型
-                            </span>
-                          )}
-                        </div>
-
-                        {gatewayModelsLoading && (
-                          <div className="flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            正在读取可用模型...
-                          </div>
-                        )}
-
-                        {gatewayModelsError && !gatewayModelsLoading && (
-                          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-[#f5b85b]/35 dark:bg-[#f5b85b]/10 dark:text-[#ffe0aa]">
-                            {gatewayModelsError} 请稍后重试。
-                          </div>
-                        )}
-
-                        {gatewayModelOptions.length > 0 ? (
-                          <div className="grid gap-2 md:grid-cols-2">
-                        {gatewayModelOptions.map((option) => {
-                          const active = config.model === option.id;
-                          const summary = priceSummary(option);
-                          return (
-                            <button
-                                  key={option.id}
-                                  type="button"
-                                  onClick={() =>
-                                    setConfig((current) => ({
-                                      ...current,
-                                      model: option.id,
-                                      modelSelectionMode: "manual",
-                                    }))
-                                  }
-                                  className={cn(
-                                    "flex min-h-28 flex-col rounded-lg border bg-background p-3 text-left transition hover:border-primary/50 hover:bg-accent dark:hover:border-[hsl(var(--primary)/0.5)]",
-                                    active
-                                      ? "border-primary ring-2 ring-primary/20 dark:border-[hsl(var(--primary))] dark:ring-[hsl(var(--primary)/0.2)]"
-                                      : "border-border"
-                                  )}
-                                >
-                                  <div className="mb-3 flex items-center justify-between gap-2">
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
-                                      <Cpu className="h-4 w-4" />
-                                    </div>
-                                    {option.isDefault && (
-                                      <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
-                                        默认
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-sm font-semibold">
-                                    {option.title}
-                                  </div>
-                                  <div className="mt-1.5 text-sm text-foreground">
-                                    {option.provider}
-                                  </div>
-                                  <div className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                                    {option.description}
-                                  </div>
-                                  {summary && (
-                                    <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                                      {summary}
-                                    </div>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : !gatewayModelsLoading && !gatewayModelsError ? (
-                          <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground">
-                            暂无可展示模型。请稍后重试。
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
-
-                    {!onboardingMode && (
-                      <div className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                        <div className="min-w-0 truncate">
-                          模型：{config.model || "deepseek-v4-flash"}
-                        </div>
-                        <div className="min-w-0 truncate">服务：免费</div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div
-                    className={cn(
-                      onboardingMode ? "mt-4 space-y-3" : "mt-5 space-y-4"
-                    )}
-                  >
-                    {!onboardingMode && (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Label htmlFor="openai-compatible-api-key">
-                          OpenAI 兼容接口
-                        </Label>
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-1 text-xs font-medium",
-                            config.openaiCompatibleApiKeySet
-                              ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
-                              : "bg-muted text-muted-foreground"
-                          )}
-                        >
-                          {config.openaiCompatibleApiKeySet
-                            ? "已保存"
-                            : "未保存"}
-                        </span>
-                      </div>
-                    )}
+                  )}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <ServerCog className="h-3.5 w-3.5" />
+                      Base URL
+                    </div>
+                    <Input
+                      id="openai-compatible-base-url"
+                      type="url"
+                      autoComplete="off"
+                      value={config.openaiCompatibleBaseUrl}
+                      disabled={loading}
+                      onChange={(event) =>
+                        setConfig((current) => ({
+                          ...current,
+                          openaiCompatibleBaseUrl: event.target.value,
+                        }))
+                      }
+                      placeholder="https://openrouter.ai/api/v1"
+                    />
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <ServerCog className="h-3.5 w-3.5" />
-                        Base URL
+                        <KeyRound className="h-3.5 w-3.5" />
+                        API Key
                       </div>
                       <Input
-                        id="openai-compatible-base-url"
-                        type="url"
+                        id="openai-compatible-api-key"
+                        type="password"
                         autoComplete="off"
-                        value={config.openaiCompatibleBaseUrl}
+                        value={config.openaiCompatibleApiKey}
                         disabled={loading}
                         onChange={(event) =>
                           setConfig((current) => ({
                             ...current,
-                            openaiCompatibleBaseUrl: event.target.value,
+                            openaiCompatibleApiKey: event.target.value,
                           }))
                         }
-                        placeholder="https://openrouter.ai/api/v1"
+                        placeholder={
+                          config.openaiCompatibleApiKeySet
+                            ? t("savedKeyPlaceholder")
+                            : "sk-..."
+                        }
                       />
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <KeyRound className="h-3.5 w-3.5" />
-                          API Key
-                        </div>
-                        <Input
-                          id="openai-compatible-api-key"
-                          type="password"
-                          autoComplete="off"
-                          value={config.openaiCompatibleApiKey}
-                          disabled={loading}
-                          onChange={(event) =>
-                            setConfig((current) => ({
-                              ...current,
-                              openaiCompatibleApiKey: event.target.value,
-                            }))
-                          }
-                          placeholder={
-                            config.openaiCompatibleApiKeySet
-                              ? "已保存，留空则继续使用当前 key"
-                              : "sk-..."
-                          }
-                        />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <Cpu className="h-3.5 w-3.5" />
+                        {t("modelId")}
                       </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <Cpu className="h-3.5 w-3.5" />
-                          模型 ID
-                        </div>
-                        <Input
-                          id="openai-compatible-model"
-                          type="text"
-                          autoComplete="off"
-                          value={config.openaiCompatibleModel}
-                          disabled={loading}
-                          onChange={(event) =>
-                            setConfig((current) => ({
-                              ...current,
-                              model: event.target.value,
-                              openaiCompatibleModel: event.target.value,
-                            }))
-                          }
-                          placeholder="deepseek-v4-flash"
-                        />
+                      <Input
+                        id="openai-compatible-model"
+                        type="text"
+                        autoComplete="off"
+                        value={config.openaiCompatibleModel}
+                        disabled={loading}
+                        onChange={(event) =>
+                          setConfig((current) => ({
+                            ...current,
+                            model: event.target.value,
+                            openaiCompatibleModel: event.target.value,
+                          }))
+                        }
+                        placeholder="deepseek-v4-flash"
+                      />
+                    </div>
+                  </div>
+                  {!onboardingMode && (
+                    <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                      <div className="min-w-0 truncate">
+                        {t("modelLabel")}:{" "}
+                        {config.openaiCompatibleModel || "deepseek-v4-flash"}
+                      </div>
+                      <div className="min-w-0 truncate">
+                        Base URL:{" "}
+                        {config.openaiCompatibleBaseUrl ||
+                          "https://openrouter.ai/api/v1"}
                       </div>
                     </div>
-                    {!onboardingMode && (
-                      <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                        <div className="min-w-0 truncate">
-                          模型：
-                          {config.openaiCompatibleModel || "deepseek-v4-flash"}
-                        </div>
-                        <div className="min-w-0 truncate">
-                          Base URL：
-                          {config.openaiCompatibleBaseUrl ||
-                            "https://openrouter.ai/api/v1"}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </section>
 
           {onboardingMode && (
-            <Button
-              type="submit"
-              disabled={!canFinishOnboarding}
-              className="h-10 w-full bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
-            >
-              {saving || restarting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <ServerCog className="h-4 w-4" />
-              )}
-              完成设置，进入InternAgents
-            </Button>
+            <div className="space-y-2">
+              <Button
+                type="submit"
+                disabled={!canFinishOnboarding}
+                className="h-10 w-full bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
+              >
+                {saving || restarting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ServerCog className="h-4 w-4" />
+                )}
+                {t("finishSetup")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={actionBusy}
+                title={t("skipSetupTitle")}
+                onClick={() => void skipOnboarding()}
+                className="h-10 w-full"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                {t("skipSetup")}
+              </Button>
+            </div>
           )}
 
           {!onboardingMode && (
             <>
               <section
-                className="rounded-lg border border-border bg-card p-5 shadow-sm"
-                data-tour="config-workspace"
+                id="settings-workspace"
+                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
               >
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
                     <FolderOpen className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
-                    <h2 className="text-base font-semibold">工作区</h2>
+                    <h2 className="text-base font-semibold">
+                      {t("projectDirectory")}
+                    </h2>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      选择本机资源的文件夹；文件浏览和 Agent 命令都会以它为根目录。
+                      {t("projectDirectoryHelp")}
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label htmlFor="workspace-path">本机工作区路径</Label>
+                    <Label htmlFor="workspace-path">
+                      {t("localProjectPath")}
+                    </Label>
                     <Input
                       id="workspace-path"
                       value={config.workspacePath}
@@ -1400,27 +1058,29 @@ function ConfigPageContent() {
                   </div>
                   <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
                     <div className="min-w-0 truncate">
-                      当前解析：{config.workspaceResolvedPath || "-"}
+                      {t("resolvedPath")}: {config.workspaceResolvedPath || "-"}
                     </div>
                     <div className="min-w-0 truncate">
-                      资源配置：{config.resourcesPath || "-"}
+                      {t("resourceConfig")}: {config.resourcesPath || "-"}
                     </div>
                   </div>
                 </div>
               </section>
 
               <section
-                className="rounded-lg border border-border bg-card p-5 shadow-sm"
-                data-tour="config-authorization"
+                id="settings-authorization"
+                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
               >
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
                     <ShieldCheck className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="text-base font-semibold">授权模式</h2>
+                    <h2 className="text-base font-semibold">
+                      {t("authorization")}
+                    </h2>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      设置读取、写入等权限是否需要手动确认。
+                      {t("authorizationHelp")}
                     </div>
                   </div>
                 </div>
@@ -1451,18 +1111,18 @@ function ConfigPageContent() {
                           </div>
                           {option.badge && (
                             <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))]">
-                              {option.badge}
+                              {t(option.badge)}
                             </span>
                           )}
                         </div>
                         <div className="text-sm font-semibold">
-                          {option.title}
+                          {t(option.title)}
                         </div>
                         <div className="mt-2 text-sm text-foreground">
-                          {option.description}
+                          {t(option.description)}
                         </div>
                         <div className="mt-3 text-xs leading-5 text-muted-foreground">
-                          {option.detail}
+                          {t(option.detail)}
                         </div>
                       </button>
                     );
@@ -1470,7 +1130,10 @@ function ConfigPageContent() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+              <section
+                id="settings-appearance"
+                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+              >
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
                     {themeMode === "dark" ? (
@@ -1480,11 +1143,28 @@ function ConfigPageContent() {
                     )}
                   </div>
                   <div>
-                    <h2 className="text-base font-semibold">界面风格</h2>
+                    <h2 className="text-base font-semibold">
+                      {t("appearance")}
+                    </h2>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      选择白天或黑夜模式。这个设置会立即应用在当前浏览器。
+                      {t("appearanceHelp")}
                     </div>
                   </div>
+                </div>
+
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-4">
+                  <div>
+                    <div className="text-sm font-semibold">
+                      {t("language")}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {config.language === "zh" ? t("chinese") : t("english")}
+                    </div>
+                  </div>
+                  <LanguageToggle
+                    language={config.language || language}
+                    onChange={updateLanguage}
+                  />
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1511,10 +1191,10 @@ function ConfigPageContent() {
                         </div>
                         <div>
                           <div className="text-sm font-semibold">
-                            {option.title}
+                            {t(option.title)}
                           </div>
                           <div className="mt-1 text-sm text-muted-foreground">
-                            {option.description}
+                            {t(option.description)}
                           </div>
                         </div>
                       </button>
@@ -1523,11 +1203,16 @@ function ConfigPageContent() {
                 </div>
               </section>
 
-              <ArchivedThreadsCard />
+              <div
+                id="settings-archives"
+                className="scroll-mt-5 lg:col-start-2"
+              >
+                <ArchivedThreadsCard />
+              </div>
 
-              <div className="flex justify-end text-xs text-muted-foreground">
+              <div className="flex justify-end text-xs text-muted-foreground lg:col-start-2">
                 <div className="truncate">
-                  配置文件：{config.configPath || "-"}
+                  {t("configFile")}: {config.configPath || "-"}
                 </div>
               </div>
             </>
@@ -1540,14 +1225,17 @@ function ConfigPageContent() {
 
 export default function ConfigPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-[calc(100vh-var(--app-footer-height))] items-center justify-center bg-background text-foreground">
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      }
-    >
+    <Suspense fallback={<ConfigPageFallback />}>
       <ConfigPageContent />
     </Suspense>
+  );
+}
+
+function ConfigPageFallback() {
+  const { t } = useLanguage();
+  return (
+    <div className="flex min-h-[calc(100vh-var(--app-footer-height))] items-center justify-center bg-background text-foreground">
+      <p className="text-muted-foreground">{t("loading")}</p>
+    </div>
   );
 }

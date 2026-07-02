@@ -10,7 +10,6 @@ import {
   GitBranch,
   Info,
   Loader2,
-  Map,
   RefreshCw,
   RotateCcw,
 } from "lucide-react";
@@ -153,14 +152,6 @@ function AboutPageContent() {
         : "未知大小";
     return `${downloaded} / ${total}`;
   }, [downloadProgress]);
-
-  function startQuickstartTour() {
-    window.dispatchEvent(
-      new CustomEvent("internagents.quickstart.start", {
-        detail: { restart: true },
-      })
-    );
-  }
 
   const loadUpdateStatus = useCallback(
     async (options?: { quiet?: boolean }) => {
@@ -346,7 +337,7 @@ function AboutPageContent() {
           <div className="min-w-0">
             <h1 className="truncate text-xl font-semibold">关于与更新</h1>
             <div className="truncate text-xs text-muted-foreground">
-              自我介绍、导览和本机更新
+              自我介绍和本机更新
             </div>
           </div>
         </div>
@@ -387,36 +378,10 @@ function AboutPageContent() {
                   href="https://internscience.github.io/InternAgents/user-manual/"
                   target="_blank"
                   rel="noreferrer"
-                  data-tour="about-help-docs"
                 >
                   <BookOpen className="h-4 w-4" />
                   帮助文档
                 </a>
-              </Button>
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
-                  <Map className="h-5 w-5" />
-                </div>
-                <div className="min-w-0">
-                  <h2 className="text-base font-semibold">导览</h2>
-                  <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                    重新打开本机导览，依次查看工作台、工作区、对话和配置。
-                  </div>
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                onClick={startQuickstartTour}
-                className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
-              >
-                <Map className="h-4 w-4" />
-                开始导览
               </Button>
             </div>
           </section>
@@ -461,7 +426,6 @@ function AboutPageContent() {
                   onClick={() => void checkForSoftwareUpdate()}
                   disabled={actionBusy}
                   className="h-9"
-                  data-tour="about-update-check"
                 >
                   {checkingUpdate ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

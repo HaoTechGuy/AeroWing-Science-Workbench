@@ -197,6 +197,40 @@ wait_for_url() {
   done
 }
 
+read_alive_pid_file() {
+  local pid_file="$1"
+  [ -f "$pid_file" ] || return 1
+
+  local pid
+  pid="$(tr -cd '0-9' < "$pid_file" 2>/dev/null || true)"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" >/dev/null 2>&1 || return 1
+  printf '%s\n' "$pid"
+}
+
+adopt_restarted_process() {
+  local url="$1"
+  local pid_file="$2"
+  local timeout="${3:-20}"
+  local start
+  start="$(date +%s)"
+
+  while true; do
+    local replacement_pid
+    replacement_pid="$(read_alive_pid_file "$pid_file" || true)"
+    if [ -n "$replacement_pid" ] && url_ok "$url/ok"; then
+      printf '%s\n' "$replacement_pid"
+      return 0
+    fi
+
+    if [ $(( $(date +%s) - start )) -ge "$timeout" ]; then
+      return 1
+    fi
+
+    sleep 1
+  done
+}
+
 terminate_pid() {
   local label="$1"
   local pid="$2"
@@ -400,10 +434,22 @@ monitor_processes() {
 
   while true; do
     if [ "$LOCAL_RUNTIME_OWNED" = "1" ] && ! kill -0 "$LOCAL_RUNTIME_PID" >/dev/null 2>&1; then
+      replacement_pid="$(adopt_restarted_process "$LOCAL_RUNTIME_URL" "$LOCAL_RUNTIME_PID_FILE" || true)"
+      if [ -n "$replacement_pid" ]; then
+        LOCAL_RUNTIME_PID="$replacement_pid"
+        log "Local runtime was restarted by the UI; now monitoring pid $LOCAL_RUNTIME_PID."
+        continue
+      fi
       print_log_tail "local runtime" "$LOCAL_RUNTIME_LOG"
       die "Local runtime process exited."
     fi
     if [ "$BACKEND_OWNED" = "1" ] && ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
+      replacement_pid="$(adopt_restarted_process "$BACKEND_URL" "$BACKEND_PID_FILE" || true)"
+      if [ -n "$replacement_pid" ]; then
+        BACKEND_PID="$replacement_pid"
+        log "Backend was restarted by the UI; now monitoring pid $BACKEND_PID."
+        continue
+      fi
       print_log_tail "backend" "$BACKEND_LOG"
       die "Backend process exited."
     fi

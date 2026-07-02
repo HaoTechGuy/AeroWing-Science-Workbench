@@ -66,7 +66,7 @@ function labelFromHost(host: string): string {
 }
 
 function defaultWorkspaceForHost(host: string): string {
-  return `~/internagents-workspaces/${host.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
+  return `~/internagents-projects/${host.replace(/[^a-zA-Z0-9_-]+/g, "-")}`;
 }
 
 function labelFromSshCommand(command: string): string {
@@ -294,10 +294,10 @@ export function RemoteConnectionDialog({
     >
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>接入远程工作区</DialogTitle>
+          <DialogTitle>接入远程项目</DialogTitle>
           <DialogDescription>
             连接一台可以通过 SSH 登录的远端机器。InternAgents
-            会在远端准备运行环境，并把你指定的目录加入工作区列表，之后可以像本地工作区一样切换使用。
+            会在远端准备运行环境，并把你指定的目录加入项目列表，之后可以像本地项目一样切换使用。
           </DialogDescription>
         </DialogHeader>
 
@@ -400,11 +400,11 @@ export function RemoteConnectionDialog({
               id="remote-workspace"
               value={workspace}
               onChange={(event) => setWorkspace(event.target.value)}
-              placeholder="~/internagents-workspaces/volcano"
+              placeholder="~/internagents-projects/volcano"
             />
             <p className="text-xs text-muted-foreground">
               这是远端机器上的项目目录。InternAgents
-              会把它作为文件浏览和任务执行的工作区；运行环境会安装到独立目录，不会放进这里。
+              会把它作为文件浏览和任务执行的项目目录；运行环境会安装到独立目录，不会放进这里。
             </p>
           </div>
 
@@ -487,7 +487,7 @@ export function RemoteConnectionDialog({
             <div className="min-w-0 space-y-1">
               <div className="text-sm font-medium">自动同步本机运行配置</div>
               <p className="text-xs leading-5 text-muted-foreground">
-                首次接入和每次切换到远端工作区时，都会同步本机 .env 和
+                首次接入和每次切换到远端项目时，都会同步本机 .env 和
                 deepagent.config.json。配置可能包含 API Key，请只连接信任的远端机器。
               </p>
             </div>
