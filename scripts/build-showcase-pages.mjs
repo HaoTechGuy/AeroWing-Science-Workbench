@@ -1,0 +1,357 @@
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const outDir = path.join(root, "pages-dist");
+const showcaseAssetsDir = path.join(root, "ui", "public", "showcase");
+const pagesShowcaseDir = path.join(outDir, "showcase");
+const basePath = (process.env.PAGES_BASE_PATH || "").replace(/\/$/, "");
+const asset = (name) => `${basePath}/showcase/${name}`;
+const releasesUrl = "https://github.com/qzzqzzb/OpenClaudeScience/releases";
+const githubUrl = "https://github.com/qzzqzzb/OpenClaudeScience";
+
+const features = [
+  ["远程计算资源", "连接 SSH 计算主机，查看诊断日志，在对话中审阅并确认远程计算任务。"],
+  ["科学技能开箱即用", "文献调研、结果分析、图表、论文写作、文档、幻灯片和领域 workflow 可直接复用。"],
+  ["MCP/SCP 科研工具生态", "接入外部工具、数据库和服务；对接上海人工智能实验室 SCP 能力生态，让领域工具进入工作台。"],
+  ["国产模型灵活接入", "可连接 DeepSeek、通义千问、GLM 等国产模型服务，即将支持上海人工智能实验室集思国产模型免费平台。"],
+  ["本地优先，数据可控", "项目文件、密钥和运行状态默认留在你控制的机器上。"],
+  ["面向真实科研文件", "支持 PDF、Office、图片、分子结构、科学数据输出和生成 artifact 的浏览、搜索、预览和引用。"],
+];
+
+const demos = [
+  ["pbtio3-analysis.gif", "PbTiO3 钙钛矿替换分析", "围绕 A 位/B 位替换，生成结构文件、预测畸变并整理分析报告。"],
+  ["caffeine-analysis.gif", "咖啡因计算化学研究", "生成结构、计算轨道与红外光谱，并把图片和报告留在项目里。"],
+  ["y-mixer-model.gif", "Y 型微流控混合器建模", "从建模请求到速度场、浓度场和对比图，串起一次仿真分析。"],
+];
+
+const screenshots = [
+  ["workspace-preview-cn.jpeg", "中文工作台总览", "large"],
+  ["workbench-tour.png", "三栏工作区"],
+  ["file-preview.png", "科研文件预览"],
+  ["config.png", "模型与授权设置"],
+  ["connect.png", "连接与运行状态"],
+  ["remote-compute-card.png", "远程计算审批"],
+];
+
+function renderFeatureCards() {
+  return features
+    .map(
+      ([title, copy]) => `
+        <article class="card feature-card">
+          <div class="feature-mark"></div>
+          <h3>${title}</h3>
+          <p>${copy}</p>
+        </article>`
+    )
+    .join("");
+}
+
+function renderDemos() {
+  return demos
+    .map(
+      ([image, title, copy]) => `
+        <article class="demo-card">
+          <img src="${asset(image)}" alt="${title}" loading="lazy" />
+          <div class="demo-copy">
+            <h3>${title}</h3>
+            <p>${copy}</p>
+          </div>
+        </article>`
+    )
+    .join("");
+}
+
+function renderScreenshots() {
+  return screenshots
+    .map(
+      ([image, title, size]) => `
+        <article class="shot ${size === "large" ? "shot-large" : ""}">
+          <img src="${asset(image)}" alt="${title}" loading="lazy" />
+          <div class="shot-label">
+            <span>截图</span>
+            <h3>${title}</h3>
+          </div>
+        </article>`
+    )
+    .join("");
+}
+
+const html = `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>InternAgentS | 科研智能体工作台</title>
+    <meta name="description" content="InternAgentS：面向开源社区的科研智能体工作台。" />
+    <meta property="og:title" content="InternAgentS" />
+    <meta property="og:description" content="把科研项目变成会行动的智能体工作台。" />
+    <meta property="og:image" content="${asset("internagentS.png")}" />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1e1233;
+        --muted: #706b78;
+        --purple-950: #12091f;
+        --purple-900: #160926;
+        --purple-800: #241040;
+        --purple-700: #4c1d95;
+        --purple-600: #6d28d9;
+        --violet: #a855f7;
+        --gold: #f5b85b;
+        --cyan: #2dd4bf;
+        --paper: #f6f3fb;
+        --paper-strong: #ece7f8;
+        --line: #ded8e8;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      a { color: inherit; text-decoration: none; }
+      img { display: block; max-width: 100%; }
+      .section-inner { width: min(100% - 48px, 1280px); margin: 0 auto; }
+      .hero {
+        position: relative;
+        min-height: 88vh;
+        overflow: hidden;
+        background: var(--purple-900);
+        color: white;
+      }
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px),
+          linear-gradient(110deg,#160926 0%,#241040 34%,rgba(76,29,149,0.82) 62%,rgba(15,8,28,0.94) 100%);
+        background-size: 48px 48px, 48px 48px, auto;
+      }
+      .hero::after {
+        content: "";
+        position: absolute;
+        left: -18%;
+        top: 19%;
+        width: 86%;
+        height: 110px;
+        transform: rotate(-10deg);
+        background: linear-gradient(90deg, transparent, rgba(245,184,91,0.18), rgba(168,85,247,0.42), transparent);
+      }
+      .hero-panel {
+        position: absolute;
+        right: -6rem;
+        top: 5rem;
+        width: min(760px, 58vw);
+        transform: rotate(-3deg);
+        opacity: 0.94;
+        border: 1px solid rgba(255,255,255,0.22);
+        border-radius: 8px;
+        background: rgba(255,255,255,0.08);
+        box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+      }
+      .hero-panel-bar { height: 44px; border-bottom: 1px solid rgba(255,255,255,0.14); display: flex; align-items: center; gap: 8px; padding: 0 18px; }
+      .dot { width: 10px; height: 10px; border-radius: 50%; }
+      .hero-panel-grid { display: grid; grid-template-columns: 170px 1fr 220px; min-height: 430px; }
+      .hero-panel-grid > div { border-right: 1px solid rgba(255,255,255,0.12); padding: 22px; }
+      .hero-panel-grid > div:last-child { border-right: 0; }
+      .panel-pill { height: 42px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.08); margin-bottom: 14px; }
+      .panel-card { border: 1px solid rgba(255,255,255,0.45); border-radius: 7px; min-height: 92px; margin-bottom: 18px; padding: 20px; color: rgba(255,255,255,0.86); }
+      .artifact { background: white; color: #1e1233; }
+      .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+      .swatches span { height: 72px; border-radius: 6px; }
+      .hero-content {
+        position: relative;
+        z-index: 1;
+        min-height: 88vh;
+        padding: 132px 0 120px;
+      }
+      .eyebrow { margin: 0 0 22px; color: var(--gold); font-size: 14px; font-weight: 900; }
+      h1 { margin: 0; font-size: clamp(4.4rem, 10vw, 8rem); line-height: 1; letter-spacing: 0; color: white; }
+      .hero h2 { max-width: 780px; margin: 20px 0 0; color: white; font-size: clamp(2rem, 4vw, 3.7rem); line-height: 1.08; }
+      .hero-copy { max-width: 680px; margin: 24px 0 0; color: rgba(255,255,255,0.82); font-size: 20px; line-height: 1.65; }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        min-height: 56px;
+        gap: 10px;
+        border-radius: 8px;
+        padding: 0 24px;
+        font-weight: 900;
+        border: 1px solid transparent;
+      }
+      .button-primary { background: var(--gold); color: var(--purple-900); box-shadow: 0 20px 45px rgba(245,184,91,0.25); }
+      .button-secondary { background: white; color: var(--purple-900); }
+      section { padding: 70px 0; }
+      .section-label { margin: 0; color: var(--purple-600); font-size: 14px; font-weight: 900; }
+      .section-title { max-width: 800px; margin: 14px 0 0; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.16; }
+      .section-copy { max-width: 760px; margin: 18px 0 0; color: var(--muted); line-height: 1.7; }
+      .feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 34px; }
+      .card {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+        padding: 24px;
+        min-height: 164px;
+        box-shadow: 0 2px 12px rgba(76,29,149,0.05);
+      }
+      .feature-mark { width: 24px; height: 24px; margin-bottom: 22px; border-radius: 7px; background: linear-gradient(135deg, var(--purple-600), var(--violet), var(--cyan)); }
+      .card h3 { margin: 0; font-size: 21px; }
+      .card p { color: var(--muted); line-height: 1.65; margin: 12px 0 0; }
+      .workbench { background: var(--paper-strong); border-block: 1px solid var(--line); }
+      .workbench-shot {
+        margin-top: 34px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+        box-shadow: 0 24px 60px rgba(109,40,217,0.12);
+      }
+      .workbench-shot img { width: 100%; aspect-ratio: 16 / 8; object-fit: cover; object-position: left top; }
+      .demo { background: var(--purple-950); color: white; }
+      .demo .section-label { color: var(--gold); }
+      .demo .section-title { color: white; }
+      .demo .section-copy { color: rgba(255,255,255,0.68); }
+      .demo-list { display: grid; gap: 20px; margin-top: 34px; }
+      .demo-card {
+        position: relative;
+        overflow: hidden;
+        aspect-ratio: 2560 / 1276;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: var(--purple-900);
+        box-shadow: 0 26px 70px rgba(0,0,0,0.28);
+      }
+      .demo-card img { width: 100%; height: 100%; object-fit: contain; }
+      .demo-copy {
+        position: absolute;
+        left: 20px;
+        bottom: 20px;
+        max-width: 470px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(0,0,0,0.5);
+        padding: 18px;
+        color: white;
+      }
+      .demo-copy h3 { margin: 0; font-size: clamp(1.3rem, 3vw, 2rem); }
+      .demo-copy p { margin: 10px 0 0; color: rgba(255,255,255,0.75); line-height: 1.6; }
+      .shots-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 34px; }
+      .shot { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: white; min-height: 260px; }
+      .shot-large { grid-column: span 2; grid-row: span 2; }
+      .shot img { width: 100%; height: 100%; min-height: inherit; object-fit: cover; object-position: left top; opacity: 0.78; }
+      .shot::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.82)); }
+      .shot-label { position: absolute; z-index: 1; inset: 18px; display: flex; flex-direction: column; justify-content: space-between; }
+      .shot-label span { width: fit-content; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,0.86); color: var(--purple-600); padding: 8px 12px; font-size: 13px; font-weight: 900; }
+      .shot-label h3 { margin: 0; font-size: 24px; }
+      .footer-cta {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(115deg,#160926,#241040 55%,#4c1d95);
+        color: white;
+      }
+      .footer-row { display: flex; justify-content: space-between; align-items: center; gap: 32px; }
+      .footer-cta h2 { color: white; }
+      @media (max-width: 900px) {
+        .section-inner { width: min(100% - 32px, 1280px); }
+        .hero-panel { display: none; }
+        .hero-content { padding-top: 86px; }
+        .feature-grid, .shots-grid { grid-template-columns: 1fr; }
+        .shot-large { grid-column: auto; grid-row: auto; }
+        .footer-row { align-items: flex-start; flex-direction: column; }
+      }
+      @media (max-width: 620px) {
+        h1 { font-size: 4rem; }
+        .demo-copy { position: relative; left: auto; bottom: auto; max-width: none; margin: 12px; }
+        .demo-card { aspect-ratio: auto; }
+        .demo-card img { height: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="hero-panel">
+          <div class="hero-panel-bar"><span class="dot" style="background:#f5b85b"></span><span class="dot" style="background:#a855f7"></span><span class="dot" style="background:#2dd4bf"></span></div>
+          <div class="hero-panel-grid">
+            <div><div class="panel-pill"></div><div class="panel-pill"></div><div class="panel-pill"></div></div>
+            <div><div class="panel-card">已生成计划</div><div class="panel-card artifact">产物就绪<div class="swatches"><span style="background:#d8b4fe"></span><span style="background:#f5b85b"></span><span style="background:#2dd4bf"></span></div></div><div class="panel-card">工具审批</div></div>
+            <div><div class="panel-card">预览</div></div>
+          </div>
+        </div>
+        <div class="section-inner hero-content">
+          <p class="eyebrow">上海人工智能实验室研发</p>
+          <h1>InternAgentS</h1>
+          <h2>把科研项目变成会行动的智能体工作台。</h2>
+          <p class="hero-copy">把 Claude Science 式科研体验带给开源社区。</p>
+          <div class="actions">
+            <a class="button button-primary" href="${githubUrl}">☆ 在 GitHub 上 Star</a>
+            <a class="button button-secondary" href="${releasesUrl}">↓ 下载 Mac 安装包</a>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-inner">
+          <p class="section-label">功能概览</p>
+          <h2 class="section-title">不止是聊天入口，而是科研项目工作台。</h2>
+          <p class="section-copy">InternAgentS 基于 DeepAgents 和 LangGraph，围绕科研项目重组 runtime、workspace、skills、tools 和授权流程。</p>
+          <div class="feature-grid">${renderFeatureCards()}</div>
+        </div>
+      </section>
+
+      <section class="workbench">
+        <div class="section-inner">
+          <p class="section-label">工作台界面</p>
+          <h2 class="section-title">三栏工作台，把对话、文件和运行状态放在一起。</h2>
+          <p class="section-copy">右侧面板保持项目文件和产物可见，中间区域专注当前任务，左侧管理项目、会话、设置和技能。</p>
+          <div class="workbench-shot"><img src="${asset("workspace-preview-cn.jpeg")}" alt="三栏工作台界面" loading="lazy" /></div>
+        </div>
+      </section>
+
+      <section class="demo">
+        <div class="section-inner">
+          <p class="section-label">例子演示</p>
+          <h2 class="section-title">三个科学场景，展示从问题到产出。</h2>
+          <p class="section-copy">提问、检查、审批、运行、预览，过程不断线。</p>
+          <div class="demo-list">${renderDemos()}</div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-inner">
+          <p class="section-label">截图墙</p>
+          <h2 class="section-title">让工作过程一眼可见。</h2>
+          <div class="shots-grid">${renderScreenshots()}</div>
+        </div>
+      </section>
+
+      <section class="footer-cta">
+        <div class="section-inner footer-row">
+          <div>
+            <p class="eyebrow">开源 | MIT 许可证</p>
+            <h2 class="section-title">InternAgentS：面向开源社区的科研智能体工作台。</h2>
+          </div>
+          <a class="button button-primary" href="${githubUrl}">在 GitHub 上 Star →</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`;
+
+await rm(outDir, { recursive: true, force: true });
+await mkdir(pagesShowcaseDir, { recursive: true });
+await cp(showcaseAssetsDir, pagesShowcaseDir, { recursive: true });
+await writeFile(path.join(outDir, "index.html"), html);
+await mkdir(path.join(outDir, "showcase"), { recursive: true });
+await writeFile(path.join(outDir, "showcase", "index.html"), html);
+
+console.log(`Built GitHub Pages showcase at ${outDir}`);
