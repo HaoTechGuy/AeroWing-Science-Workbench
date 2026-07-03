@@ -1,0 +1,570 @@
+"use client";
+
+import { type CSSProperties } from "react";
+import {
+  ArrowRight,
+  BrainCircuit,
+  Download,
+  FileStack,
+  Github,
+  Image as ImageIcon,
+  Layers3,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  Star,
+} from "lucide-react";
+
+const githubUrl = "https://github.com/qzzqzzb/OpenClaudeScience";
+const macDownloadUrl = "https://github.com/InternScience/InternAgents/releases/latest";
+
+const demoLoops = [
+  {
+    path: "/showcase/pbtio3-analysis.gif",
+    title: "PbTiO3 钙钛矿替换分析",
+    copy: "围绕 A 位/B 位替换，生成结构文件、预测畸变并整理分析报告。",
+    tone: "amber",
+  },
+  {
+    path: "/showcase/caffeine-analysis.gif",
+    title: "咖啡因计算化学研究",
+    copy: "生成结构、计算轨道与红外光谱，并把图片和报告留在项目里。",
+    tone: "violet",
+  },
+  {
+    path: "/showcase/y-mixer-model.gif",
+    title: "Y 型微流控混合器建模",
+    copy: "从建模请求到速度场、浓度场和对比图，串起一次仿真分析。",
+    tone: "cyan",
+  },
+];
+
+const screenshots = [
+  {
+    path: "/showcase/workspace-preview-cn.jpeg",
+    title: "中文工作台总览",
+  },
+  {
+    path: "/showcase/workbench-tour.png",
+    title: "三栏工作区",
+  },
+  {
+    path: "/showcase/file-preview.png",
+    title: "科研文件预览",
+  },
+  {
+    path: "/showcase/config.png",
+    title: "模型与授权设置",
+  },
+  {
+    path: "/showcase/connect.png",
+    title: "连接与运行状态",
+  },
+  {
+    path: "/showcase/remote-compute-card.png",
+    title: "远程计算审批",
+  },
+];
+
+const projectHighlights = [
+  {
+    icon: Rocket,
+    title: "远程计算资源",
+    copy: "连接 SSH 计算主机，查看诊断日志，在对话中审阅并确认远程计算任务。",
+  },
+  {
+    icon: Sparkles,
+    title: "科学技能开箱即用",
+    copy: "文献调研、结果分析、图表、论文写作、文档、幻灯片和领域 workflow 可直接复用。",
+  },
+  {
+    icon: Layers3,
+    title: "MCP/SCP 科研工具生态",
+    copy: "接入外部工具、数据库和服务；对接上海人工智能实验室 SCP 能力生态，让领域工具进入工作台。",
+  },
+  {
+    icon: BrainCircuit,
+    title: "国产模型灵活接入",
+    copy: "可连接 DeepSeek、通义千问、GLM 等国产模型服务，即将支持上海人工智能实验室集思国产模型免费平台。",
+  },
+  {
+    icon: ShieldCheck,
+    title: "本地优先，数据可控",
+    copy: "项目文件、密钥和运行状态默认留在你控制的机器上。",
+  },
+  {
+    icon: FileStack,
+    title: "面向真实科研文件",
+    copy: "支持 PDF、Office、图片、分子结构、科学数据输出和生成 artifact 的浏览、搜索、预览和引用。",
+  },
+];
+
+function MediaSlot({
+  path,
+  title,
+  copy,
+  tone,
+  featured = false,
+}: {
+  path: string;
+  title: string;
+  copy: string;
+  tone: string;
+  featured?: boolean;
+}) {
+  const glow =
+    tone === "amber"
+      ? "rgba(245,184,91,0.5)"
+      : tone === "cyan"
+        ? "rgba(45,212,191,0.42)"
+        : "rgba(168,85,247,0.5)";
+
+  return (
+    <article
+      className={[
+        "ocs-media group relative overflow-hidden rounded-lg border border-white/15 bg-[#160926] text-white shadow-2xl shadow-[#160926]/30",
+        featured ? "lg:col-span-2" : "",
+      ].join(" ")}
+      style={{ "--slot-glow": glow, aspectRatio: "2560 / 1276" } as CSSProperties}
+    >
+      <img
+        src={path}
+        alt=""
+        className="absolute inset-0 h-full w-full object-contain"
+      />
+      <div className="relative flex h-full flex-col justify-between p-5">
+        <div className="flex items-center justify-end gap-4">
+          <span className="hidden h-2 w-24 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7,#2dd4bf)] opacity-80 sm:block" />
+        </div>
+        <div className="w-fit max-w-2xl rounded-lg border border-white/16 bg-black/50 p-4 backdrop-blur-md">
+          <h3 className="max-w-xl text-2xl font-semibold tracking-normal !text-white sm:text-3xl">
+            {title}
+          </h3>
+          <p className="mt-3 max-w-md text-sm leading-6 text-white/72">
+            {copy}
+          </p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function WorkflowSwitcher() {
+  return (
+    <div className="grid gap-5">
+      {demoLoops.map((story) => (
+        <MediaSlot
+          key={story.path}
+          {...story}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ScreenshotTile({
+  path,
+  title,
+  featured = false,
+}: {
+  path: string;
+  title: string;
+  featured?: boolean;
+}) {
+  return (
+    <article
+      className={[
+        "group relative overflow-hidden rounded-lg border border-[#ded8e8] bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#6d28d9]/12",
+        featured ? "md:col-span-2 md:row-span-2" : "",
+      ].join(" ")}
+    >
+      <div
+        className={[
+          "relative bg-cover bg-center",
+          featured ? "aspect-[16/10]" : "aspect-[4/3]",
+        ].join(" ")}
+        style={{
+          backgroundImage: `linear-gradient(135deg, rgba(246,243,251,0.28), rgba(216,180,254,0.16), rgba(245,184,91,0.08)), url('${path}')`,
+        }}
+      >
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.82))]" />
+        <div className="relative flex h-full flex-col justify-between p-4">
+          <span className="inline-flex w-fit items-center gap-2 rounded-md border border-[#ded8e8] bg-white/82 px-3 py-1.5 text-xs font-semibold uppercase tracking-normal text-[#6d28d9] backdrop-blur">
+            <ImageIcon className="h-3.5 w-3.5" />
+            截图
+          </span>
+          <div>
+            <h3 className="text-xl font-semibold tracking-normal text-[#1e1233]">
+              {title}
+            </h3>
+            <div className="mt-3 h-1.5 w-24 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7)]" />
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function HeroScene() {
+  return (
+    <div
+      aria-hidden="true"
+      className="absolute inset-0 overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-[#160926]" />
+      <div
+        className="absolute inset-0 opacity-28"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px)",
+          backgroundSize: "48px 48px",
+        }}
+      />
+      <div className="absolute inset-0 bg-[linear-gradient(110deg,#160926_0%,#241040_34%,rgba(76,29,149,0.78)_62%,rgba(15,8,28,0.94)_100%)]" />
+      <div className="ocs-energy absolute left-[-18%] top-[18%] h-28 w-[82%] rotate-[-10deg] bg-[linear-gradient(90deg,transparent,rgba(245,184,91,0.18),rgba(168,85,247,0.42),transparent)] blur-[1px]" />
+      <div className="ocs-energy ocs-energy-delay absolute bottom-[17%] right-[-12%] h-24 w-[74%] rotate-[-10deg] bg-[linear-gradient(90deg,transparent,rgba(45,212,191,0.16),rgba(168,85,247,0.32),transparent)] blur-[1px]" />
+      <div
+        className="absolute -right-10 top-16 hidden text-[6rem] font-black uppercase leading-none text-transparent opacity-[0.1] md:block lg:text-[8.8rem]"
+        style={{ WebkitTextStroke: "1px rgba(255,255,255,0.72)" }}
+      >
+        科研
+        <br />
+        工作台
+      </div>
+      <div className="absolute inset-y-0 right-0 hidden w-1/2 border-l border-white/10 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.05))] md:block" />
+
+      <div className="ocs-stage absolute right-[-24rem] top-20 hidden w-[620px] rotate-[-3deg] opacity-35 md:block lg:right-[-5rem] lg:top-24 lg:w-[780px] lg:opacity-100">
+        <div className="relative overflow-hidden rounded-lg border border-white/18 bg-white/[0.08] shadow-2xl shadow-black/45 backdrop-blur-md">
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.1),transparent_42%,rgba(245,184,91,0.14))]" />
+          <div className="relative flex h-12 items-center justify-between border-b border-white/12 px-4">
+            <div className="flex gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#f5b85b]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#a855f7]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#2dd4bf]" />
+            </div>
+            <div className="rounded-md border border-white/14 bg-black/20 px-3 py-1 font-mono text-xs text-white/62">
+              internagents.local
+            </div>
+          </div>
+          <div className="relative grid h-[456px] grid-cols-[180px_minmax(0,1fr)_232px]">
+            <div className="border-r border-white/10 bg-black/18 p-4">
+              <div className="mb-5 h-3 w-28 rounded bg-white/30" />
+              <div className="space-y-2">
+                {["项目文件", "能力", "计算", "审批"].map(
+                  (item, index) => (
+                    <div
+                      key={item}
+                      className={[
+                        "rounded-md border px-3 py-2 text-xs",
+                        index === 1
+                          ? "border-[#f5b85b]/55 bg-[#f5b85b]/16 text-[#ffe2ad]"
+                          : "border-white/10 bg-white/[0.05] text-white/50",
+                      ].join(" ")}
+                    >
+                      {item}
+                    </div>
+                  )
+                )}
+              </div>
+              <div className="mt-8 space-y-2">
+                <div className="h-1.5 rounded-full bg-[#a855f7]/70" />
+                <div className="h-1.5 w-2/3 rounded-full bg-white/18" />
+                <div className="h-1.5 w-4/5 rounded-full bg-white/14" />
+              </div>
+            </div>
+
+            <div className="relative p-5">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <div className="mb-2 h-3 w-48 rounded bg-white/34" />
+                  <div className="h-2 w-28 rounded bg-white/18" />
+                </div>
+                <div className="rounded-md border border-[#f5b85b]/45 bg-[#f5b85b]/16 px-3 py-1.5 text-xs font-semibold uppercase tracking-normal text-[#ffe2ad]">
+                  运行中
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="ocs-pulse-panel max-w-md rounded-lg border border-white/14 bg-white/[0.07] p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/78">
+                    <Sparkles className="h-4 w-4 text-[#f5b85b]" />
+                    已生成计划
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-2 rounded bg-white/28" />
+                    <div className="h-2 w-5/6 rounded bg-white/18" />
+                    <div className="h-2 w-2/3 rounded bg-white/14" />
+                  </div>
+                </div>
+
+                <div className="ml-auto max-w-xs rounded-lg bg-[#f6f3fb] p-4 text-[#1e1233] shadow-xl shadow-black/25">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Rocket className="h-4 w-4 text-[#6d28d9]" />
+                    <span className="text-sm font-semibold">产物就绪</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="aspect-square rounded-md bg-[#d8b4fe]" />
+                    <div className="aspect-square rounded-md bg-[#f5b85b]" />
+                    <div className="aspect-square rounded-md bg-[#2dd4bf]" />
+                  </div>
+                </div>
+
+                <div className="max-w-md rounded-lg border border-[#a855f7]/38 bg-[#a855f7]/14 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#d8b4fe]">
+                    <ShieldCheck className="h-4 w-4" />
+                    工具审批
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-28 rounded-md bg-[#f5b85b] text-center text-sm font-bold leading-9 text-[#1e1233]">
+                      批准
+                    </div>
+                    <div className="h-2 flex-1 rounded-full bg-white/18">
+                      <div className="h-full w-2/3 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7)]" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-l border-white/10 bg-black/14 p-4">
+              <div className="mb-4 flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-[#d8b4fe]">
+                <FileStack className="h-4 w-4" />
+                预览
+              </div>
+              <div className="relative aspect-square overflow-hidden rounded-lg border border-white/14 bg-[linear-gradient(135deg,rgba(168,85,247,0.34),rgba(45,212,191,0.14),rgba(245,184,91,0.12))]">
+                <div className="absolute inset-6 border border-white/20" />
+                <div className="absolute left-8 top-8 h-16 w-16 rounded-md border border-white/25 bg-white/12" />
+                <div className="absolute bottom-7 right-7 h-20 w-20 rounded-md border border-[#f5b85b]/40 bg-[#f5b85b]/18" />
+              </div>
+              <div className="mt-4 space-y-2">
+                <div className="h-2 rounded bg-white/24" />
+                <div className="h-2 w-2/3 rounded bg-white/16" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function ShowcasePage() {
+  return (
+    <main className="min-h-screen bg-[#f6f3fb] text-[#1e1233]">
+      <style>{`
+        @keyframes ocsSweep {
+          0% { transform: translateX(-18%) rotate(-10deg); opacity: 0.2; }
+          48% { opacity: 0.82; }
+          100% { transform: translateX(18%) rotate(-10deg); opacity: 0.28; }
+        }
+        @keyframes ocsFloat {
+          0%, 100% { transform: translateY(0) rotate(-3deg); }
+          50% { transform: translateY(-14px) rotate(-2deg); }
+        }
+        @keyframes ocsPanelPulse {
+          0%, 100% { box-shadow: 0 0 0 rgba(245,184,91,0); }
+          50% { box-shadow: 0 0 42px rgba(245,184,91,0.16); }
+        }
+        .ocs-energy { animation: ocsSweep 8s ease-in-out infinite alternate; }
+        .ocs-energy-delay { animation-delay: -3s; }
+        .ocs-stage { animation: ocsFloat 7s ease-in-out infinite; }
+        .ocs-pulse-panel { animation: ocsPanelPulse 3.8s ease-in-out infinite; }
+        .ocs-media::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border: 1px solid color-mix(in srgb, var(--slot-glow), white 20%);
+          border-radius: 8px;
+          opacity: 0;
+          transition: opacity 180ms ease;
+          pointer-events: none;
+        }
+        .ocs-media:hover::after { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) {
+          .ocs-energy,
+          .ocs-stage,
+          .ocs-pulse-panel {
+            animation: none;
+          }
+        }
+      `}</style>
+
+      <section className="relative min-h-[760px] overflow-hidden bg-[#160926] text-white lg:min-h-[88vh]">
+        <HeroScene />
+        <div className="relative mx-auto min-h-[760px] max-w-7xl px-6 py-6 sm:px-8 lg:min-h-[88vh] lg:px-10">
+          <div className="max-w-5xl pb-16 pt-24 sm:pt-28 lg:pt-32">
+            <div className="mb-6 inline-flex items-center gap-2 text-sm font-black tracking-normal text-[#f5b85b]">
+              <Sparkles className="h-4 w-4 text-[#f5b85b]" />
+              上海人工智能实验室研发
+            </div>
+            <h1 className="max-w-full text-5xl font-black leading-none tracking-normal !text-white sm:text-7xl lg:text-[7rem] xl:text-[8rem]">
+              InternAgentS
+            </h1>
+            <p className="mt-5 max-w-3xl text-3xl font-black leading-tight text-white sm:text-5xl">
+              把科研项目变成会行动的智能体工作台。
+            </p>
+            <p className="mt-6 max-w-2xl text-xl leading-8 text-white/82">
+              把 Claude Science 式科研体验带给开源社区。
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-3">
+              <a
+                href={githubUrl}
+                className="inline-flex h-14 items-center gap-2 rounded-md bg-[#f5b85b] px-6 text-base font-black text-[#160926] shadow-2xl shadow-[#f5b85b]/30 transition hover:-translate-y-0.5 hover:bg-[#ffd48a]"
+              >
+                <Star className="h-5 w-5" />
+                在 GitHub 上 Star
+              </a>
+              <a
+                href={macDownloadUrl}
+                className="inline-flex h-14 items-center gap-2 rounded-md border border-white/22 bg-white px-6 text-base font-black text-[#160926] shadow-2xl shadow-white/12 transition hover:-translate-y-0.5 hover:bg-[#f6f3fb]"
+              >
+                <Download className="h-5 w-5" />
+                下载 Mac 安装包
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-[#f6f3fb] px-6 py-14 sm:px-8 lg:px-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div>
+              <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+                功能概览
+              </p>
+              <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal">
+                不止是聊天入口，而是科研项目工作台。
+              </h2>
+              <p className="mt-4 max-w-3xl text-sm leading-6 text-[#706b78]">
+                InternAgentS 基于 DeepAgents 和 LangGraph，围绕科研项目重组
+                runtime、workspace、skills、tools 和授权流程。
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {projectHighlights.map((highlight) => {
+              const Icon = highlight.icon;
+              return (
+                <article
+                  key={highlight.title}
+                  className="group relative overflow-hidden rounded-lg border border-[#ded8e8] bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-[#c084fc] hover:shadow-xl hover:shadow-[#6d28d9]/12"
+                >
+                  <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#f5b85b,#a855f7,#2dd4bf)] opacity-0 transition group-hover:opacity-100" />
+                  <Icon className="h-6 w-6 text-[#6d28d9]" />
+                  <h3 className="mt-5 text-xl font-black tracking-normal">
+                    {highlight.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-[#706b78]">
+                    {highlight.copy}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-[#ded8e8] bg-[#ece7f8] px-6 py-16 sm:px-8 lg:px-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div>
+              <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+                工作台界面
+              </p>
+              <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal">
+                三栏工作台，把对话、文件和运行状态放在一起。
+              </h2>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#706b78]">
+                右侧面板保持项目文件和产物可见，中间区域专注当前任务，左侧管理项目、会话、设置和技能。
+              </p>
+            </div>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-[#ded8e8] bg-white shadow-2xl shadow-[#6d28d9]/12">
+            <div
+              className="aspect-[16/8] bg-cover bg-left-top"
+              style={{
+                backgroundImage:
+                  "linear-gradient(180deg, rgba(246,243,251,0.08), rgba(246,243,251,0.1)), url('/showcase/workspace-preview-cn.jpeg')",
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="demo"
+        className="bg-[#12091f] px-6 py-16 text-white sm:px-8 lg:px-10"
+      >
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div>
+              <p className="text-sm font-black uppercase tracking-normal text-[#f5b85b]">
+                例子演示
+              </p>
+              <h2 className="mt-3 text-4xl font-black leading-tight tracking-normal !text-white sm:text-5xl">
+                三个科学场景，展示从问题到产出。
+              </h2>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-white/68">
+                提问、检查、审批、运行、预览，过程不断线。
+              </p>
+            </div>
+          </div>
+          <WorkflowSwitcher />
+        </div>
+      </section>
+
+      <section className="bg-[#f6f3fb] px-6 py-16 sm:px-8 lg:px-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div>
+              <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+                截图墙
+              </p>
+              <h2 className="mt-3 text-4xl font-black leading-tight tracking-normal sm:text-5xl">
+                让工作过程一眼可见。
+              </h2>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {screenshots.map((screenshot, index) => (
+              <ScreenshotTile
+                key={screenshot.path}
+                {...screenshot}
+                featured={index === 0}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="relative overflow-hidden bg-[#160926] px-6 py-16 text-white sm:px-8 lg:px-10">
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,#160926,#241040_55%,#4c1d95)]" />
+        <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,#f5b85b,#a855f7,transparent)]" />
+        <div
+          aria-hidden="true"
+          className="absolute -right-20 top-8 hidden h-36 w-[520px] bg-contain bg-right bg-no-repeat opacity-20 lg:block"
+          style={{ backgroundImage: "url('/showcase/internagentS.png')" }}
+        />
+        <div className="relative mx-auto flex max-w-7xl flex-col justify-between gap-8 lg:flex-row lg:items-center">
+          <div>
+            <p className="text-sm font-black uppercase tracking-normal text-[#f5b85b]">
+              开源 | MIT 许可证
+            </p>
+            <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal !text-white sm:text-5xl">
+              InternAgentS：面向开源社区的科研智能体工作台。
+            </h2>
+          </div>
+          <a
+            href={githubUrl}
+            className="inline-flex h-16 w-fit items-center gap-3 rounded-md bg-[#f5b85b] px-7 text-lg font-black text-[#160926] shadow-2xl shadow-[#f5b85b]/30 transition hover:-translate-y-0.5 hover:bg-[#ffd48a]"
+          >
+            <Github className="h-5 w-5" />
+            在 GitHub 上 Star
+            <ArrowRight className="h-5 w-5" />
+          </a>
+        </div>
+      </section>
+    </main>
+  );
+}
