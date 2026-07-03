@@ -129,11 +129,11 @@ INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 
 ![Caffeine 分析演示](./docs/assets/readme-cn/caffeine-analysis.gif)
 
-### 数据与结构结果预览演示
+### 结果与结构产物预览演示
 
-工作台支持在会话、文件浏览和 artifact preview 之间切换。下面的示例展示了一个以 `Y` 命名的科研任务输出在同一界面中的浏览和预览流程。
+工作台支持在会话、文件浏览和 artifact preview 之间切换。下面的示例展示了 Agent 生成结构文件和分析结果后，用户如何在同一界面中继续查看会话上下文、浏览 workspace 文件，并打开右侧预览面板检查产物。
 
-![Y 任务分析演示](./docs/assets/readme-cn/y-analysis.gif)
+![科研结果与结构产物预览演示](./docs/assets/readme-cn/artifact-preview.gif)
 
 ## 新功能
 
