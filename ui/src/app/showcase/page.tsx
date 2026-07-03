@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 const githubUrl = "https://github.com/qzzqzzb/OpenClaudeScience";
-const macDownloadUrl = "https://github.com/InternScience/InternAgents/releases/latest";
+const macDownloadUrl = "https://github.com/qzzqzzb/OpenClaudeScience/releases";
 
 const demoLoops = [
   {
