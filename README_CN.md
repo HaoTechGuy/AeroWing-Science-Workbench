@@ -3,7 +3,7 @@
     <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
   </p>
 
-  <h1 align="center">InternAgentS · 面向科研文件、代码、技能和计算资源的本地优先 Agent 工作台。</h1>
+  <h1 align="center">InternAgentS：面向开源社区的 Claude Science 式研究工作台。</h1>
   <p align="center">
     基于 DeepAgents 和 LangGraph 扩展科研 Agent 运行时，连接项目上下文、文件系统、技能、远程资源和人工授权流程。
   </p>

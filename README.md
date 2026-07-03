@@ -3,7 +3,7 @@
     <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
   </p>
 
-  <h1 align="center">InternAgentS · A local-first research agent workbench for scientific files, code, skills, and compute.</h1>
+  <h1 align="center">InternAgentS: Bringing the Claude Science experience to the open-source world.</h1>
   <p align="center">
     Built on DeepAgents and LangGraph to extend research agent runtimes across project context, files, skills, remote resources, and human approvals.
   </p>
@@ -31,12 +31,9 @@
   </p>
 </div>
 
-InternAgentS gives researchers and developers a local-first research agent
-workbench for paper reading, experiment analysis, code iteration, skill usage,
-and compute-resource collaboration. It is built on DeepAgents/LangGraph and
-extends them with project-scoped runtimes, backend adapters, a workspace
-protocol, skill catalogs, local approval controls, and remote-resource
-coordination for research workflows.
+InternAgentS is a local-first research workspace built on DeepAgents/LangGraph,
+with project runtimes, skills, remote resources, and approval flows designed for
+scientific work.
 
 ## Highlights
 
