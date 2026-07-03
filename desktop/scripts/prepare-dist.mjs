@@ -1129,16 +1129,42 @@ async function relink(linkPath, targetName) {
 }
 
 async function normalizePythonLinks() {
-  const binDir = path.join(pythonRuntimeDir, "bin");
-  const python312 = path.join(binDir, "python3.12");
-  const python311 = path.join(binDir, "python3.11");
-  if (existsSync(python312)) {
-    await relink(path.join(binDir, "python"), "python3.12");
-    await relink(path.join(binDir, "python3"), "python3.12");
-  } else if (existsSync(python311)) {
-    await relink(path.join(binDir, "python"), "python3.11");
-    await relink(path.join(binDir, "python3"), "python3.11");
+  for (const binDir of pythonRuntimeBinDirectories(pythonRuntimeDir)) {
+    const python312 = path.join(binDir, "python3.12");
+    const python311 = path.join(binDir, "python3.11");
+    if (existsSync(python312) && await canNormalizePythonLinkTarget(python312)) {
+      await relink(path.join(binDir, "python"), "python3.12");
+      await relink(path.join(binDir, "python3"), "python3.12");
+    } else if (existsSync(python311) && await canNormalizePythonLinkTarget(python311)) {
+      await relink(path.join(binDir, "python"), "python3.11");
+      await relink(path.join(binDir, "python3"), "python3.11");
+    }
   }
+}
+
+async function canNormalizePythonLinkTarget(targetPath) {
+  const stat = await fs.lstat(targetPath).catch(() => null);
+  if (!stat?.isSymbolicLink()) {
+    return true;
+  }
+  const linkTarget = await fs.readlink(targetPath).catch(() => "");
+  return path.basename(linkTarget) !== "python";
+}
+
+function pythonRuntimeBinDirectories(runtimeDir) {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          path.join(runtimeDir, "Scripts"),
+          path.join(runtimeDir, "venv", "Scripts"),
+          path.join(runtimeDir, ".venv", "Scripts"),
+        ]
+      : [
+          path.join(runtimeDir, "bin"),
+          path.join(runtimeDir, "venv", "bin"),
+          path.join(runtimeDir, ".venv", "bin"),
+        ];
+  return uniquePaths(candidates).filter((candidate) => existsSync(candidate));
 }
 
 async function validatePythonRuntime() {
@@ -1289,41 +1315,42 @@ async function rewriteRuntimeSymlinks(sourceRoot) {
 }
 
 async function materializeExternalPythonSymlinks() {
-  const binDir = path.join(pythonRuntimeDir, "bin");
   const bundledRoot = path.resolve(pythonRuntimeDir);
-  await walk(binDir, async (entryPath, entry) => {
-    if (!entry.isSymbolicLink()) {
-      return;
-    }
+  for (const binDir of pythonRuntimeBinDirectories(pythonRuntimeDir)) {
+    await walk(binDir, async (entryPath, entry) => {
+      if (!entry.isSymbolicLink()) {
+        return;
+      }
 
-    const name = path.basename(entryPath);
-    if (!/^python(?:\d+(?:\.\d+)*)?$/.test(name)) {
-      return;
-    }
+      const name = path.basename(entryPath);
+      if (!/^python(?:\d+(?:\.\d+)*)?$/.test(name)) {
+        return;
+      }
 
-    const linkTarget = await fs.readlink(entryPath);
-    const absoluteTarget = path.isAbsolute(linkTarget)
-      ? linkTarget
-      : path.resolve(path.dirname(entryPath), linkTarget);
-    const resolvedTarget = await fs.realpath(absoluteTarget).catch(() => "");
-    if (!resolvedTarget || resolvedTarget.startsWith(`${bundledRoot}${path.sep}`)) {
-      return;
-    }
+      const linkTarget = await fs.readlink(entryPath);
+      const absoluteTarget = path.isAbsolute(linkTarget)
+        ? linkTarget
+        : path.resolve(path.dirname(entryPath), linkTarget);
+      const resolvedTarget = await fs.realpath(absoluteTarget).catch(() => "");
+      if (!resolvedTarget || resolvedTarget.startsWith(`${bundledRoot}${path.sep}`)) {
+        return;
+      }
 
-    const targetStat = await fs.stat(resolvedTarget).catch(() => null);
-    if (!targetStat?.isFile()) {
-      return;
-    }
+      const targetStat = await fs.stat(resolvedTarget).catch(() => null);
+      if (!targetStat?.isFile()) {
+        return;
+      }
 
-    await fs.rm(entryPath, { force: true });
-    await copyExecutable(resolvedTarget, entryPath);
-    console.log(
-      `Materialized external Python runtime symlink ${path.relative(
-        pythonRuntimeDir,
-        entryPath
-      )}.`
-    );
-  });
+      await fs.rm(entryPath, { force: true });
+      await copyExecutable(resolvedTarget, entryPath);
+      console.log(
+        `Materialized external Python runtime symlink ${path.relative(
+          pythonRuntimeDir,
+          entryPath
+        )}.`
+      );
+    });
+  }
 }
 
 async function assertNoExternalRuntimeSymlinks() {
