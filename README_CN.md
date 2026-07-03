@@ -64,6 +64,10 @@ InternAgentS 为研究者和开发者提供一个本地优先的科研 Agent 工
 
 ## 功能概览
 
+InternAgentS 将会话、项目文件、技能入口和本地运行状态放在同一个科研工作台中。右侧面板保持项目文件和产物可见，中间区域专注当前对话任务，方便在阅读、分析、运行和整理之间切换。
+
+![InternAgentS 中文界面预览](./docs/assets/readme/workspace-preview-cn.jpeg)
+
 ### 本地优先的科研工作区
 
 InternAgentS 采用三栏工作区：

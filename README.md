@@ -73,6 +73,13 @@ coordination for research workflows.
 
 ## Feature Overview
 
+InternAgentS brings chat, project sessions, file browsing, and local runtime
+status into a single research workbench. The right panel keeps project files and
+artifacts visible while the center conversation stays focused on the current
+task.
+
+![InternAgentS workspace preview](./docs/assets/readme/workspace-preview-en.jpeg)
+
 ### Local-First Research Workspace
 
 InternAgentS is organized as a three-panel workspace:
