@@ -71,6 +71,14 @@ scientific work.
 - Remote compute handoff: register a Linux SSH host, review the proposed compute
   job in chat, approve it, and let the local backend harvest configured outputs.
 
+### Analyzing Potential Lattice Distortions in PbTiO3 Perovskites Under A-Site/B-Site Substitution
+
+![PbTiO3 A-site/B-site substitution lattice distortion analysis](./docs/assets/readme/pbtio3-ab-site-substitution.gif)
+
+### Caffeine Computational Chemistry Study
+
+![Caffeine computational chemistry study](./docs/assets/readme/caffeine-computational-chemistry.gif)
+
 ## Feature Overview
 
 InternAgentS brings chat, project sessions, file browsing, and local runtime
