@@ -71,7 +71,7 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
         self.timeout = timeout
         self.max_output_bytes = max_output_bytes
         self.workspace_override = workspace_override
-        self.read_only_roots = [path.resolve() for path in read_only_roots or []]
+        self.read_only_roots = list(read_only_roots or [])
         self._sandbox_id = f"dynamic-local-{resource_id}-{uuid.uuid4().hex[:8]}"
 
     @property

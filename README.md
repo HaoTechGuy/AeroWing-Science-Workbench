@@ -137,6 +137,19 @@ For an OpenAI-compatible provider, set
 untracked `.env` or in the desktop app's Application Support runtime directory;
 they should not be committed.
 
+DeepSeek's official OpenAI-compatible endpoint can also be configured with
+provider-specific aliases:
+
+```env
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+When the OpenAI-compatible provider is selected, `DEEPSEEK_API_KEY`,
+`DEEPSEEK_BASE_URL`, and `DEEPSEEK_MODEL` are treated as aliases for the
+corresponding OpenAI-compatible key, base URL, and model.
+
 ## DeepAgent Configuration
 
 Runtime settings for `create_deep_agent(...)` live in:
@@ -681,6 +694,78 @@ the remote host with `pip install --no-index --find-links backend-wheelhouse`,
 starts `internagents-backend runtime start`, and opens the local SSH tunnel to
 the remote runtime. Store the concrete SSH command, workspace, and tunnel URL
 only in local config.
+
+## Linux SSH Compute Jobs
+
+InternAgents also has an experimental Linux-only SSH compute provider. This is
+separate from remote runtime setup: the local backend keeps the current session
+and submits detached jobs to a registered Linux SSH host.
+
+Current scope:
+
+- Linux hosts only.
+- SSH hosts are registered by `Host` alias from the local `~/.ssh/config`.
+  The address, user, port, `ProxyJump`, and key settings come from OpenSSH.
+- Jobs run as detached `bash` processes under a per-job scratch directory.
+- Job status is polled over SSH; outputs matching configured globs are harvested
+  back as base64 payloads when they are smaller than the configured size cap.
+- The web UI exposes Settings > Compute for SSH host registration and read-only
+  probing. Job submission happens from the conversation when the agent proposes
+  a remote compute tool call.
+- Proposed remote compute calls appear as permission cards in the chat. The
+  user must approve the card before the local backend submits the SSH job.
+- SLURM/PBS/LSF, Modal, and model endpoint management are not part of this
+  Linux MVP yet.
+
+The local state lives under `.internagents/compute/`, which is ignored by git.
+Do not commit real host aliases, usernames, IPs, key paths, or scratch paths.
+POST requests are protected: browser calls must come from the same local UI
+origin, and server-side/manual calls must include the local token stored in
+`.internagents/compute/api-token`.
+
+Runtime limits:
+
+- Remote commands must be at most 20,000 characters.
+- Each job can upload at most 16 input files, 10 MiB per file, 25 MiB total.
+- Each job can request at most 20 output glob patterns.
+- Harvested outputs are capped at 64 files, 10 MiB per file, 25 MiB total.
+- Hosts must provide Linux, `python3`, `bash`, and `timeout`.
+
+API:
+
+```text
+GET  /api/compute/ssh-hosts
+POST /api/compute/ssh-hosts
+GET  /api/compute/remote-jobs
+POST /api/compute/remote-jobs
+GET  /api/compute/remote-jobs/:jobId
+```
+
+Register or update a host:
+
+```bash
+TOKEN="$(cat .internagents/compute/api-token)"
+curl -X POST http://127.0.0.1:3000/api/compute/ssh-hosts \
+  -H 'Content-Type: application/json' \
+  -H "X-InternAgents-Compute-Token: $TOKEN" \
+  -d '{"host":"my-linux-host","notes":"Use sbatch on gpu partition; conda envs live under ~/envs."}'
+```
+
+Submit a detached job:
+
+```bash
+TOKEN="$(cat .internagents/compute/api-token)"
+curl -X POST http://127.0.0.1:3000/api/compute/remote-jobs \
+  -H 'Content-Type: application/json' \
+  -H "X-InternAgents-Compute-Token: $TOKEN" \
+  -d '{"hostId":"lab-gpu","command":"mkdir -p out && python3 script.py > out/result.txt","outputGlobs":["out/**"],"timeoutSeconds":1800}'
+```
+
+Poll and harvest:
+
+```bash
+curl http://127.0.0.1:3000/api/compute/remote-jobs/job_xxx
+```
 
 For manual debugging, the same runtime pattern still applies: start
 `langgraph.runtime.json` on the remote machine with

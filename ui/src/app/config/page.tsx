@@ -32,6 +32,7 @@ import {
 import { LanguageToggle } from "@/app/components/LanguageToggle";
 import { useLanguage } from "@/app/hooks/useLanguage";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
+import { ComputeSettingsCard } from "@/app/config/components/ComputeSettingsCard";
 import {
   appReturnHrefFromSearchParams,
 } from "@/app/utils/navigationContext";
@@ -170,6 +171,12 @@ const SETTINGS_SECTIONS: Array<{
     title: "projectDirectory",
     description: "projectDirectoryDescription",
     icon: FolderOpen,
+  },
+  {
+    id: "settings-compute",
+    title: "compute",
+    description: "computeDescription",
+    icon: ServerCog,
   },
   {
     id: "settings-authorization",
@@ -1065,6 +1072,25 @@ function ConfigPageContent() {
                     </div>
                   </div>
                 </div>
+              </section>
+
+              <section
+                id="settings-compute"
+                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                    <ServerCog className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">Compute</h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Linux SSH hosts for conversation-approved remote jobs.
+                    </div>
+                  </div>
+                </div>
+
+                <ComputeSettingsCard />
               </section>
 
               <section

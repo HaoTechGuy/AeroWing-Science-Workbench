@@ -258,6 +258,8 @@ const COPY = {
     localProjectPath: "本机项目路径",
     resolvedPath: "当前解析",
     resourceConfig: "资源配置",
+    compute: "Compute",
+    computeDescription: "SSH compute hosts and jobs",
 
     authorization: "授权模式",
     authorizationDescription: "工具调用审批策略",
@@ -553,6 +555,8 @@ const COPY = {
     localProjectPath: "Local project path",
     resolvedPath: "Resolved path",
     resourceConfig: "Resource config",
+    compute: "Compute",
+    computeDescription: "SSH compute hosts and jobs",
 
     authorization: "Authorization",
     authorizationDescription: "Tool approval policy",
