@@ -215,12 +215,27 @@ jobs:
 
       - name: Prepare bundled Python runtime
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install uv==0.8.22
-          python -m uv venv .desktop-python-runtime/venv --python 3.11
-          .desktop-python-runtime/venv/bin/python -m pip install --upgrade pip
-          .desktop-python-runtime/venv/bin/python -m pip install .
-          .desktop-python-runtime/venv/bin/python -m pip install "markitdown[pptx]" pandas openpyxl lxml defusedxml
+          python -m pip install --upgrade pip uv
+          rm -rf .desktop-python-runtime
+          export UV_PYTHON_INSTALL_DIR="$PWD/.desktop-python-runtime/python"
+          uv python install 3.11 --managed-python --no-bin
+          uv venv "$PWD/.desktop-python-runtime/venv" \
+            --python 3.11 \
+            --managed-python \
+            --seed \
+            --relocatable
+          uv pip install \
+            --python "$PWD/.desktop-python-runtime/venv/bin/python" \
+            --link-mode copy \
+            --compile-bytecode \
+            .
+          uv pip install \
+            --python "$PWD/.desktop-python-runtime/venv/bin/python" \
+            --link-mode copy \
+            --compile-bytecode \
+            "markitdown[pptx]" pandas openpyxl lxml defusedxml
+          "$PWD/.desktop-python-runtime/venv/bin/python" -c "import langgraph_cli; print(langgraph_cli.__file__)"
+          echo "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$PWD/.desktop-python-runtime" >> "$GITHUB_ENV"
 
       - name: Validate Python sources
         run: |
