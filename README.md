@@ -5,10 +5,10 @@
 
   <h1 align="center">InternAgentS</h1>
   <p align="center">
-    <strong>Bringing the Claude Science experience to the open-source community.</strong>
+    <strong>A local-first research agent workbench for scientific files, code, skills, and compute.</strong>
   </p>
   <p align="center">
-    A local-first research agent workbench for DeepAgents, LangGraph, project files, skills, and scientific workflows.
+    Built on DeepAgents and LangGraph, with project context, previews, tools, and human approvals in one browser UI.
   </p>
   <p align="center">
     <a href="https://github.com/qzzqzzb/OpenClaudeScience/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/qzzqzzb/OpenClaudeScience?style=social"></a>
@@ -16,21 +16,24 @@
     <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs">
     <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-runtime-1f6feb">
     <img alt="DeepAgents" src="https://img.shields.io/badge/DeepAgents-agent%20runtime-4f46e5">
+    <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
     <img alt="Status" src="https://img.shields.io/badge/status-active%20development-0f766e">
   </p>
   <p>
     <a href="#quick-start">Quick Start</a>
+    · <a href="#example-workflows">Workflows</a>
     · <a href="#feature-highlights">Features</a>
+    · <a href="#security-and-privacy">Security</a>
     · <a href="#architecture">Architecture</a>
     · <a href="#development">Development</a>
-    · <a href="#contributing">Contributing</a>
+    · <a href="#license">License</a>
   </p>
 </div>
 
 InternAgentS gives researchers and developers a local browser workbench for
-agentic research tasks. It combines a DeepAgents/LangGraph runtime, project file
-preview, reusable skills, model configuration, and MCP/SCP connector setup in
-one UI.
+agentic research tasks. It combines a DeepAgents/LangGraph runtime, project
+file preview, reusable skills, model configuration, local approvals, and
+MCP/SCP connector setup in one UI.
 
 The project is still early, but it is already useful as a local research
 assistant shell: open a project, configure a model, browse files, start a
@@ -41,7 +44,7 @@ conversation, and add domain skills as your workflow grows.
 ### Requirements
 
 - Python 3.11+
-- Node.js and npm
+- Node.js and npm. The UI uses `ui/package-lock.json` as the canonical lockfile.
 - An OpenAI-compatible model endpoint, or the option to configure one later
 
 ### Start the Workbench
@@ -52,6 +55,10 @@ cp .env.example .env
 ```
 
 The launcher prepares the local environment and starts three services:
+
+On first run, it creates `.venv`, installs the Python package in editable mode,
+and runs `npm install --legacy-peer-deps --ignore-scripts` in `ui/`. Use
+`INTERNAGENTS_SKIP_INSTALL=1` only after these dependencies are already present.
 
 | Service | Default URL | Purpose |
 | --- | --- | --- |
@@ -112,6 +119,22 @@ INTERNAGENTS_BACKEND_PORT=2025 ./scripts/dev.sh
 INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
 INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 ```
+
+## Example Workflows
+
+- Paper and report triage: attach papers or Markdown reports, ask the agent to
+  summarize claims, extract assumptions, compare methods, and leave generated
+  notes in the project.
+- Scientific artifact inspection: browse project files, preview PDFs, Office
+  files, images, molecular structures, and scientific data outputs, then ask the
+  agent to explain what changed.
+- Experiment and code iteration: ask the agent to inspect code, run local
+  commands, create result files, and summarize outputs with links back to the
+  files in the workspace.
+- Skill-guided sessions: enable reusable skills for literature search, result
+  analysis, figures, documents, slides, or domain-specific research workflows.
+- Remote compute handoff: register a Linux SSH host, review the proposed compute
+  job in chat, approve it, and let the local backend harvest configured outputs.
 
 ## Feature Highlights
 
@@ -227,6 +250,24 @@ curl -X POST http://127.0.0.1:3000/api/compute/ssh-hosts \
   -d '{"host":"my-linux-host","notes":"Use sbatch on gpu partition; conda envs live under ~/envs."}'
 ```
 
+## Security and Privacy
+
+InternAgentS is local-first by default. Project files are accessed through the
+workspace API, and runtime state is kept under local directories such as
+`.internagents/`.
+
+- Keep model API keys, MCP headers, SCP Hub keys, server addresses, SSH aliases,
+  and machine-specific paths in local `.env` or runtime config files.
+- Do not commit `.env`, `internagent.resources.local.json`, private SSH
+  material, logs, pids, uploads, LangGraph state, or active skill runtime
+  directories.
+- Tool-call authorization modes can require approval before file writes or other
+  actions. SSH compute jobs always appear as approval cards before submission.
+- When connecting to a remote Agent service, review that service endpoint first:
+  the remote service owns its own workspace, tools, and resource policy.
+- Connector configuration should keep secrets local. Shared examples should be
+  sanitized and should prefer placeholder endpoints and keys.
+
 ## Architecture
 
 ```mermaid
@@ -263,6 +304,7 @@ python3 -m json.tool deepagent.config.json >/dev/null
 python3 -m json.tool internagent.resources.json >/dev/null
 python3 -m json.tool ui/deepagent-ui.config.json >/dev/null
 npm --prefix ui run lint
+(cd ui && npx tsc --noEmit)
 npm --prefix ui run build
 ```
 
@@ -286,6 +328,10 @@ InternAgentS is shaped as an open research tool. Helpful contributions include:
 Please keep changes scoped. DeepAgents is treated as an external SDK, so
 InternAgentS should extend it through public APIs, adapters, middleware, tools,
 and local resource configuration rather than patching SDK internals.
+
+## License
+
+InternAgentS is released under the [MIT License](LICENSE).
 
 ## Roadmap Notes
 
