@@ -9,7 +9,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-from goal_state import (
+from internagents.goal_state import (
     GoalState,
     GoalValidationError,
     create_goal_state,

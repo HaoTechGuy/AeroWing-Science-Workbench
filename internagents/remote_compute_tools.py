@@ -16,7 +16,7 @@ from langchain.tools import tool
 
 REMOTE_COMPUTE_SUBMIT_TOOL = "remote_compute_submit_job"
 TERMINAL_STATUSES = {"succeeded", "failed", "timeout"}
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 COMPUTE_TOKEN_FILE = ROOT_DIR / ".internagents" / "compute" / "api-token"
 
 

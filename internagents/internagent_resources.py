@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-ROOT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_RESOURCES_FILE = ROOT_DIR / "internagent.resources.json"
 
 BackendKind = Literal["local_shell", "ssh_shell"]

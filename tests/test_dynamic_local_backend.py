@@ -11,7 +11,7 @@ if BUNDLED_DEEPAGENTS.exists():
 from langchain.tools import ToolRuntime
 
 from deepagents.middleware.filesystem import FilesystemMiddleware, FilesystemState
-from dynamic_local_backend import DynamicLocalShellBackend
+from internagents.dynamic_local_backend import DynamicLocalShellBackend
 
 
 class DynamicLocalShellBackendTest(unittest.TestCase):

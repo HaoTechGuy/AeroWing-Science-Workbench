@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from goal_state import (
+from internagents.goal_state import (
     GoalValidationError,
     create_goal_state,
     goal_response,
@@ -9,8 +9,8 @@ from goal_state import (
     update_goal_status,
     validate_goal_objective,
 )
-from goal_middleware import render_goal_context
-from goal_tools import create_goal as create_goal_tool
+from internagents.goal_middleware import render_goal_context
+from internagents.goal_tools import create_goal as create_goal_tool
 
 
 class GoalStateTest(unittest.TestCase):

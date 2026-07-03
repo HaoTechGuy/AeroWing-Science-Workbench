@@ -1,6 +1,6 @@
 <div align="center">
   <p>
-    <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
+    <img src="./docs/assets/readme/internagents-banner.png" alt="InternAgentS banner" width="100%">
   </p>
 
   <h1 align="center">InternAgentS: Bringing the Claude Science experience to the open-source world.</h1>
@@ -293,12 +293,9 @@ flowchart LR
 ## Repository Map
 
 ```text
-agent.py                         LangGraph graph assembly and assistant exports
+agent.py                         LangGraph entrypoint shim
 deepagent.config.json            local backend, skills, model, and UI defaults
-internagent_resources.py         resource configuration loader
-ssh_backend.py                   SSH-backed workspace adapter
-thread_skill_middleware.py       thread-level skill loading
-mcp_config.py / mcp_tools.py      MCP configuration and tool loading
+internagents/                    graph assembly, backend adapters, middleware, tools, and resource loading
 scripts/dev.sh                   one-command local development launcher
 ui/                              Next.js workbench UI
 skills/                          bundled project skills
@@ -322,7 +319,7 @@ npm --prefix ui run build
 For Python backend changes:
 
 ```bash
-.venv/bin/python -m compileall agent.py internagent_resources.py ssh_backend.py kb_sync_middleware.py thread_skill_middleware.py
+.venv/bin/python -m compileall agent.py internagents
 .venv/bin/python -c "import agent; print(agent.MODEL)"
 ```
 

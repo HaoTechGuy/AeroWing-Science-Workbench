@@ -6,8 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mcp_config import load_mcp_config
-from mcp_tools import _filter_tools, load_configured_mcp_tools
+from internagents.mcp_config import load_mcp_config
+from internagents.mcp_tools import _filter_tools, load_configured_mcp_tools
 
 
 class McpConfigTest(unittest.TestCase):

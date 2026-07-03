@@ -6,8 +6,8 @@ from unittest.mock import patch
 from langchain.agents.middleware.types import ModelRequest, ModelResponse, ToolCallRequest
 from langchain_core.messages import AIMessage, ToolMessage
 
-import web_search_tools
-from web_search_tools import (
+from internagents import web_search_tools
+from internagents.web_search_tools import (
     WebSearchSettings,
     WebSearchBudgetMiddleware,
     academic_search,
