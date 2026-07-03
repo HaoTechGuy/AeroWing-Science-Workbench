@@ -270,6 +270,21 @@ jobs:
           INTERNAGENTS_PYTHON_RUNTIME_SOURCE: ${{ github.workspace }}/.desktop-python-runtime
         run: npm --prefix desktop run build
 
+      - name: Show macOS packaging diagnostics
+        if: failure()
+        run: |
+          echo "desktop/release:"
+          find desktop/release -maxdepth 3 -print || true
+          echo
+          echo "generated wheelhouse requirements:"
+          find dist-app -maxdepth 3 -type f \( \
+            -name "backend-wheelhouse-requirements.txt" -o \
+            -name "backend-wheelhouse-source-requirements.txt" \
+          \) -print -exec sed -n '1,160p' {} \; || true
+          echo
+          echo "packaging logs:"
+          find desktop -maxdepth 5 -type f -name "*.log" -print -exec tail -n 200 {} \; || true
+
       - name: Upload DMG to release
         env:
           GH_TOKEN: ${{ github.token }}
