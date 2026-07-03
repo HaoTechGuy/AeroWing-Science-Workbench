@@ -9,7 +9,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import SystemMessage
 
 from deepagents.backends.protocol import ExecuteResponse
-from internagent_resources import ResourceConfig
+from internagents.internagent_resources import ResourceConfig
 
 
 @dataclass

@@ -62,20 +62,8 @@ const runtimeEntries = [
   ".env.example",
   "agent.py",
   "main.py",
-  "internagent_resources.py",
-  "ssh_backend.py",
-  "dynamic_local_backend.py",
-  "kb_sync_middleware.py",
-  "date_middleware.py",
-  "goal_middleware.py",
-  "goal_state.py",
-  "goal_tools.py",
-  "mcp_config.py",
-  "mcp_tools.py",
-  "thread_skill_middleware.py",
+  "internagents",
   "internagents_backend_cli.py",
-  "web_search_tools.py",
-  "remote_compute_tools.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.json",
@@ -99,13 +87,22 @@ function shouldCopyRuntimeSkill(source) {
 }
 
 function runtimeCopyOptions(entry) {
-  if (entry !== "skills") {
-    return {};
+  if (entry === "internagents") {
+    return {
+      filter: (source) => {
+        const name = path.basename(source);
+        return name !== "__pycache__" && !name.endsWith(".pyc");
+      },
+    };
   }
 
-  return {
-    filter: (source) => shouldCopyRuntimeSkill(source),
-  };
+  if (entry === "skills") {
+    return {
+      filter: (source) => shouldCopyRuntimeSkill(source),
+    };
+  }
+
+  return {};
 }
 
 function commandForPlatform(command, args) {

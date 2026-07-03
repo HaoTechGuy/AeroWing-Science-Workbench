@@ -11,7 +11,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import SystemMessage
 
-from goal_state import GoalState, goal_with_elapsed, normalize_goal_state
+from internagents.goal_state import GoalState, goal_with_elapsed, normalize_goal_state
 
 
 class GoalAgentState(TypedDict):

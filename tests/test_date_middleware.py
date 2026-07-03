@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import SystemMessage
 
-from date_middleware import (
+from internagents.date_middleware import (
     RuntimeDateContextMiddleware,
     render_runtime_date_context,
 )

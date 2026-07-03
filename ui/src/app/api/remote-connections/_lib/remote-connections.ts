@@ -52,16 +52,8 @@ const BACKEND_CLI_PACKAGE_ENTRIES = [
   ".env.example",
   "agent.py",
   "main.py",
-  "internagent_resources.py",
-  "ssh_backend.py",
-  "dynamic_local_backend.py",
-  "kb_sync_middleware.py",
-  "goal_middleware.py",
-  "goal_state.py",
-  "goal_tools.py",
-  "thread_skill_middleware.py",
+  "internagents",
   "internagents_backend_cli.py",
-  "web_search_tools.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.runtime.json",
@@ -1270,6 +1262,13 @@ async function copyPackageEntryIfExists(
     recursive: true,
     force: true,
     verbatimSymlinks: false,
+    filter: (currentSource) => {
+      if (entry !== "internagents") {
+        return true;
+      }
+      const name = path.basename(currentSource);
+      return name !== "__pycache__" && !name.endsWith(".pyc");
+    },
   });
 }
 

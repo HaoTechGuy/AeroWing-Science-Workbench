@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable
 
-from mcp_config import McpConfig, McpServerConfig, load_mcp_config
+from internagents.mcp_config import McpConfig, McpServerConfig, load_mcp_config
 
 
 LOGGER = logging.getLogger(__name__)

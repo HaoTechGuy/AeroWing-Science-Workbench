@@ -13,10 +13,10 @@
 ## 架构地图
 
 - `agent.py`：LangGraph graph 组装和导出；导出 `agent`、`agent_local`、`agent_remote1` 到 `agent_remote8`。
-- `internagent_resources.py`：读取 `internagent.resources.json` 或 `INTERNAGENT_RESOURCES_FILE`，生成资源配置。
-- `ssh_backend.py`：把 DeepAgents backend protocol 映射到固定 SSH workspace。
-- `kb_sync_middleware.py`：agent run 前后的 best-effort KB 同步。
-- `thread_skill_middleware.py`：按 thread 选择和加载技能。
+- `internagents/internagent_resources.py`：读取 `internagent.resources.json` 或 `INTERNAGENT_RESOURCES_FILE`，生成资源配置。
+- `internagents/ssh_backend.py`：把 DeepAgents backend protocol 映射到固定 SSH workspace。
+- `internagents/kb_sync_middleware.py`：agent run 前后的 best-effort KB 同步。
+- `internagents/thread_skill_middleware.py`：按 thread 选择和加载技能。
 - `deepagent.config.json`：agent 行为配置，不承载机器私有信息。
 - `ui/src/lib/remote-agent.ts`：浏览器侧 LangGraph SDK 封装。
 - `ui/src/lib/config.ts`：浏览器可见的 Agent 服务配置。
@@ -42,9 +42,9 @@
 
 ## 改动放置规则
 
-- DeepAgents backend 能力：新增或修改 backend adapter，例如 `ssh_backend.py`。
-- run 前后逻辑：放进 middleware，例如 `kb_sync_middleware.py`。
-- 资源 schema 或选择逻辑：同步更新 `internagent_resources.py`、UI 资源读取、示例配置和文档。
+- DeepAgents backend 能力：新增或修改 backend adapter，例如 `internagents/ssh_backend.py`。
+- run 前后逻辑：放进 middleware，例如 `internagents/kb_sync_middleware.py`。
+- 资源 schema 或选择逻辑：同步更新 `internagents/internagent_resources.py`、UI 资源读取、示例配置和文档。
 - LangGraph graph 组装：`agent.py` 保持薄封装，不做安装、daemon 状态轮询或 SSH 协议管理。
 - workspace/file 浏览：走 workspace API，不在 React 组件里直接访问本地文件或 SSH。
 - 复用 UI 协议、状态和 helper：放到 `ui/src/lib`、`ui/src/app/types` 或组件附近的 `_lib`。
@@ -116,7 +116,7 @@ python3 -m json.tool ui/deepagent-ui.config.json >/dev/null
 Python agent/backend：
 
 ```bash
-.venv/bin/python -m compileall agent.py internagent_resources.py ssh_backend.py kb_sync_middleware.py thread_skill_middleware.py
+.venv/bin/python -m compileall agent.py internagents
 .venv/bin/python -c "import agent; print(agent.MODEL)"
 ```
 

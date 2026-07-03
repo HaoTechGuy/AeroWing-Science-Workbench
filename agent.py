@@ -81,18 +81,24 @@ from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
 from langgraph.types import Command, interrupt
 
-from dynamic_local_backend import DynamicLocalShellBackend, DynamicLocalShellBackendFactory
-from date_middleware import RuntimeDateContextMiddleware
-from goal_middleware import GoalContextMiddleware, goal_system_prompt
-from goal_state import normalize_goal_state, update_goal_status
-from goal_tools import goal_tools
-from internagent_resources import ResourceConfig, load_resource_config
-from kb_sync_middleware import KbSyncMiddleware
-from mcp_tools import load_configured_mcp_tools
-from remote_compute_tools import REMOTE_COMPUTE_SUBMIT_TOOL, remote_compute_tools
-from thread_skill_middleware import ThreadSkillMiddleware
-from ssh_backend import SshShellBackend
-from web_search_tools import (
+from internagents.dynamic_local_backend import (
+    DynamicLocalShellBackend,
+    DynamicLocalShellBackendFactory,
+)
+from internagents.date_middleware import RuntimeDateContextMiddleware
+from internagents.goal_middleware import GoalContextMiddleware, goal_system_prompt
+from internagents.goal_state import normalize_goal_state, update_goal_status
+from internagents.goal_tools import goal_tools
+from internagents.internagent_resources import ResourceConfig, load_resource_config
+from internagents.kb_sync_middleware import KbSyncMiddleware
+from internagents.mcp_tools import load_configured_mcp_tools
+from internagents.remote_compute_tools import (
+    REMOTE_COMPUTE_SUBMIT_TOOL,
+    remote_compute_tools,
+)
+from internagents.thread_skill_middleware import ThreadSkillMiddleware
+from internagents.ssh_backend import SshShellBackend
+from internagents.web_search_tools import (
     WebSearchBudgetMiddleware,
     web_search_reference_prompt,
     web_search_tools,

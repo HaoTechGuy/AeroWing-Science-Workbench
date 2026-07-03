@@ -18,7 +18,7 @@ from deepagents.backends.protocol import (
     WriteResult,
 )
 
-from internagent_resources import ResourceConfig, load_resource_config
+from internagents.internagent_resources import ResourceConfig, load_resource_config
 
 SKILL_URI_PREFIX = "skill://"
 VALIDATED_SKILL_URI_PREFIX = "/skill:/"
@@ -238,6 +238,22 @@ class DynamicLocalShellBackend(SandboxBackendProtocol):
 
         if "~" in file_path or ".." in Path(file_path).parts:
             return None, "Path traversal is not allowed in the active workspace."
+
+        logical_parts = Path(file_path.lstrip("/")).parts
+        if file_path.startswith("/") and logical_parts and logical_parts[0] in HOST_ROOTS:
+            return (
+                None,
+                (
+                    "Path is outside the selected workspace. "
+                    "For filesystem tools, use a logical workspace path such as "
+                    "'/document.docx' or '/scripts/process.py', or a logical "
+                    "skill path such as "
+                    "'skill://docx/SKILL.md'. When running shell commands or "
+                    "writing code/scripts, use workspace-relative paths such as "
+                    "'document.docx' or './scripts/process.py' instead of host "
+                    "paths or logical absolute paths."
+                ),
+            )
 
         root = self._workspace_root()
         path = Path(file_path).expanduser()

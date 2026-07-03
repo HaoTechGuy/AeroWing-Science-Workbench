@@ -6,7 +6,7 @@ from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-from thread_skill_middleware import ThreadSkillMiddleware
+from internagents.thread_skill_middleware import ThreadSkillMiddleware
 
 
 class ThreadSkillMiddlewareTest(unittest.TestCase):
