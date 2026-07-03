@@ -86,7 +86,7 @@ ensure_langgraph_state_dir() {
   local state_dir="$1"
   mkdir -p "$state_dir"
 
-  if ln -sfn "$ROOT_DIR/agent.py" "$state_dir/agent.py" 2>/dev/null; then
+  if [ "${OS:-}" != "Windows_NT" ] && ln -sfn "$ROOT_DIR/agent.py" "$state_dir/agent.py" 2>/dev/null; then
     return 0
   fi
 
@@ -94,6 +94,7 @@ ensure_langgraph_state_dir() {
   {
     printf '%s\n' "import importlib.util"
     printf '%s\n' "import os"
+    printf '%s\n' "import sys"
     printf '%s\n' "from pathlib import Path"
     printf '%s\n' ""
     printf '%s\n' "_root = Path(os.environ[\"INTERNAGENTS_GRAPH_ROOT\"])"
@@ -101,6 +102,7 @@ ensure_langgraph_state_dir() {
     printf '%s\n' "if _spec is None or _spec.loader is None:"
     printf '%s\n' "    raise RuntimeError(\"Unable to load InternAgents graph entrypoint.\")"
     printf '%s\n' "_module = importlib.util.module_from_spec(_spec)"
+    printf '%s\n' "sys.modules[_spec.name] = _module"
     printf '%s\n' "_spec.loader.exec_module(_module)"
     printf '%s\n' "globals().update({name: getattr(_module, name) for name in dir(_module) if not name.startswith(\"__\")})"
   } > "$state_dir/agent.py"

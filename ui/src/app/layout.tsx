@@ -1,4 +1,5 @@
 import { NuqsAdapter } from "nuqs/adapters/next/app";
+import Script from "next/script";
 import { Toaster } from "sonner";
 import { AppFooter } from "@/app/components/AppFooter";
 import "katex/dist/katex.min.css";
@@ -39,7 +40,7 @@ const startupSplashLanguageScript = `
     const storedLanguage = localStorage.getItem("internagents.ui.language");
     const inferredLanguage = navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
     const language = storedLanguage === "zh" || storedLanguage === "en" ? storedLanguage : inferredLanguage;
-    const text = language === "en" ? "Starting InternAgentS..." : "InternAgentS 正在启动中...";
+    const text = language === "en" ? "Starting InternAgentS..." : "InternAgentS \\u6b63\\u5728\\u542f\\u52a8\\u4e2d...";
     document.documentElement.lang = language === "en" ? "en" : "zh-CN";
     const target = document.querySelector("[data-internagents-startup-text]");
     if (target) {
@@ -69,7 +70,11 @@ export default function RootLayout({
         className="min-h-screen bg-background text-foreground"
         suppressHydrationWarning
       >
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        <Script
+          id="internagents-theme-bootstrap"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: themeBootstrapScript }}
+        />
         <div
           id="internagents-startup-splash"
           className="internagents-startup-splash"
@@ -84,10 +89,16 @@ export default function RootLayout({
             InternAgentS
           </span>
         </div>
-        <script
+        <Script
+          id="internagents-startup-language"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: startupSplashLanguageScript }}
         />
-        <script src="/api/runtime/desktop-config" />
+        <Script
+          id="internagents-desktop-config"
+          src="/api/runtime/desktop-config"
+          strategy="beforeInteractive"
+        />
         <NuqsAdapter>
           <div className="min-h-[calc(100vh-var(--app-footer-height))]">
             {children}
@@ -95,7 +106,9 @@ export default function RootLayout({
         </NuqsAdapter>
         <AppFooter />
         <Toaster />
-        <script
+        <Script
+          id="internagents-startup-dismiss"
+          strategy="afterInteractive"
           dangerouslySetInnerHTML={{ __html: startupSplashDismissScript }}
         />
       </body>

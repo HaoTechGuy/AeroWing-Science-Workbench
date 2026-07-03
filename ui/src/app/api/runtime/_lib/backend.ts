@@ -150,6 +150,7 @@ function agentEntrypointShim(): string {
   return [
     "import importlib.util",
     "import os",
+    "import sys",
     "from pathlib import Path",
     "",
     '_root = Path(os.environ["INTERNAGENTS_GRAPH_ROOT"])',
@@ -157,6 +158,7 @@ function agentEntrypointShim(): string {
     "if _spec is None or _spec.loader is None:",
     '    raise RuntimeError("Unable to load InternAgents graph entrypoint.")',
     "_module = importlib.util.module_from_spec(_spec)",
+    "sys.modules[_spec.name] = _module",
     "_spec.loader.exec_module(_module)",
     'globals().update({name: getattr(_module, name) for name in dir(_module) if not name.startswith("__")})',
     "",
@@ -168,12 +170,16 @@ function ensureLangGraphStateDir(root: string, stateDir: string) {
   const entrypoint = path.join(stateDir, "agent.py");
   rmSync(entrypoint, { force: true });
 
-  try {
-    symlinkSync(path.join(root, "agent.py"), entrypoint, "file");
-    return;
-  } catch {
-    writeFileSync(entrypoint, agentEntrypointShim(), "utf8");
+  if (!IS_WINDOWS) {
+    try {
+      symlinkSync(path.join(root, "agent.py"), entrypoint, "file");
+      return;
+    } catch {
+      // Fall back to a shim in environments where symlinks are unavailable.
+    }
   }
+
+  writeFileSync(entrypoint, agentEntrypointShim(), "utf8");
 }
 
 function parseEnvValue(rawValue: string) {

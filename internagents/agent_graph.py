@@ -44,6 +44,13 @@ RETIRED_GATEWAY_HOST = "43.106.18.167"
 MISSING_MODEL_CREDENTIALS_RESPONSE = (
     "Model service is not configured. Please configure an OpenAI-compatible API key first."
 )
+
+
+class ToolBindableFakeListChatModel(FakeListChatModel):
+    def bind_tools(self, *args: Any, **kwargs: Any) -> "ToolBindableFakeListChatModel":
+        return self
+
+
 BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
     sys.path.insert(0, str(BUNDLED_DEEPAGENTS))
@@ -422,7 +429,9 @@ def _supports_reasoning_output(model_spec: str) -> bool:
 
 def _create_agent_model() -> str | Any:
     if _model_credentials_missing(MODEL):
-        return FakeListChatModel(responses=[MISSING_MODEL_CREDENTIALS_RESPONSE])
+        return ToolBindableFakeListChatModel(
+            responses=[MISSING_MODEL_CREDENTIALS_RESPONSE]
+        )
     if MODEL.startswith("openai:"):
         return init_chat_model(MODEL, use_responses_api=False)
     if MODEL.startswith("openrouter:") and _supports_reasoning_output(MODEL):
