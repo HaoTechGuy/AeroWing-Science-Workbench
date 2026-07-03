@@ -195,6 +195,9 @@ jobs:
       - name: Install desktop dependencies
         run: npm --prefix desktop ci
 
+      - name: Install desktop packaging tools
+        run: brew list pandoc >/dev/null 2>&1 || brew install pandoc
+
       - name: Set desktop release version
         run: |
           node <<'NODE'
@@ -268,6 +271,7 @@ jobs:
       - name: Build macOS DMG
         env:
           INTERNAGENTS_PYTHON_RUNTIME_SOURCE: ${{ github.workspace }}/.desktop-python-runtime
+          INTERNAGENTS_SKIP_LIBREOFFICE_RUNTIME: "1"
         run: npm --prefix desktop run build
 
       - name: Show macOS packaging diagnostics
