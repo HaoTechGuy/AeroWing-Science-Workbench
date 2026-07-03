@@ -8,7 +8,7 @@
     <strong>面向科研文件、代码、技能和计算资源的本地优先 Agent 工作台。</strong>
   </p>
   <p align="center">
-    基于 DeepAgents 和 LangGraph 构建，将项目上下文、文件预览、工具调用和人工授权整合到同一个浏览器界面。
+    基于 DeepAgents 和 LangGraph 扩展科研 Agent 运行时，连接项目上下文、文件系统、技能、远程资源和人工授权流程。
   </p>
   <p align="center">
     <a href="https://github.com/qzzqzzb/OpenClaudeScience/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/qzzqzzb/OpenClaudeScience?style=social"></a>
@@ -23,9 +23,10 @@
     <a href="./README.md">English</a> | <strong>简体中文</strong>
   </p>
   <p>
-    <a href="#快速开始">快速开始</a>
+    <a href="#亮点">亮点</a>
+    · <a href="#快速开始">快速开始</a>
     · <a href="#科研工作流示例">工作流</a>
-    · <a href="#功能亮点">功能亮点</a>
+    · <a href="#功能概览">功能概览</a>
     · <a href="#安全和隐私">安全</a>
     · <a href="#架构">架构</a>
     · <a href="#开发">开发</a>
@@ -33,9 +34,19 @@
   </p>
 </div>
 
-InternAgentS 为研究者和开发者提供一个本地浏览器工作台，用来完成带有 Agent 能力的科研任务。它把 DeepAgents/LangGraph runtime、项目文件预览、可复用技能、模型配置、本地授权以及 MCP/SCP 连接器配置整合在一个 UI 中。
+InternAgentS 为研究者和开发者提供一个本地优先的科研 Agent 工作台，用来完成论文阅读、实验分析、代码迭代、技能调用和计算资源协作等任务。项目基于 DeepAgents/LangGraph 开发，并在项目级 runtime、backend adapter、workspace protocol、技能目录、本地授权和远程资源协作等层面做了面向科研场景的扩展。
 
-项目仍处于早期阶段，但已经可以作为本地科研助手外壳使用：打开项目、配置模型、浏览文件、开始会话，并随着工作流增长逐步加入领域技能。
+项目仍处于早期阶段，但已经可以作为本地科研 Agent 系统使用：打开项目、配置模型、浏览文件、启动会话、接入技能，并随着工作流增长逐步连接远程资源和领域能力。
+
+## 亮点
+
+- 基于 DeepAgents/LangGraph 开发：沿用成熟的 Agent runtime 和编排能力，并把它们落到科研项目、文件、技能和计算资源这些日常工作对象上。
+- 远程连接是一等能力：可以连接 SSH workspace，准备或同步 remote runtime，查看诊断日志，并在对话中确认远程计算任务。
+- 完整项目工作流：本地阅读、代码修改、远程运行和结果回收可以在同一个工作台里串起来。
+- 配套科学技能库：文献调研、实验结果分析、图表、论文写作、文档、幻灯片和领域 workflow 可以作为 skills 启用，并在不同项目之间复用。
+- 可连接 MCP/SCP 生态：本地或项目级 MCP 配置可以接入外部工具；SCP connector 可用于扩展科学工作流和领域服务。
+- 模型自由和本地优先：支持 OpenAI-compatible endpoint，可接云模型、私有网关或本地模型；项目文件、密钥和运行状态默认留在本机或你控制的机器上，不要求交给 Claude、Claude Science 或任何固定云端服务。
+- 科研文件支持：围绕 PDF、Office 文档、图片、分子结构、科学数据输出和生成 artifact 做浏览、搜索、preview 和会话引用。
 
 ## 快速开始
 
@@ -59,7 +70,7 @@ cp .env.example .env
 | 服务 | 默认地址 | 作用 |
 | --- | --- | --- |
 | UI | `http://127.0.0.1:3000` | Next.js 工作台 |
-| Coordinator | `http://127.0.0.1:2024` | 浏览器 UI 连接的 LangGraph API |
+| Coordinator | `http://127.0.0.1:2024` | 工作台前端连接的 LangGraph API |
 | Local runtime | `http://127.0.0.1:22024` | 项目级 DeepAgent runtime |
 
 打开：
@@ -130,23 +141,7 @@ INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 
 ![Y 型微流控混合器简化模型演示](./docs/assets/readme-cn/y-mixer-model.gif)
 
-## 新功能
-
-- 远程项目：Settings 中包含 SSH remote workspace 管理。你可以添加远程项目，准备或同步 remote runtime，检查连接状态，并直接在工作台中以 remote resource 打开。
-- 远程 backend 包：remote runtime setup 使用独立 backend CLI package，而不是 desktop app bundle。构建命令：
-
-  ```bash
-  npm --prefix desktop run prepare:remote
-  ```
-
-  输出文件为 `dist-remote/internagents-backend-cli.tar.gz`。如果远程 setup 时缺少该包，UI 会提示需要运行的命令，而不是静默尝试构建 desktop installer。
-- 更好的远程诊断：remote runtime 健康检查在启动超时时会包含 runtime log tail，便于定位缺失模块和 graph load 失败。
-- 工作台 tabs：会话可以作为 center workspace 的 tabs 打开，项目文件可以作为 file panel tabs 打开，便于在活跃 thread 和 artifact 之间切换。
-- Composer triggers：输入框支持 `@` 引用文件和 artifact，`#` 引用会话，`/` 插入技能，`Ctrl+K` 搜索。`Enter` 发送，`Shift+Enter` 换行，并兼容中文输入法 composition。
-- Workspace search and previews：文件浏览包含 workspace search API，并增强了 SSH-backed resource、生成文件、网格/列表视图和 preview tabs 的处理。
-- 统一配置：配置页拆分模型、技能、连接器、项目目录、远程项目、计算 host、授权、外观和 archived conversations，并保持中英文文案同步。
-
-## 功能亮点
+## 功能概览
 
 ### 本地优先的科研工作区
 

@@ -8,7 +8,7 @@
     <strong>A local-first research agent workbench for scientific files, code, skills, and compute.</strong>
   </p>
   <p align="center">
-    Built on DeepAgents and LangGraph, with project context, previews, tools, and human approvals in one browser UI.
+    Built on DeepAgents and LangGraph to extend research agent runtimes across project context, files, skills, remote resources, and human approvals.
   </p>
   <p align="center">
     <a href="https://github.com/qzzqzzb/OpenClaudeScience/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/qzzqzzb/OpenClaudeScience?style=social"></a>
@@ -23,9 +23,10 @@
     <strong>English</strong> | <a href="./README_CN.md">简体中文</a>
   </p>
   <p>
-    <a href="#quick-start">Quick Start</a>
+    <a href="#highlights">Highlights</a>
+    · <a href="#quick-start">Quick Start</a>
     · <a href="#example-workflows">Workflows</a>
-    · <a href="#feature-highlights">Features</a>
+    · <a href="#feature-overview">Feature Overview</a>
     · <a href="#security-and-privacy">Security</a>
     · <a href="#architecture">Architecture</a>
     · <a href="#development">Development</a>
@@ -33,14 +34,42 @@
   </p>
 </div>
 
-InternAgentS gives researchers and developers a local browser workbench for
-agentic research tasks. It combines a DeepAgents/LangGraph runtime, project
-file preview, reusable skills, model configuration, local approvals, and
-MCP/SCP connector setup in one UI.
+InternAgentS gives researchers and developers a local-first research agent
+workbench for paper reading, experiment analysis, code iteration, skill usage,
+and compute-resource collaboration. It is built on DeepAgents/LangGraph and
+extends them with project-scoped runtimes, backend adapters, a workspace
+protocol, skill catalogs, local approval controls, and remote-resource
+coordination for research workflows.
 
-The project is still early, but it is already useful as a local research
-assistant shell: open a project, configure a model, browse files, start a
-conversation, and add domain skills as your workflow grows.
+The project is still early, but it is already useful as a local research agent
+system: open a project, configure a model, browse files, start a conversation,
+attach skills, and connect remote resources or domain capabilities as your
+workflow grows.
+
+## Highlights
+
+- Built on DeepAgents/LangGraph: InternAgentS keeps the mature agent runtime and
+  orchestration layer, then connects them to the project files, skills, and
+  compute resources researchers use every day.
+- Remote connectivity is a first-class capability: connect SSH workspaces,
+  prepare or sync remote runtimes, inspect diagnostic logs, and approve remote
+  compute jobs directly from the conversation.
+- End-to-end project workflow: local reading, code changes, remote runs, and
+  result collection can be chained inside one workbench.
+- Science skills included: literature search, experiment-result analysis,
+  figures, paper writing, documents, slides, and domain workflows can be enabled
+  as skills and reused across projects.
+- MCP/SCP ecosystem support: local or project-level MCP configuration can load
+  external tools, while SCP connectors can extend scientific workflows and
+  domain services.
+- Model freedom and local-first privacy: any OpenAI-compatible endpoint can be
+  used, including cloud models, private gateways, and local model servers;
+  project files, secrets, and runtime state stay on your machine or machines you
+  control by default, without requiring Claude, Claude Science, or any fixed
+  cloud service.
+- Scientific file support: PDFs, Office documents, images, molecular structures,
+  scientific data outputs, and generated artifacts can be browsed, searched,
+  previewed, and referenced in conversations.
 
 ## Quick Start
 
@@ -66,7 +95,7 @@ and runs `npm install --legacy-peer-deps --ignore-scripts` in `ui/`. Use
 | Service | Default URL | Purpose |
 | --- | --- | --- |
 | UI | `http://127.0.0.1:3000` | Next.js workbench |
-| Coordinator | `http://127.0.0.1:2024` | LangGraph API for the browser UI |
+| Coordinator | `http://127.0.0.1:2024` | LangGraph API for the workbench frontend |
 | Local runtime | `http://127.0.0.1:22024` | Project-scoped DeepAgent runtime |
 
 Open:
@@ -139,39 +168,7 @@ INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 - Remote compute handoff: register a Linux SSH host, review the proposed compute
   job in chat, approve it, and let the local backend harvest configured outputs.
 
-## New Features
-
-- Remote projects: Settings now includes SSH remote workspace management. You
-  can add a remote project, prepare or sync its remote runtime, check connection
-  status, and open it directly in the workbench as a remote resource.
-- Remote backend package: remote runtime setup uses a standalone backend CLI
-  package instead of the desktop app bundle. Build it with:
-
-  ```bash
-  npm --prefix desktop run prepare:remote
-  ```
-
-  The package is written to `dist-remote/internagents-backend-cli.tar.gz`. If it
-  is missing during remote setup, the UI reports the command to run instead of
-  silently trying to build a desktop installer.
-- Better remote diagnostics: remote runtime health checks include the tail of
-  the runtime log when startup times out, making missing modules and graph-load
-  failures easier to diagnose.
-- Workbench tabs: conversations can be opened as tabs in the center workspace,
-  and project files can be opened as tabs in the file panel, so research sessions
-  can switch between active threads and artifacts without losing context.
-- Composer triggers: the input box supports `@` for files and artifacts, `#` for
-  sessions, `/` for skills, and `⌘K` for search. `Enter` sends, `Shift+Enter`
-  inserts a newline, and IME composition is respected for Chinese input.
-- Workspace search and previews: file browsing now includes a workspace search
-  API and better handling for SSH-backed resources, generated files, grid/list
-  views, and preview tabs.
-- Unified configuration: the configuration page now separates model, skills,
-  connectors, project directory, remote projects, compute hosts, authorization,
-  appearance, and archived conversations while keeping Chinese and English copy
-  in sync.
-
-## Feature Highlights
+## Feature Overview
 
 ### Local-First Research Workspace
 
