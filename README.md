@@ -3,10 +3,7 @@
     <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
   </p>
 
-  <h1 align="center">InternAgentS</h1>
-  <p align="center">
-    <strong>A local-first research agent workbench for scientific files, code, skills, and compute.</strong>
-  </p>
+  <h1 align="center">InternAgentS · A local-first research agent workbench for scientific files, code, skills, and compute.</h1>
   <p align="center">
     Built on DeepAgents and LangGraph to extend research agent runtimes across project context, files, skills, remote resources, and human approvals.
   </p>
@@ -24,9 +21,9 @@
   </p>
   <p>
     <a href="#highlights">Highlights</a>
-    · <a href="#quick-start">Quick Start</a>
     · <a href="#example-workflows">Workflows</a>
     · <a href="#feature-overview">Feature Overview</a>
+    · <a href="#quick-start">Quick Start</a>
     · <a href="#security-and-privacy">Security</a>
     · <a href="#architecture">Architecture</a>
     · <a href="#development">Development</a>
@@ -57,87 +54,6 @@ coordination for research workflows.
 - Built for real scientific files: browse, search, preview, and reference PDFs,
   Office files, images, molecular structures, scientific data outputs, and
   generated artifacts.
-
-## Quick Start
-
-### Requirements
-
-- Python 3.11+
-- Node.js and npm. The UI uses `ui/package-lock.json` as the canonical lockfile.
-- An OpenAI-compatible model endpoint, or the option to configure one later
-
-### Start the Workbench
-
-```bash
-cp .env.example .env
-./scripts/dev.sh
-```
-
-The launcher prepares the local environment and starts three services:
-
-On first run, it creates `.venv`, installs the Python package in editable mode,
-and runs `npm install --legacy-peer-deps --ignore-scripts` in `ui/`. Use
-`INTERNAGENTS_SKIP_INSTALL=1` only after these dependencies are already present.
-
-| Service | Default URL | Purpose |
-| --- | --- | --- |
-| UI | `http://127.0.0.1:3000` | Next.js workbench |
-| Coordinator | `http://127.0.0.1:2024` | LangGraph API for the workbench frontend |
-| Local runtime | `http://127.0.0.1:22024` | Project-scoped DeepAgent runtime |
-
-Open:
-
-```text
-http://127.0.0.1:3000/?assistantId=agent_local
-```
-
-Logs are written to:
-
-```text
-.internagents/logs/backend.log
-.internagents/logs/local-runtime.log
-.internagents/logs/ui.log
-```
-
-Press `Ctrl+C` in the launcher terminal to stop the services started by the
-script.
-
-### Configure a Model
-
-You can configure a model during first setup, or skip it and return later from
-Settings. For an OpenAI-compatible endpoint:
-
-```env
-INTERNAGENTS_MODEL_PROVIDER=openai_compatible
-OPENAI_BASE_URL=https://api.example.com/v1
-OPENAI_API_KEY=sk-...
-DEEPAGENT_MODEL=your-model-id
-```
-
-DeepSeek's official OpenAI-compatible endpoint can also be configured with
-provider-specific aliases:
-
-```env
-DEEPSEEK_API_KEY=
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
-```
-
-When the OpenAI-compatible provider is selected, `DEEPSEEK_API_KEY`,
-`DEEPSEEK_BASE_URL`, and `DEEPSEEK_MODEL` are treated as aliases for the
-corresponding OpenAI-compatible API key, base URL, and model.
-
-Keep API keys and machine-specific paths in local `.env` or runtime config
-files. Do not commit secrets.
-
-### Useful Overrides
-
-```bash
-INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
-INTERNAGENTS_BACKEND_PORT=2025 ./scripts/dev.sh
-INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
-INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
-```
 
 ## Example Workflows
 
@@ -170,18 +86,6 @@ InternAgentS is organized as a three-panel workspace:
 Project files are accessed through the workspace API rather than direct UI file
 system calls. The file panel supports directory navigation, grid/list views,
 search, and previews for common research artifacts.
-
-### DeepAgents + LangGraph Runtime
-
-InternAgentS exports LangGraph assistants from `agent.py`:
-
-- `agent`
-- `agent_local`
-- `agent_remote1` through `agent_remote8`
-
-The coordinator and local runtime are separate processes. This keeps UI
-connection logic, project execution, workspace state, and future remote
-resource support easier to maintain.
 
 ### Skills and Science Capability Library
 
@@ -267,6 +171,87 @@ curl -X POST http://127.0.0.1:3000/api/compute/ssh-hosts \
   -H 'Content-Type: application/json' \
   -H "X-InternAgents-Compute-Token: $TOKEN" \
   -d '{"host":"my-linux-host","notes":"Use sbatch on gpu partition; conda envs live under ~/envs."}'
+```
+
+## Quick Start
+
+### Requirements
+
+- Python 3.11+
+- Node.js and npm. The UI uses `ui/package-lock.json` as the canonical lockfile.
+- An OpenAI-compatible model endpoint, or the option to configure one later
+
+### Start the Workbench
+
+```bash
+cp .env.example .env
+./scripts/dev.sh
+```
+
+The launcher prepares the local environment and starts three services:
+
+On first run, it creates `.venv`, installs the Python package in editable mode,
+and runs `npm install --legacy-peer-deps --ignore-scripts` in `ui/`. Use
+`INTERNAGENTS_SKIP_INSTALL=1` only after these dependencies are already present.
+
+| Service | Default URL | Purpose |
+| --- | --- | --- |
+| UI | `http://127.0.0.1:3000` | Next.js workbench |
+| Coordinator | `http://127.0.0.1:2024` | LangGraph API for the workbench frontend |
+| Local runtime | `http://127.0.0.1:22024` | Project-scoped DeepAgent runtime |
+
+Open:
+
+```text
+http://127.0.0.1:3000/?assistantId=agent_local
+```
+
+Logs are written to:
+
+```text
+.internagents/logs/backend.log
+.internagents/logs/local-runtime.log
+.internagents/logs/ui.log
+```
+
+Press `Ctrl+C` in the launcher terminal to stop the services started by the
+script.
+
+### Configure a Model
+
+You can configure a model during first setup, or skip it and return later from
+Settings. For an OpenAI-compatible endpoint:
+
+```env
+INTERNAGENTS_MODEL_PROVIDER=openai_compatible
+OPENAI_BASE_URL=https://api.example.com/v1
+OPENAI_API_KEY=sk-...
+DEEPAGENT_MODEL=your-model-id
+```
+
+DeepSeek's official OpenAI-compatible endpoint can also be configured with
+provider-specific aliases:
+
+```env
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+When the OpenAI-compatible provider is selected, `DEEPSEEK_API_KEY`,
+`DEEPSEEK_BASE_URL`, and `DEEPSEEK_MODEL` are treated as aliases for the
+corresponding OpenAI-compatible API key, base URL, and model.
+
+Keep API keys and machine-specific paths in local `.env` or runtime config
+files. Do not commit secrets.
+
+### Useful Overrides
+
+```bash
+INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
+INTERNAGENTS_BACKEND_PORT=2025 ./scripts/dev.sh
+INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
+INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 ```
 
 ## Security and Privacy

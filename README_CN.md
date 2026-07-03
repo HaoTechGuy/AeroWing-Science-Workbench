@@ -3,10 +3,7 @@
     <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
   </p>
 
-  <h1 align="center">InternAgentS</h1>
-  <p align="center">
-    <strong>面向科研文件、代码、技能和计算资源的本地优先 Agent 工作台。</strong>
-  </p>
+  <h1 align="center">InternAgentS · 面向科研文件、代码、技能和计算资源的本地优先 Agent 工作台。</h1>
   <p align="center">
     基于 DeepAgents 和 LangGraph 扩展科研 Agent 运行时，连接项目上下文、文件系统、技能、远程资源和人工授权流程。
   </p>
@@ -24,9 +21,9 @@
   </p>
   <p>
     <a href="#亮点">亮点</a>
-    · <a href="#快速开始">快速开始</a>
     · <a href="#科研工作流示例">工作流</a>
     · <a href="#功能概览">功能概览</a>
+    · <a href="#快速开始">快速开始</a>
     · <a href="#安全和隐私">安全</a>
     · <a href="#架构">架构</a>
     · <a href="#开发">开发</a>
@@ -44,79 +41,6 @@ InternAgentS 为研究者和开发者提供一个本地优先的科研 Agent 工
 - 打通 MCP/SCP 和任意模型：可接 MCP/SCP 工具生态，也可使用云模型、私有网关或本地模型服务。
 - 本地优先，数据不交出去：项目文件、密钥和运行状态默认留在你控制的机器上，不要求交给 Claude、Claude Science 或任何固定云端服务。
 - 面向真实科研文件：支持 PDF、Office 文档、图片、分子结构、科学数据输出和生成 artifact 的浏览、搜索、preview 和引用。
-
-## 快速开始
-
-### 环境要求
-
-- Python 3.11+
-- Node.js 和 npm。UI 以 `ui/package-lock.json` 作为标准 lockfile。
-- 一个 OpenAI-compatible 模型 endpoint，或者稍后在设置中配置。
-
-### 启动工作台
-
-```bash
-cp .env.example .env
-./scripts/dev.sh
-```
-
-启动脚本会准备本地环境并启动三个服务：
-
-首次运行时，脚本会创建 `.venv`，以 editable mode 安装 Python 包，并在 `ui/` 下执行 `npm install --legacy-peer-deps --ignore-scripts`。只有在这些依赖已经安装完成之后，才建议使用 `INTERNAGENTS_SKIP_INSTALL=1`。
-
-| 服务 | 默认地址 | 作用 |
-| --- | --- | --- |
-| UI | `http://127.0.0.1:3000` | Next.js 工作台 |
-| Coordinator | `http://127.0.0.1:2024` | 工作台前端连接的 LangGraph API |
-| Local runtime | `http://127.0.0.1:22024` | 项目级 DeepAgent runtime |
-
-打开：
-
-```text
-http://127.0.0.1:3000/?assistantId=agent_local
-```
-
-日志写入：
-
-```text
-.internagents/logs/backend.log
-.internagents/logs/local-runtime.log
-.internagents/logs/ui.log
-```
-
-在启动脚本所在终端按 `Ctrl+C` 可以停止由脚本启动的服务。
-
-### 配置模型
-
-你可以在首次设置时配置模型，也可以跳过后稍后从 Settings 返回配置。OpenAI-compatible endpoint 示例：
-
-```env
-INTERNAGENTS_MODEL_PROVIDER=openai_compatible
-OPENAI_BASE_URL=https://api.example.com/v1
-OPENAI_API_KEY=sk-...
-DEEPAGENT_MODEL=your-model-id
-```
-
-DeepSeek 官方 OpenAI-compatible endpoint 也可以使用 provider-specific alias：
-
-```env
-DEEPSEEK_API_KEY=
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-chat
-```
-
-当选择 OpenAI-compatible provider 时，`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 会被视为对应 OpenAI-compatible API key、base URL 和 model 的别名。
-
-请把 API key 和机器相关路径保存在本地 `.env` 或 runtime config 文件中，不要提交密钥。
-
-### 常用启动参数
-
-```bash
-INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
-INTERNAGENTS_BACKEND_PORT=2025 ./scripts/dev.sh
-INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
-INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
-```
 
 ## 科研工作流示例
 
@@ -151,16 +75,6 @@ InternAgentS 采用三栏工作区：
 | 右侧面板 | 项目文件、preview、provenance、runtime 信息和 connector 上下文 |
 
 项目文件通过 workspace API 访问，而不是让 UI 组件直接访问文件系统。文件面板支持目录导航、网格/列表视图、搜索，以及常见科研 artifact 的预览。
-
-### DeepAgents + LangGraph Runtime
-
-InternAgentS 从 `agent.py` 导出 LangGraph assistants：
-
-- `agent`
-- `agent_local`
-- `agent_remote1` 到 `agent_remote8`
-
-Coordinator 和 local runtime 是独立进程。这样可以让 UI 连接逻辑、项目执行、workspace 状态和未来 remote resource 支持更易维护。
 
 ### Skills 和科学能力库
 
@@ -235,6 +149,79 @@ curl -X POST http://127.0.0.1:3000/api/compute/ssh-hosts \
   -H 'Content-Type: application/json' \
   -H "X-InternAgents-Compute-Token: $TOKEN" \
   -d '{"host":"my-linux-host","notes":"Use sbatch on gpu partition; conda envs live under ~/envs."}'
+```
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.11+
+- Node.js 和 npm。UI 以 `ui/package-lock.json` 作为标准 lockfile。
+- 一个 OpenAI-compatible 模型 endpoint，或者稍后在设置中配置。
+
+### 启动工作台
+
+```bash
+cp .env.example .env
+./scripts/dev.sh
+```
+
+启动脚本会准备本地环境并启动三个服务：
+
+首次运行时，脚本会创建 `.venv`，以 editable mode 安装 Python 包，并在 `ui/` 下执行 `npm install --legacy-peer-deps --ignore-scripts`。只有在这些依赖已经安装完成之后，才建议使用 `INTERNAGENTS_SKIP_INSTALL=1`。
+
+| 服务 | 默认地址 | 作用 |
+| --- | --- | --- |
+| UI | `http://127.0.0.1:3000` | Next.js 工作台 |
+| Coordinator | `http://127.0.0.1:2024` | 工作台前端连接的 LangGraph API |
+| Local runtime | `http://127.0.0.1:22024` | 项目级 DeepAgent runtime |
+
+打开：
+
+```text
+http://127.0.0.1:3000/?assistantId=agent_local
+```
+
+日志写入：
+
+```text
+.internagents/logs/backend.log
+.internagents/logs/local-runtime.log
+.internagents/logs/ui.log
+```
+
+在启动脚本所在终端按 `Ctrl+C` 可以停止由脚本启动的服务。
+
+### 配置模型
+
+你可以在首次设置时配置模型，也可以跳过后稍后从 Settings 返回配置。OpenAI-compatible endpoint 示例：
+
+```env
+INTERNAGENTS_MODEL_PROVIDER=openai_compatible
+OPENAI_BASE_URL=https://api.example.com/v1
+OPENAI_API_KEY=sk-...
+DEEPAGENT_MODEL=your-model-id
+```
+
+DeepSeek 官方 OpenAI-compatible endpoint 也可以使用 provider-specific alias：
+
+```env
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+当选择 OpenAI-compatible provider 时，`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 会被视为对应 OpenAI-compatible API key、base URL 和 model 的别名。
+
+请把 API key 和机器相关路径保存在本地 `.env` 或 runtime config 文件中，不要提交密钥。
+
+### 常用启动参数
+
+```bash
+INTERNAGENTS_UI_PORT=3001 ./scripts/dev.sh
+INTERNAGENTS_BACKEND_PORT=2025 ./scripts/dev.sh
+INTERNAGENTS_OPEN_BROWSER=0 ./scripts/dev.sh
+INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 ```
 
 ## 安全和隐私
