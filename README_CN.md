@@ -19,6 +19,9 @@
     <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
     <img alt="Status" src="https://img.shields.io/badge/status-active%20development-0f766e">
   </p>
+  <p align="center">
+    <a href="./README.md">English</a> | <strong>简体中文</strong>
+  </p>
   <p>
     <a href="#快速开始">快速开始</a>
     · <a href="#科研工作流示例">工作流</a>
@@ -33,8 +36,6 @@
 InternAgentS 为研究者和开发者提供一个本地浏览器工作台，用来完成带有 Agent 能力的科研任务。它把 DeepAgents/LangGraph runtime、项目文件预览、可复用技能、模型配置、本地授权以及 MCP/SCP 连接器配置整合在一个 UI 中。
 
 项目仍处于早期阶段，但已经可以作为本地科研助手外壳使用：打开项目、配置模型、浏览文件、开始会话，并随着工作流增长逐步加入领域技能。
-
-English README: [README.md](./README.md)
 
 ## 快速开始
 
