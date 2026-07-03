@@ -1,13 +1,12 @@
 "use client";
 
-import { type CSSProperties } from "react";
+import { type CSSProperties, useState } from "react";
 import {
   ArrowRight,
   BrainCircuit,
   Download,
   FileStack,
   Github,
-  Image as ImageIcon,
   Layers3,
   Rocket,
   ShieldCheck,
@@ -39,30 +38,39 @@ const demoLoops = [
   },
 ];
 
-const screenshots = [
+type CapabilityMedia = {
+  path: string;
+  title: string;
+  copy: string;
+  kind?: "image" | "video";
+};
+
+const capabilityMedia: CapabilityMedia[] = [
   {
-    path: "/showcase/workspace-preview-cn.jpeg",
-    title: "中文工作台总览",
+    path: "/showcase/science-data-formats.mov",
+    title: "丰富科学数据格式",
+    copy: "支持分子结构、图像、谱图、表格、报告和计算产物等多种科研数据格式预览。",
+    kind: "video",
   },
   {
-    path: "/showcase/workbench-tour.png",
-    title: "三栏工作区",
+    path: "/showcase/compute-resources.png",
+    title: "计算资源",
+    copy: "从本机 SSH 配置选择 Linux 主机，把远程计算资源接入会话审批流。",
   },
   {
-    path: "/showcase/file-preview.png",
-    title: "科研文件预览",
+    path: "/showcase/approval-mode.png",
+    title: "授权模式",
+    copy: "按项目风险选择自动授权、写入需审批或全部需审批。",
   },
   {
-    path: "/showcase/config.png",
-    title: "模型与授权设置",
+    path: "/showcase/skills-library.png",
+    title: "技能系统",
+    copy: "管理内置技能和科学技能库，也可以添加本地技能或从 GitHub 导入。",
   },
   {
-    path: "/showcase/connect.png",
-    title: "连接与运行状态",
-  },
-  {
-    path: "/showcase/remote-compute-card.png",
-    title: "远程计算审批",
+    path: "/showcase/connectors.png",
+    title: "连接器",
+    copy: "集中配置 MCP server 和 SCP Hub Key，让科学技能调用外部工具。",
   },
 ];
 
@@ -162,46 +170,121 @@ function WorkflowSwitcher() {
   );
 }
 
-function ScreenshotTile({
+function CapabilityVisual({
   path,
   title,
-  featured = false,
+  kind = "image",
 }: {
   path: string;
   title: string;
-  featured?: boolean;
+  kind?: "image" | "video";
 }) {
   return (
-    <article
-      className={[
-        "group relative overflow-hidden rounded-lg border border-[#ded8e8] bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-[#6d28d9]/12",
-        featured ? "md:col-span-2 md:row-span-2" : "",
-      ].join(" ")}
-    >
-      <div
-        className={[
-          "relative bg-cover bg-center",
-          featured ? "aspect-[16/10]" : "aspect-[4/3]",
-        ].join(" ")}
-        style={{
-          backgroundImage: `linear-gradient(135deg, rgba(246,243,251,0.28), rgba(216,180,254,0.16), rgba(245,184,91,0.08)), url('${path}')`,
-        }}
-      >
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.82))]" />
-        <div className="relative flex h-full flex-col justify-between p-4">
-          <span className="inline-flex w-fit items-center gap-2 rounded-md border border-[#ded8e8] bg-white/82 px-3 py-1.5 text-xs font-semibold uppercase tracking-normal text-[#6d28d9] backdrop-blur">
-            <ImageIcon className="h-3.5 w-3.5" />
-            截图
-          </span>
-          <div>
-            <h3 className="text-xl font-semibold tracking-normal text-[#1e1233]">
-              {title}
-            </h3>
-            <div className="mt-3 h-1.5 w-24 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7)]" />
-          </div>
+    <div className="relative aspect-[16/10] overflow-hidden rounded-lg border border-[#ded8e8] bg-white">
+      {kind === "video" ? (
+        <video
+          src={path}
+          className="absolute inset-0 h-full w-full object-contain"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+        />
+      ) : (
+        <img
+          src={path}
+          alt={title}
+          className="absolute inset-0 h-full w-full object-contain"
+        />
+      )}
+    </div>
+  );
+}
+
+function CapabilityStack() {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const active = capabilityMedia[activeIndex];
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <article className="overflow-hidden rounded-lg border border-[#ded8e8] bg-white shadow-2xl shadow-[#6d28d9]/12">
+        <CapabilityVisual
+          path={active.path}
+          title={active.title}
+          kind={active.kind}
+        />
+        <div className="p-6">
+          <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+            {active.kind === "video" ? "科学数据预览" : "功能实景"}
+          </p>
+          <h3 className="mt-3 text-3xl font-black leading-tight tracking-normal text-[#1e1233]">
+            {active.title}
+          </h3>
+          <p className="mt-4 max-w-3xl text-base leading-7 text-[#706b78]">
+            {active.copy}
+          </p>
+          {active.kind === "video" ? (
+            <div className="mt-6 grid gap-3 text-sm font-semibold text-[#1e1233] sm:grid-cols-4">
+              {["分子结构", "谱图图片", "表格数据", "分析报告"].map((item) => (
+                <span
+                  key={item}
+                  className="rounded-md border border-[#ded8e8] bg-[#f6f3fb] px-3 py-2"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
+      </article>
+
+      <div className="flex flex-col gap-0 lg:pt-7">
+        {capabilityMedia.map((item, index) => {
+          const isActive = index === activeIndex;
+          return (
+            <button
+              key={item.path}
+              type="button"
+              onClick={() => setActiveIndex(index)}
+              className={[
+                "relative w-full rounded-lg border bg-white p-4 text-left shadow-sm transition duration-200",
+                index > 0 ? "-mt-2" : "",
+                isActive
+                  ? "z-20 border-[#6d28d9] shadow-xl shadow-[#6d28d9]/18"
+                  : "z-10 border-[#ded8e8] hover:z-30 hover:-translate-x-1 hover:border-[#c084fc] hover:shadow-lg",
+              ].join(" ")}
+              aria-pressed={isActive}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-normal text-[#6d28d9]">
+                    {String(index + 1).padStart(2, "0")}
+                  </p>
+                  <h4 className="mt-2 text-lg font-black tracking-normal text-[#1e1233]">
+                    {item.title}
+                  </h4>
+                </div>
+                <span
+                  className={[
+                    "mt-1 h-2.5 w-2.5 shrink-0 rounded-full",
+                    isActive ? "bg-[#6d28d9]" : "bg-[#ded8e8]",
+                  ].join(" ")}
+                />
+              </div>
+              <p
+                className={[
+                  "overflow-hidden text-sm leading-6 text-[#706b78] transition-all duration-200",
+                  isActive ? "mt-3 max-h-24 opacity-100" : "mt-0 max-h-0 opacity-0",
+                ].join(" ")}
+              >
+                {item.copy}
+              </p>
+            </button>
+          );
+        })}
       </div>
-    </article>
+    </div>
   );
 }
 
@@ -472,7 +555,7 @@ export default function ShowcasePage() {
               <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
                 工作台界面
               </p>
-              <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal">
+              <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal lg:whitespace-nowrap">
                 三栏工作台，把对话、文件和运行状态放在一起。
               </h2>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-[#706b78]">
@@ -502,7 +585,7 @@ export default function ShowcasePage() {
               <p className="text-sm font-black uppercase tracking-normal text-[#f5b85b]">
                 例子演示
               </p>
-              <h2 className="mt-3 text-4xl font-black leading-tight tracking-normal !text-white sm:text-5xl">
+              <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal !text-white">
                 三个科学场景，展示从问题到产出。
               </h2>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-white/68">
@@ -519,22 +602,17 @@ export default function ShowcasePage() {
           <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
               <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
-                截图墙
+                功能实景
               </p>
-              <h2 className="mt-3 text-4xl font-black leading-tight tracking-normal sm:text-5xl">
-                让工作过程一眼可见。
+              <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal">
+                科研需要的工具，都在工作台里。
               </h2>
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#706b78]">
+                看数据、连工具、调计算、管权限、复用技能，都放在同一个工作台里。
+              </p>
             </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {screenshots.map((screenshot, index) => (
-              <ScreenshotTile
-                key={screenshot.path}
-                {...screenshot}
-                featured={index === 0}
-              />
-            ))}
-          </div>
+          <CapabilityStack />
         </div>
       </section>
 
