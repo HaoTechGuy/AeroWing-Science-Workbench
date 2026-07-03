@@ -1,6 +1,6 @@
 <div align="center">
   <p>
-    <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
+    <img src="./docs/assets/readme/internagents-banner.png" alt="InternAgentS banner" width="100%">
   </p>
 
   <h1 align="center">InternAgentS · A local-first research agent workbench for scientific files, code, skills, and compute.</h1>

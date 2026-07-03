@@ -1,6 +1,6 @@
 <div align="center">
   <p>
-    <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
+    <img src="./docs/assets/readme/internagents-banner.png" alt="InternAgentS banner" width="100%">
   </p>
 
   <h1 align="center">InternAgentS · 面向科研文件、代码、技能和计算资源的本地优先 Agent 工作台。</h1>
