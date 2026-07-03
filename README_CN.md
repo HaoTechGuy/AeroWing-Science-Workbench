@@ -311,4 +311,8 @@ InternAgentS 基于 [MIT License](LICENSE) 发布。
 - 更好的 remote resource management
 - packaged desktop workflows
 
-这个 README_CN 保持相对轻量。更详细的设计记录位于 `docs/`，公开 onboarding 叙事会随着界面稳定持续演进。
+## 贡献者
+
+<a href="https://github.com/qzzqzzb/OpenClaudeScience/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=qzzqzzb/OpenClaudeScience" alt="贡献者" />
+</a>

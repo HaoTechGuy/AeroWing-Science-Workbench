@@ -6,29 +6,31 @@ on:
       - "v*.*.*"
   workflow_dispatch:
     inputs:
-      base_version:
-        description: "Base desktop version for test releases, for example 0.1.5"
+      tag:
+        description: "Release tag, for example v0.1.0 or v0.1.0-test.1"
+        required: true
+        default: "v0.1.0"
+      prerelease:
+        description: "Mark this release as a prerelease"
+        type: boolean
         required: false
-        default: "0.1.5"
+        default: true
       release_notes:
-        description: "Optional extra notes for the test release"
+        description: "Optional extra release notes"
         required: false
         default: ""
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   metadata:
     name: Prepare release metadata
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     outputs:
       desktop_version: ${{ steps.release.outputs.desktop_version }}
-      is_test_release: ${{ steps.release.outputs.is_test_release }}
-      release_repo: ${{ steps.release.outputs.release_repo }}
+      is_prerelease: ${{ steps.release.outputs.is_prerelease }}
       release_tag: ${{ steps.release.outputs.release_tag }}
-      source_repository: ${{ steps.release.outputs.source_repository }}
       source_ref: ${{ steps.release.outputs.source_ref }}
       source_label: ${{ steps.release.outputs.source_label }}
       extra_notes: ${{ steps.release.outputs.extra_notes }}
@@ -37,31 +39,21 @@ jobs:
       - name: Compute release metadata
         id: release
         env:
-          BASE_VERSION: ${{ inputs.base_version }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
           EXTRA_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
 
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            base_version="${BASE_VERSION:-0.1.5}"
-            if ! [[ "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::base_version must look like X.Y.Z, got: $base_version"
+            tag="${INPUT_TAG:-v0.1.0}"
+            if ! [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+              echo "::error::tag must look like vX.Y.Z or vX.Y.Z-suffix, got: $tag"
               exit 1
             fi
-
-            safe_branch="$(printf '%s' "$GITHUB_REF_NAME" \
-              | tr '[:upper:]' '[:lower:]' \
-              | sed -E 's/[^0-9a-z]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-            if [ -z "$safe_branch" ]; then
-              safe_branch="branch"
-            fi
-
-            timestamp="$(date -u +'%Y%m%d.%H%M%S')"
-            desktop_version="${base_version}-test.${safe_branch}.${timestamp}"
-            release_tag="v${desktop_version}"
-            release_repo="${GITHUB_REPOSITORY}"
-            is_test_release="true"
-            source_repository="${GITHUB_REPOSITORY}"
+            desktop_version="${BASH_REMATCH[1]}"
+            release_tag="$tag"
+            is_prerelease="${INPUT_PRERELEASE:-true}"
             source_ref="${GITHUB_REF_NAME}"
             source_label="${GITHUB_REPOSITORY}@${GITHUB_REF_NAME} (${GITHUB_SHA})"
           else
@@ -70,162 +62,118 @@ jobs:
               echo "::error::Release tag must look like vX.Y.Z, got: $tag"
               exit 1
             fi
-
             desktop_version="${BASH_REMATCH[1]}"
             release_tag="$tag"
-            if [ "${GITHUB_REPOSITORY}" = "InternScience/InternAgents" ]; then
-              release_repo="${GITHUB_REPOSITORY}"
-            else
-              release_repo="InternScience/InternAgents"
-            fi
-            is_test_release="false"
-            source_repository="${GITHUB_REPOSITORY}"
             source_ref="$tag"
             source_label="${GITHUB_REPOSITORY}@${tag}"
+            if [[ "$desktop_version" == *-* || "$desktop_version" == *+* ]]; then
+              is_prerelease="true"
+            else
+              is_prerelease="false"
+            fi
           fi
 
           {
             echo "desktop_version=$desktop_version"
-            echo "is_test_release=$is_test_release"
-            echo "release_repo=$release_repo"
+            echo "is_prerelease=$is_prerelease"
             echo "release_tag=$release_tag"
-            echo "source_repository=$source_repository"
             echo "source_ref=$source_ref"
             echo "source_label=$source_label"
-            {
-              echo "extra_notes<<EOF"
-              printf '%s\n' "${EXTRA_NOTES:-}"
-              echo "EOF"
-            }
+            echo "extra_notes<<EOF"
+            printf '%s\n' "${EXTRA_NOTES:-}"
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-          printf 'Release repo: %s\n' "$release_repo"
+          printf 'Release repository: %s\n' "$GITHUB_REPOSITORY"
           printf 'Release tag: %s\n' "$release_tag"
           printf 'Desktop version: %s\n' "$desktop_version"
-          printf 'Source repository: %s\n' "$source_repository"
           printf 'Source ref: %s\n' "$source_ref"
 
   prepare-release:
-    name: Prepare binary release
+    name: Prepare GitHub release
     needs: metadata
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     env:
       INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
-      INTERNAGENTS_IS_TEST_RELEASE: ${{ needs.metadata.outputs.is_test_release }}
-      INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
+      INTERNAGENTS_IS_PRERELEASE: ${{ needs.metadata.outputs.is_prerelease }}
       INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
       INTERNAGENTS_SOURCE_LABEL: ${{ needs.metadata.outputs.source_label }}
       INTERNAGENTS_EXTRA_NOTES: ${{ needs.metadata.outputs.extra_notes }}
 
     steps:
-      - name: Require repository-local release token
-        if: needs.metadata.outputs.is_test_release == 'true'
-        env:
-          INTERNAGENTS_LOCAL_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN }}
-        run: |
-          if [ -z "$INTERNAGENTS_LOCAL_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_LOCAL_RELEASE_TOKEN in ${GITHUB_REPOSITORY} -> Settings -> Secrets and variables -> Actions."
-            exit 1
-          fi
-
-      - name: Require cross-repository release token
-        if: needs.metadata.outputs.is_test_release != 'true' && needs.metadata.outputs.release_repo != github.repository
-        env:
-          INTERNAGENTS_RELEASE_TOKEN: ${{ secrets.INTERNAGENTS_RELEASE_TOKEN }}
-          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
-        run: |
-          if [ -z "$INTERNAGENTS_RELEASE_TOKEN" ]; then
-            echo "::error::Set INTERNAGENTS_RELEASE_TOKEN in ${GITHUB_REPOSITORY} with Contents write access to ${INTERNAGENTS_RELEASE_REPO}."
-            exit 1
-          fi
-
       - name: Create or refresh release
         env:
-          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          if [ "$INTERNAGENTS_IS_TEST_RELEASE" = "true" ]; then
-            release_kind="test release"
-            latest_args=(--prerelease)
-            target_args=(--target "$GITHUB_SHA")
-            encoded_tag="${INTERNAGENTS_RELEASE_TAG//\//%2F}"
-            test_update_notes="
-          Test update API:
-          INTERNAGENTS_UPDATE_API_URL=https://api.github.com/repos/${INTERNAGENTS_RELEASE_REPO}/releases/tags/${encoded_tag}"
-          else
-            release_kind="release"
-            latest_args=(--latest)
-            target_args=()
-            test_update_notes=""
-          fi
+          notes_file="$(mktemp)"
+          cat > "$notes_file" <<EOF
+          InternAgents ${INTERNAGENTS_RELEASE_TAG}
 
-          NOTES="InternAgents desktop app ${release_kind} ${INTERNAGENTS_RELEASE_TAG}
-
-          Release highlights:
-          - macOS desktop app packaged for Apple Silicon and Intel Macs.
-          - Windows desktop app packaged as an x64 NSIS installer.
-          - Remote backend CLI package for SSH workspace runtime synchronization.
-          - Auto-update assets are published separately by platform and architecture.
+          Assets:
+          - macOS Apple Silicon DMG
+          - Remote backend CLI tarball for SSH runtime setup
 
           Desktop version: ${INTERNAGENTS_DESKTOP_VERSION}
           Source ref: ${INTERNAGENTS_SOURCE_LABEL}
-          Assets: arm64 Apple Silicon DMG, x64 Intel DMG, Windows x64 EXE, and remote backend CLI tarball${test_update_notes}"
+          EOF
 
           if [ -n "${INTERNAGENTS_EXTRA_NOTES:-}" ]; then
-            NOTES="${NOTES}
-
-          Additional notes:
-          ${INTERNAGENTS_EXTRA_NOTES}"
+            {
+              printf '\nAdditional notes:\n'
+              printf '%s\n' "${INTERNAGENTS_EXTRA_NOTES}"
+            } >> "$notes_file"
           fi
 
-          if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" >/dev/null 2>&1; then
-            existing_assets="$(gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$INTERNAGENTS_RELEASE_REPO" --json assets --jq '.assets[].name')"
+          if [ "$INTERNAGENTS_IS_PRERELEASE" = "true" ]; then
+            release_flags=(--prerelease)
+          else
+            release_flags=(--latest)
+          fi
+
+          target_flags=()
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            target_flags=(--target "$GITHUB_SHA")
+          fi
+
+          if gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            existing_assets="$(gh release view "$INTERNAGENTS_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
             while IFS= read -r asset; do
               [ -z "$asset" ] && continue
-              gh release delete-asset "$INTERNAGENTS_RELEASE_TAG" "$asset" --repo "$INTERNAGENTS_RELEASE_REPO" --yes
+              gh release delete-asset "$INTERNAGENTS_RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes
             done <<< "$existing_assets"
 
             gh release edit "$INTERNAGENTS_RELEASE_TAG" \
-              --repo "$INTERNAGENTS_RELEASE_REPO" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "$INTERNAGENTS_RELEASE_TAG" \
-              --notes "$NOTES" \
-              "${latest_args[@]}"
+              --notes-file "$notes_file" \
+              "${release_flags[@]}"
           else
             gh release create "$INTERNAGENTS_RELEASE_TAG" \
-              --repo "$INTERNAGENTS_RELEASE_REPO" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "$INTERNAGENTS_RELEASE_TAG" \
-              --notes "$NOTES" \
-              "${latest_args[@]}" \
-              "${target_args[@]}"
+              --notes-file "$notes_file" \
+              "${release_flags[@]}" \
+              "${target_flags[@]}"
           fi
 
-  build:
-    name: Build macOS DMG (${{ matrix.arch }})
+  build-macos:
+    name: Build macOS DMG
     needs:
       - metadata
       - prepare-release
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-14
-          - arch: x64
-            runner: macos-15-intel
+    runs-on: macos-14
+    env:
+      INTERNAGENTS_DESKTOP_ARCH: arm64
+      INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
+      INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
         with:
-          repository: ${{ needs.metadata.outputs.source_repository }}
           ref: ${{ needs.metadata.outputs.source_ref }}
-          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -248,9 +196,6 @@ jobs:
         run: npm --prefix desktop ci
 
       - name: Set desktop release version
-        env:
-          INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
-          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
         run: |
           node <<'NODE'
           const fs = require("fs");
@@ -258,55 +203,47 @@ jobs:
           if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
             throw new Error(`Desktop version must look like X.Y.Z, got: ${version}`);
           }
-          const packagePath = "desktop/package.json";
-          const lockPath = "desktop/package-lock.json";
-          const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
-          pkg.version = version;
-          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-
-          if (fs.existsSync(lockPath)) {
-            const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
-            lock.version = version;
-            if (lock.packages && lock.packages[""]) {
-              lock.packages[""].version = version;
+          for (const file of ["desktop/package.json", "desktop/package-lock.json"]) {
+            const data = JSON.parse(fs.readFileSync(file, "utf8"));
+            data.version = version;
+            if (data.packages && data.packages[""]) {
+              data.packages[""].version = version;
             }
-            fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+            fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
           }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_DESKTOP_VERSION=${version}\n`);
-          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_RELEASE_TAG=${process.env.INTERNAGENTS_RELEASE_TAG}\n`);
           NODE
 
       - name: Prepare bundled Python runtime
         run: |
-          python -m pip install --upgrade pip uv
-          rm -rf .desktop-python-runtime
-          export UV_PYTHON_INSTALL_DIR="$PWD/.desktop-python-runtime/python"
-          uv python install 3.11 --managed-python --no-bin
-          uv venv "$PWD/.desktop-python-runtime/venv" \
-            --python 3.11 \
-            --managed-python \
-            --seed \
-            --relocatable
-          uv pip install \
-            --python "$PWD/.desktop-python-runtime/venv/bin/python" \
-            --link-mode copy \
-            --compile-bytecode \
-            .
-          "$PWD/.desktop-python-runtime/venv/bin/python" -c "import langgraph_cli; print(langgraph_cli.__file__)"
-          echo "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$PWD/.desktop-python-runtime" >> "$GITHUB_ENV"
+          python -m pip install --upgrade pip
+          python -m pip install uv==0.8.22
+          python -m uv venv .desktop-python-runtime/venv --python 3.11
+          .desktop-python-runtime/venv/bin/python -m pip install --upgrade pip
+          .desktop-python-runtime/venv/bin/python -m pip install .
+          .desktop-python-runtime/venv/bin/python -m pip install "markitdown[pptx]" pandas openpyxl lxml defusedxml
 
-      - name: Validate Python files
+      - name: Validate Python sources
         run: |
-          .desktop-python-runtime/venv/bin/python -m compileall \
-            agent.py \
-            internagent_resources.py \
-            ssh_backend.py \
-            kb_sync_middleware.py \
-            goal_middleware.py \
-            goal_state.py \
-            goal_tools.py \
-            mineru_middleware.py
+          python_files=(
+            agent.py
+            date_middleware.py
+            dynamic_local_backend.py
+            goal_middleware.py
+            goal_state.py
+            goal_tools.py
+            internagent_resources.py
+            internagents_backend_cli.py
+            kb_sync_middleware.py
+            main.py
+            mcp_config.py
+            mcp_tools.py
+            remote_compute_tools.py
+            ssh_backend.py
+            thread_skill_middleware.py
+            web_search_tools.py
+          )
+          .desktop-python-runtime/venv/bin/python -m compileall "${python_files[@]}"
+          .desktop-python-runtime/venv/bin/python -c "import agent; print(agent.MODEL)"
 
       - name: Validate UI
         run: |
@@ -315,45 +252,36 @@ jobs:
 
       - name: Build macOS DMG
         env:
-          INTERNAGENTS_DESKTOP_ARCH: ${{ matrix.arch }}
+          INTERNAGENTS_PYTHON_RUNTIME_SOURCE: ${{ github.workspace }}/.desktop-python-runtime
         run: npm --prefix desktop run build
 
       - name: Upload DMG to release
         env:
-          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
-          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
-          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          dmg_assets=(desktop/release/InternAgents-*-${{ matrix.arch }}.dmg)
-          if [ "${#dmg_assets[@]}" -ne 1 ]; then
-            printf 'Expected exactly one %s DMG, found %s:\n' "${{ matrix.arch }}" "${#dmg_assets[@]}"
-            printf '  %s\n' "${dmg_assets[@]}"
+          dmg="$(find desktop/release -maxdepth 1 -name "InternAgents-*-${INTERNAGENTS_DESKTOP_ARCH}.dmg" -print -quit)"
+          if [ -z "$dmg" ]; then
+            echo "::error::No macOS DMG was produced."
+            find desktop/release -maxdepth 1 -type f -print || true
             exit 1
           fi
-
-          gh release upload "$INTERNAGENTS_RELEASE_TAG" \
-            "${dmg_assets[@]}" \
-            --repo "$INTERNAGENTS_RELEASE_REPO" \
-            --clobber
+          gh release upload "$INTERNAGENTS_RELEASE_TAG" "$dmg" --repo "$GITHUB_REPOSITORY" --clobber
 
   build-remote-backend:
-    name: Build remote backend package
+    name: Build remote backend
     needs:
       - metadata
       - prepare-release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    env:
+      INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
         with:
-          repository: ${{ needs.metadata.outputs.source_repository }}
           ref: ${{ needs.metadata.outputs.source_ref }}
-          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -376,143 +304,15 @@ jobs:
           INTERNAGENTS_PYTHON_BIN: ${{ github.workspace }}/.remote-package-venv/bin/python
         run: npm --prefix desktop run prepare:remote
 
-      - name: Upload backend CLI to release
+      - name: Upload remote backend package to release
         env:
-          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
-          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
-          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          backend_asset="dist-remote/internagents-backend-cli.tar.gz"
-          if [ ! -f "$backend_asset" ]; then
-            echo "::error::Missing backend CLI asset: $backend_asset"
+          asset="dist-remote/internagents-backend-cli.tar.gz"
+          if [ ! -f "$asset" ]; then
+            echo "::error::Remote backend package was not produced at $asset."
+            find dist-remote -maxdepth 2 -type f -print || true
             exit 1
           fi
-
-          gh release upload "$INTERNAGENTS_RELEASE_TAG" \
-            "$backend_asset" \
-            --repo "$INTERNAGENTS_RELEASE_REPO" \
-            --clobber
-
-  build-windows:
-    name: Build Windows installer (x64)
-    needs:
-      - metadata
-      - prepare-release
-    runs-on: windows-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ needs.metadata.outputs.source_repository }}
-          ref: ${{ needs.metadata.outputs.source_ref }}
-          persist-credentials: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            ui/package-lock.json
-            desktop/package-lock.json
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Install UI dependencies
-        run: npm --prefix ui ci
-
-      - name: Install desktop dependencies
-        run: npm --prefix desktop ci
-
-      - name: Set desktop release version
-        shell: pwsh
-        env:
-          INTERNAGENTS_DESKTOP_VERSION: ${{ needs.metadata.outputs.desktop_version }}
-          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
-        run: |
-          $script = @'
-          const fs = require("fs");
-          const version = process.env.INTERNAGENTS_DESKTOP_VERSION || "";
-          if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
-            throw new Error(`Desktop version must look like X.Y.Z, got: ${version}`);
-          }
-          const packagePath = "desktop/package.json";
-          const lockPath = "desktop/package-lock.json";
-          const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
-          pkg.version = version;
-          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-
-          if (fs.existsSync(lockPath)) {
-            const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
-            lock.version = version;
-            if (lock.packages && lock.packages[""]) {
-              lock.packages[""].version = version;
-            }
-            fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
-          }
-
-          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_DESKTOP_VERSION=${version}\n`);
-          fs.appendFileSync(process.env.GITHUB_ENV, `INTERNAGENTS_RELEASE_TAG=${process.env.INTERNAGENTS_RELEASE_TAG}\n`);
-          '@
-          $script | node
-
-      - name: Prepare bundled Python runtime
-        shell: pwsh
-        run: |
-          python -m pip install --upgrade pip uv
-          $runtime = Join-Path $PWD.Path ".desktop-python-runtime"
-          Remove-Item -Recurse -Force $runtime -ErrorAction SilentlyContinue
-          $env:UV_PYTHON_INSTALL_DIR = Join-Path $runtime "python"
-          uv python install 3.11 --managed-python --no-bin
-          uv venv (Join-Path $runtime "venv") --python 3.11 --managed-python --seed --relocatable
-          $python = Join-Path $runtime "venv\Scripts\python.exe"
-          uv pip install --python $python --link-mode copy --compile-bytecode .
-          & $python -c "import langgraph_cli; print(langgraph_cli.__file__)"
-          "INTERNAGENTS_PYTHON_RUNTIME_SOURCE=$runtime" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-
-      - name: Validate Python files
-        shell: pwsh
-        run: |
-          & .desktop-python-runtime\venv\Scripts\python.exe -m compileall `
-            agent.py `
-            internagent_resources.py `
-            ssh_backend.py `
-            kb_sync_middleware.py `
-            goal_middleware.py `
-            goal_state.py `
-            goal_tools.py `
-            mineru_middleware.py
-
-      - name: Validate UI
-        run: |
-          npm --prefix ui run lint
-          npm --prefix ui run build
-
-      - name: Build Windows artifacts
-        run: npm --prefix desktop run build:win
-
-      - name: Upload Windows installer to release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
-          INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
-          INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
-        run: |
-          $assets = @(Get-ChildItem -Path "desktop/release" -Filter "InternAgents-*-x64.exe" -File)
-          if ($assets.Count -ne 1) {
-            Write-Error "Expected exactly one Windows x64 installer, found $($assets.Count)."
-            $assets | ForEach-Object { Write-Host "  $($_.FullName)" }
-            exit 1
-          }
-
-          gh release upload $env:INTERNAGENTS_RELEASE_TAG `
-            $assets[0].FullName `
-            --repo $env:INTERNAGENTS_RELEASE_REPO `
-            --clobber
+          gh release upload "$INTERNAGENTS_RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber

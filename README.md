@@ -354,6 +354,8 @@ Near-term areas of work:
 - better remote resource management
 - packaged desktop workflows
 
-This README is intentionally lightweight. More detailed design notes live in
-`docs/`, and the public onboarding story will keep evolving as the interface
-stabilizes.
+## Contributors
+
+<a href="https://github.com/qzzqzzb/OpenClaudeScience/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=qzzqzzb/OpenClaudeScience" alt="Contributors" />
+</a>

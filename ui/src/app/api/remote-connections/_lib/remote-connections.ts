@@ -47,7 +47,7 @@ const BACKEND_CLI_WHEELHOUSE_DIR = "backend-wheelhouse";
 const BACKEND_CLI_ARCHIVE_NAME = "internagents-backend-cli.tar.gz";
 const BACKEND_CLI_PACKAGE_COMMAND = "npm --prefix desktop run prepare:remote";
 const RUNTIME_CONFIG_NAME = "deepagent.config.json";
-const DEFAULT_RELEASE_REPO = "InternScience/InternAgents";
+const DEFAULT_RELEASE_REPO = "qzzqzzb/OpenClaudeScience";
 const BACKEND_CLI_PACKAGE_ENTRIES = [
   ".env.example",
   "agent.py",
@@ -1221,6 +1221,45 @@ async function downloadBackendReleasePackage(
   };
 }
 
+function backendCliReleaseFallbackMessage(error: unknown): string {
+  const detail =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "未知错误";
+  return [
+    "无法从 GitHub Release 下载远端 backend CLI 包。",
+    detail,
+    `请先在本机项目根目录运行: ${BACKEND_CLI_PACKAGE_COMMAND}`,
+    `打包完成后会生成 dist-remote/${BACKEND_CLI_ARCHIVE_NAME}，然后重新接入远程项目。`,
+    "如果目标 Release 是私有仓库，请在 .env 中设置 INTERNAGENTS_REMOTE_BACKEND_UPDATE_GITHUB_TOKEN。",
+  ].join("\n");
+}
+
+async function fetchBackendReleaseForLocalVersionOrFallback(
+  log: string[],
+  onLog?: LogSink
+): Promise<BackendReleaseInfo> {
+  try {
+    return await fetchBackendReleaseForLocalVersion(log, onLog);
+  } catch (error) {
+    throw new Error(backendCliReleaseFallbackMessage(error), { cause: error });
+  }
+}
+
+async function downloadBackendReleasePackageOrFallback(
+  release: BackendReleaseInfo,
+  log: string[],
+  onLog?: LogSink
+): Promise<BackendCliPackage> {
+  try {
+    return await downloadBackendReleasePackage(release, log, onLog);
+  } catch (error) {
+    throw new Error(backendCliReleaseFallbackMessage(error), { cause: error });
+  }
+}
+
 async function updateHashWithFile(
   hash: ReturnType<typeof createHash>,
   filePath: string
@@ -2133,7 +2172,7 @@ export async function ensureRemoteResourceRuntime(
     pythonPath: resource.remote_python_path,
     condaCommand: resource.remote_conda_command,
   } as RemoteConnectionSetupRequest);
-  const release = await fetchBackendReleaseForLocalVersion(log, onLog);
+  const release = await fetchBackendReleaseForLocalVersionOrFallback(log, onLog);
   const backendDir = await resolveRemotePath(
     sshCommand,
     defaultRemoteBackendCliReleaseDir(release.tagName),
@@ -2168,7 +2207,11 @@ export async function ensureRemoteResourceRuntime(
       onLog
     );
   } else {
-    backendPackage = await downloadBackendReleasePackage(release, log, onLog);
+    backendPackage = await downloadBackendReleasePackageOrFallback(
+      release,
+      log,
+      onLog
+    );
     await runRemoteInstallPreflight(sshCommand, installOptions, log, onLog);
     const backendInstall = await ensureBackendCliInstalled(
       sshCommand,
@@ -2442,11 +2485,16 @@ export async function setupRemoteConnection(
     log,
     onLog
   );
-  const backendPackage = await buildBackendCliPackage(log, onLog);
+  const release = await fetchBackendReleaseForLocalVersionOrFallback(log, onLog);
+  const backendPackage = await downloadBackendReleasePackageOrFallback(
+    release,
+    log,
+    onLog
+  );
   const backendDir = await resolveRemotePath(
     sshCommand,
-    defaultRemoteBackendCliDir(backendPackage.fingerprint),
-    "远端 backend CLI 共享安装目录",
+    defaultRemoteBackendCliReleaseDir(release.tagName),
+    "远端 backend CLI release 安装目录",
     log,
     onLog
   );
@@ -2484,6 +2532,11 @@ export async function setupRemoteConnection(
     remote_url: `http://127.0.0.1:${localPort}`,
     remote_runtime_port: remoteRuntimePort,
     remote_assistant_id: "agent",
+    remote_backend_release_tag: release.tagName,
+    remote_backend_fingerprint: backendPackage.fingerprint,
+    remote_backend_source_repo: release.sourceRepo,
+    remote_backend_asset_name: backendPackage.assetName || release.asset.name,
+    remote_backend_updated_at: nowIso(),
     remote_install_mode: installOptions.installMode,
     remote_python_path: installOptions.pythonPath,
     remote_conda_command: installOptions.condaCommand,
