@@ -605,7 +605,7 @@ button {
   overflow: hidden;
   padding: 6px 8px 0;
   border-bottom: 1px solid var(--ocs-line);
-  background: rgba(248, 252, 251, 0.76);
+  background: rgba(246, 243, 251, 0.82);
 }
 
 .ocs-conversation-tab-scroll {
@@ -686,7 +686,7 @@ button {
   height: 6px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: rgba(107, 119, 116, 0.42);
+  background: rgba(112, 107, 120, 0.42);
 }
 
 .ocs-conversation-tab[data-status="busy"] .ocs-conversation-tab-dot {
@@ -1194,7 +1194,7 @@ html[data-theme="dark"] .ocs-project-trigger[data-state="open"] {
   overflow: hidden;
   padding: 6px 8px 0;
   border-bottom: 1px solid var(--ocs-line);
-  background: rgba(248, 252, 251, 0.76);
+  background: rgba(246, 243, 251, 0.82);
 }
 
 .ocs-inspector-root-tab,
