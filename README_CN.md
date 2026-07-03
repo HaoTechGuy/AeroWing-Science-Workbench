@@ -117,23 +117,17 @@ INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 - Skill-guided sessions：启用文献检索、结果分析、图表、文档、幻灯片或领域科研 workflow 的可复用技能。
 - 远程计算 handoff：注册 Linux SSH host，在对话中 review Agent 提出的 compute job，授权后由本地 backend 提交远程任务并回收产物。
 
-### 材料结构分析演示
-
-下面的演示展示了 InternAgentS 如何在同一项目工作台中完成材料结构分析：Agent 生成候选结构文件，整理晶胞参数和配位环境，并把 Markdown 报告和 CIF 文件放回 workspace，右侧面板可以直接预览结构产物。
+### 分析 PbTiO3 钙钛矿结构在 A 位/B 位替换时可能带来的晶格畸变
 
 ![PbTiO3 A/B 位替换分析演示](./docs/assets/readme-cn/pbtio3-analysis.gif)
 
-### 小分子科研任务演示
-
-对于分子或化学相关任务，InternAgentS 可以在对话中组织分析步骤，写出中间文件，并在右侧文件/预览区域查看生成结果。下面的示例展示了 caffeine 相关任务的工作台交互。
+### 咖啡因计算化学研究
 
 ![Caffeine 分析演示](./docs/assets/readme-cn/caffeine-analysis.gif)
 
-### 结果与结构产物预览演示
+### 建立一个 Y 型微流控混合器的简化模型
 
-工作台支持在会话、文件浏览和 artifact preview 之间切换。下面的示例展示了 Agent 生成结构文件和分析结果后，用户如何在同一界面中继续查看会话上下文、浏览 workspace 文件，并打开右侧预览面板检查产物。
-
-![科研结果与结构产物预览演示](./docs/assets/readme-cn/artifact-preview.gif)
+![Y 型微流控混合器简化模型演示](./docs/assets/readme-cn/y-mixer-model.gif)
 
 ## 新功能
 
