@@ -40,19 +40,22 @@ coordination for research workflows.
 
 ## Highlights
 
-- DeepAgents/LangGraph, extended for research: InternAgentS reshapes runtime,
-  workspace, skills, tools, and approvals around scientific projects.
-- Remote research environments, built in: connect SSH workspaces, sync remote
-  runtimes, inspect logs, and approve remote compute jobs from the conversation.
-- A large science skill set: literature search, result analysis, figures, paper
-  writing, documents, slides, and domain workflows are reusable skills.
-- MCP/SCP plus any model: connect external tools through MCP/SCP, and use cloud
-  models, private gateways, or local model servers.
-- Local-first data control: project files, secrets, and runtime state stay on
-  machines you control by default, without requiring Claude, Claude Science, or
-  any fixed cloud service.
-- Built for real scientific files: browse, search, preview, and reference PDFs,
-  Office files, images, molecular structures, scientific data outputs, and
+- **DeepAgents/LangGraph, extended for research**: InternAgentS adapts the
+  runtime, workspace, skills, tools, and approval flow around scientific
+  projects.
+- **Remote environments without the ceremony**: connect SSH workspaces, sync
+  remote runtimes, inspect logs, and approve remote compute jobs from the
+  conversation.
+- **Science skills out of the box**: literature search, result analysis,
+  figures, paper writing, documents, slides, and domain workflows are reusable
+  skills.
+- **MCP/SCP, plus your choice of model**: connect external tools through
+  MCP/SCP, and use cloud models, private gateways, or local model servers.
+- **Local-first data control**: project files, secrets, and runtime state stay
+  on machines you control by default, without requiring Claude, Claude Science,
+  or any fixed cloud service.
+- **Built for real scientific files**: browse, search, preview, and reference
+  PDFs, Office files, images, molecular structures, scientific data outputs, and
   generated artifacts.
 
 ## Example Workflows
