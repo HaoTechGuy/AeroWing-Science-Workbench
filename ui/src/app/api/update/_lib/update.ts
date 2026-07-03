@@ -412,7 +412,7 @@ function githubHeaders(extra: Record<string, string> = {}) {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "InternAgents-Updater",
+    "User-Agent": "InternAgentS-Updater",
     ...extra,
   };
   const token =
@@ -546,9 +546,9 @@ function publicAssetCandidates(tagName: string) {
 
   for (const versionToken of versionTokens) {
     for (const archToken of archTokens) {
-      names.add(`InternAgents-${versionToken}-${archToken}.dmg`);
+      names.add(`InternAgentS-${versionToken}-${archToken}.dmg`);
     }
-    names.add(`InternAgents-${versionToken}.dmg`);
+    names.add(`InternAgentS-${versionToken}.dmg`);
   }
 
   return [...names];
@@ -565,7 +565,7 @@ async function selectPublicReleaseAsset(tagName: string, signal: AbortSignal) {
       redirect: "manual",
       cache: "no-store",
       headers: {
-        "User-Agent": "InternAgents-Updater",
+        "User-Agent": "InternAgentS-Updater",
       },
       signal,
     });
@@ -587,7 +587,7 @@ async function fetchLatestPublicRelease(signal: AbortSignal): Promise<UpdateRele
     redirect: "manual",
     cache: "no-store",
     headers: {
-      "User-Agent": "InternAgents-Updater",
+      "User-Agent": "InternAgentS-Updater",
     },
     signal,
   });
@@ -1053,7 +1053,7 @@ async function stageAppFromDmg(
     await fs.mkdir(stagingDir, { recursive: true });
     const stagedApp = path.join(
       stagingDir,
-      `InternAgents-${safeFileName(tagName)}.app`
+      `InternAgentS-${safeFileName(tagName)}.app`
     );
     await runCommand("ditto", [sourceApp, stagedApp], {
       timeoutMs: UPDATE_TIMEOUT_MS,
@@ -1100,7 +1100,7 @@ BACKUP=${shellQuote(backupApp)}
 STAGING_ROOT=${shellQuote(stagingDir)}
 APP_PID=${String(appPid)}
 {
-  echo "[$(/bin/date -u +"%Y-%m-%dT%H:%M:%SZ")] Installing InternAgents ${tagName}"
+  echo "[$(/bin/date -u +"%Y-%m-%dT%H:%M:%SZ")] Installing InternAgentS ${tagName}"
   /bin/sleep 1
   if [ "$APP_PID" -gt 1 ]; then
     /bin/kill -TERM "$APP_PID" 2>/dev/null || true
@@ -1253,7 +1253,7 @@ export async function applyUpdate(): Promise<UpdateStatus> {
         ...status,
         state: "applying",
         installLogPath,
-        message: "安装器已启动，InternAgents 将退出、替换 App 并重新打开。",
+        message: "安装器已启动，InternAgentS 将退出、替换 App 并重新打开。",
       },
       "已启动本机安装器。"
     );

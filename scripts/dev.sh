@@ -48,7 +48,7 @@ LOCAL_RUNTIME_PID=""
 UI_PID=""
 
 log() {
-  printf '[InternAgents] %s\n' "$*"
+  printf '[InternAgentS] %s\n' "$*"
 }
 
 langgraph_reload_args() {
@@ -65,7 +65,7 @@ langgraph_jobs_args() {
 }
 
 die() {
-  printf '[InternAgents] Error: %s\n' "$*" >&2
+  printf '[InternAgentS] Error: %s\n' "$*" >&2
   exit 1
 }
 
@@ -100,7 +100,7 @@ ensure_langgraph_state_dir() {
     printf '%s\n' "_root = Path(os.environ[\"INTERNAGENTS_GRAPH_ROOT\"])"
     printf '%s\n' "_spec = importlib.util.spec_from_file_location(\"_internagents_real_agent\", _root / \"agent.py\")"
     printf '%s\n' "if _spec is None or _spec.loader is None:"
-    printf '%s\n' "    raise RuntimeError(\"Unable to load InternAgents graph entrypoint.\")"
+    printf '%s\n' "    raise RuntimeError(\"Unable to load InternAgentS graph entrypoint.\")"
     printf '%s\n' "_module = importlib.util.module_from_spec(_spec)"
     printf '%s\n' "sys.modules[_spec.name] = _module"
     printf '%s\n' "_spec.loader.exec_module(_module)"
@@ -406,7 +406,7 @@ start_frontend() {
   fi
 
   if port_open "$UI_PORT"; then
-    die "Port $UI_PORT is in use, but $UI_URL is not serving InternAgents."
+    die "Port $UI_PORT is in use, but $UI_URL is not serving InternAgentS."
   fi
 
   : > "$UI_LOG"
@@ -427,7 +427,7 @@ start_frontend() {
 }
 
 monitor_processes() {
-  log "InternAgents is running."
+  log "InternAgentS is running."
   log "UI:      $APP_URL"
   log "Backend: $BACKEND_URL"
   log "Runtime: $LOCAL_RUNTIME_URL"

@@ -1,4 +1,4 @@
-"""Command line entrypoints for packaged InternAgents backend runtimes."""
+"""Command line entrypoints for packaged InternAgentS backend runtimes."""
 
 from __future__ import annotations
 

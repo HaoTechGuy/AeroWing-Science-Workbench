@@ -48,7 +48,7 @@ const DEFAULT_SKILL_SETTINGS: SkillSettings = {
   catalogPaths: DEFAULT_CATALOG_PATHS,
   activePath: ".internagents/active-skills",
   selected: [],
-  label: "InternAgents",
+  label: "InternAgentS",
 };
 
 function uniqueStrings(values: unknown, fallback: string[]): string[] {

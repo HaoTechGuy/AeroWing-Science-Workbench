@@ -1,4 +1,4 @@
-"""Goal-aware model context injection for InternAgents."""
+"""Goal-aware model context injection for InternAgentS."""
 
 from __future__ import annotations
 

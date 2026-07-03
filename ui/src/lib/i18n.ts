@@ -343,9 +343,9 @@ const COPY = {
     checkUpdateFailed: "检查更新失败",
     updateFailed: "更新失败",
     rollbackFailed: "回滚失败",
-    confirmUpdateToTag: "即将从 InternScience/InternAgents 更新到 {tag}。",
+    confirmUpdateToTag: "即将把 InternAgentS 更新到 {tag}。",
     confirmUpdateToLatest:
-      "即将从 InternScience/InternAgents 更新到最新 release。",
+      "即将把 InternAgentS 更新到最新 release。",
     confirmUpdateBody:
       "更新会下载最新 DMG，退出当前 App，替换本机 .app 后重新打开。",
     confirmRollbackToVersion: "即将回滚到 {version}。",
@@ -535,7 +535,7 @@ const COPY = {
     noDescription: "暂无介绍",
     skillCreatorName: "技能创建器",
     skillCreatorDescription:
-      "创建或更新 InternAgents 技能，把常用流程封装成可复用能力。",
+      "创建或更新 InternAgentS 技能，把常用流程封装成可复用能力。",
     patentDisclosureName: "专利申请",
     patentDisclosureDescription:
       "扫描技术资料挖掘专利点，完成查新对比、自检，并生成专利技术交底书。",
@@ -1083,9 +1083,9 @@ const COPY = {
     checkUpdateFailed: "Failed to check for updates",
     updateFailed: "Update failed",
     rollbackFailed: "Rollback failed",
-    confirmUpdateToTag: "Update from InternScience/InternAgents to {tag}.",
+    confirmUpdateToTag: "Update InternAgentS to {tag}.",
     confirmUpdateToLatest:
-      "Update from InternScience/InternAgents to the latest release.",
+      "Update InternAgentS to the latest release.",
     confirmUpdateBody:
       "The updater will download the latest DMG, quit the app, replace the local .app, then reopen it.",
     confirmRollbackToVersion: "Roll back to {version}.",

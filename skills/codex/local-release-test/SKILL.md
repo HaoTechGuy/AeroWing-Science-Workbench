@@ -5,7 +5,7 @@ description: Use the repository-local GitHub Actions release workflow to publish
 
 # Local Release Test
 
-Use this skill when a developer asks to create, run, monitor, or explain the repository-local release testing workflow for InternAgents desktop builds.
+Use this skill when a developer asks to create, run, monitor, or explain the repository-local release testing workflow for InternAgentS desktop builds.
 
 The goal is to let different developers publish test releases from different branches in `qzzqzzb/InternAgents` without overwriting official releases or each other's test builds.
 

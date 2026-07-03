@@ -1,4 +1,4 @@
-"""LangGraph entrypoint shim for InternAgents.
+"""LangGraph entrypoint shim for InternAgentS.
 
 The graph implementation lives in :mod:`internagents.agent_graph`; this
 root-level module stays so LangGraph configs and remote runtime launchers can

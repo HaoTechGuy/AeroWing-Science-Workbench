@@ -54,7 +54,7 @@ def _json_request(
         method=method,
         headers={
             "Content-Type": "application/json",
-            "X-InternAgents-Compute-Token": _compute_api_token(),
+            "X-InternAgentS-Compute-Token": _compute_api_token(),
         },
     )
     try:

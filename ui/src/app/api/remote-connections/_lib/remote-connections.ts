@@ -264,7 +264,7 @@ function githubHeaders(extra: Record<string, string> = {}): Record<string, strin
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "InternAgents-Remote-Backend-Updater",
+    "User-Agent": "InternAgentS-Remote-Backend-Updater",
     ...extra,
   };
   const token =
@@ -998,7 +998,7 @@ async function assertPublicReleasePageForTag(
     redirect: "manual",
     cache: "no-store",
     headers: {
-      "User-Agent": "InternAgents-Remote-Backend-Updater",
+      "User-Agent": "InternAgentS-Remote-Backend-Updater",
     },
     signal,
   });
@@ -1026,7 +1026,7 @@ async function fetchPublicBackendReleaseForTag(
     redirect: "manual",
     cache: "no-store",
     headers: {
-      "User-Agent": "InternAgents-Remote-Backend-Updater",
+      "User-Agent": "InternAgentS-Remote-Backend-Updater",
     },
     signal,
   });
@@ -1383,7 +1383,7 @@ async function buildBackendCliPackage(
   }
 
   if (!(await commandExists("tar"))) {
-    throw new Error("本机缺少 tar，无法打包 InternAgents backend CLI。");
+    throw new Error("本机缺少 tar，无法打包 InternAgentS backend CLI。");
   }
 
   const buildId = `${Date.now()}-${process.pid}`;
@@ -1417,7 +1417,7 @@ async function buildBackendCliPackage(
   const fingerprint = (await hashDirectoryContents(stagingDir)).slice(0, 16);
 
   try {
-    pushLog(log, "打包独立 InternAgents backend CLI...", onLog);
+    pushLog(log, "打包独立 InternAgentS backend CLI...", onLog);
     await execFileAsync("tar", ["-czf", artifactPath, "-C", stagingDir, "."], {
       timeout: 120_000,
       maxBuffer: COMMAND_MAX_BUFFER,

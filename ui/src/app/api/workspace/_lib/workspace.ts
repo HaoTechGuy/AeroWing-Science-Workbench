@@ -267,7 +267,7 @@ function defaultLocalRuntimeUrl() {
 
 function defaultLocalWorkspacePath() {
   if (process.env.INTERNAGENTS_DESKTOP === "1") {
-    const workspacePath = path.join(os.homedir(), "InternAgents-Workspace");
+    const workspacePath = path.join(os.homedir(), "InternAgentS-Workspace");
     mkdirSync(workspacePath, { recursive: true });
     return workspacePath;
   }

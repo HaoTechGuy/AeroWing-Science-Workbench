@@ -1,4 +1,4 @@
-"""InternAgents LangGraph exports for coordinator and runtime processes."""
+"""InternAgentS LangGraph exports for coordinator and runtime processes."""
 
 from __future__ import annotations
 

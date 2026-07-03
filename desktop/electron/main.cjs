@@ -19,9 +19,9 @@ let mainWindow = null;
 let splashWindow = null;
 let nextProcess = null;
 let runtimeRoot = "";
-let splashStatus = "Starting InternAgents...";
+let splashStatus = "Starting InternAgentS...";
 
-app.setName("InternAgents");
+app.setName("InternAgentS");
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -101,8 +101,8 @@ async function createSplashWindow() {
     maximizable: false,
     minimizable: false,
     fullscreenable: false,
-    title: "InternAgents",
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#10131a" : "#f7fbff",
+    title: "InternAgentS",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#121017" : "#f6f5f8",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -277,7 +277,7 @@ function hasInitialConfig() {
 }
 
 async function defaultDesktopWorkspace() {
-  const workspacePath = path.join(app.getPath("home"), "InternAgents-Workspace");
+  const workspacePath = path.join(app.getPath("home"), "InternAgentS-Workspace");
   await fsp.mkdir(workspacePath, { recursive: true });
   return workspacePath;
 }
@@ -793,7 +793,7 @@ async function createWindow(startUrl) {
     minWidth: 1100,
     minHeight: 720,
     show: false,
-    title: "InternAgents",
+    title: "InternAgentS",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -852,7 +852,7 @@ if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
     boot().catch((error) => {
       updateSplashStatus("Startup failed.");
-      dialog.showErrorBox("InternAgents failed to start", error.message);
+      dialog.showErrorBox("InternAgentS failed to start", error.message);
       app.quit();
     });
   });

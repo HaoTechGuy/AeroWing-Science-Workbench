@@ -176,7 +176,7 @@ API calls require the local token stored at `.internagents/compute/api-token`:
 TOKEN="$(cat .internagents/compute/api-token)"
 curl -X POST http://127.0.0.1:3000/api/compute/ssh-hosts \
   -H 'Content-Type: application/json' \
-  -H "X-InternAgents-Compute-Token: $TOKEN" \
+  -H "X-InternAgentS-Compute-Token: $TOKEN" \
   -d '{"host":"my-linux-host","notes":"Use sbatch on gpu partition; conda envs live under ~/envs."}'
 ```
 

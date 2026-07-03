@@ -1,4 +1,4 @@
-"""Web search tools for InternAgents."""
+"""Web search tools for InternAgentS."""
 
 from __future__ import annotations
 
@@ -1014,7 +1014,7 @@ def jina_fetch_url(
         max(timeout_seconds, JINA_MIN_TIMEOUT_SECONDS),
         headers={
             "Accept": "application/json",
-            "User-Agent": "InternAgents-WebFetch",
+            "User-Agent": "InternAgentS-WebFetch",
         },
     )
 

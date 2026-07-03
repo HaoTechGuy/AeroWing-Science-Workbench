@@ -109,7 +109,7 @@ jobs:
 
           notes_file="$(mktemp)"
           cat > "$notes_file" <<EOF
-          InternAgents ${INTERNAGENTS_RELEASE_TAG}
+          InternAgentS ${INTERNAGENTS_RELEASE_TAG}
 
           Assets:
           - macOS Apple Silicon DMG
@@ -294,7 +294,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          dmg="$(find desktop/release -maxdepth 1 -name "InternAgents-*-${INTERNAGENTS_DESKTOP_ARCH}.dmg" -print -quit)"
+          dmg="$(find desktop/release -maxdepth 1 -name "InternAgentS-*-${INTERNAGENTS_DESKTOP_ARCH}.dmg" -print -quit)"
           if [ -z "$dmg" ]; then
             echo "::error::No macOS DMG was produced."
             find desktop/release -maxdepth 1 -type f -print || true

@@ -3209,8 +3209,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                     <div className="flex h-7 w-7 shrink-0 items-start justify-center">
                       <div
                         className="border-primary/20 text-primary-foreground flex h-7 w-7 items-center justify-center rounded-md border bg-primary text-xs font-semibold tracking-wide shadow-sm shadow-black/[0.035]"
-                        title="InternAgents"
-                        aria-label="InternAgents"
+                        title="InternAgentS"
+                        aria-label="InternAgentS"
                       >
                         IA
                       </div>

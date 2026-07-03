@@ -1,4 +1,4 @@
-"""Resource configuration for multi-end InternAgents sessions."""
+"""Resource configuration for multi-end InternAgentS sessions."""
 
 from __future__ import annotations
 

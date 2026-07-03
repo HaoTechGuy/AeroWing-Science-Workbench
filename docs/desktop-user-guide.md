@@ -1,14 +1,14 @@
-# InternAgents 桌面版用户手册
+# InternAgentS 桌面版用户手册
 
-这份手册写给第一次使用 InternAgents 的 macOS 用户。你不需要懂命令行，首次缺少模型凭证时会先进入初始配置；需要更换模型、API key、工作区或授权模式时，再进入配置页调整。
+这份手册写给第一次使用 InternAgentS 的 macOS 用户。你不需要懂命令行，首次缺少模型凭证时会先进入初始配置；需要更换模型、API key、工作区或授权模式时，再进入配置页调整。
 
 ## 1. 安装和打开
 
-1. Apple Silicon Mac 双击 `InternAgents-0.1.0-arm64.dmg`；Intel Mac 双击 `InternAgents-0.1.0-x64.dmg`。
-2. 把 `InternAgents` 拖到 `Applications`（应用程序）文件夹。
-3. 在「应用程序」里打开 `InternAgents`。
+1. Apple Silicon Mac 双击 `InternAgentS-0.1.0-arm64.dmg`；Intel Mac 双击 `InternAgentS-0.1.0-x64.dmg`。
+2. 把 `InternAgentS` 拖到 `Applications`（应用程序）文件夹。
+3. 在「应用程序」里打开 `InternAgentS`。
 
-如果 macOS 提示“无法验证开发者”，可以在「应用程序」里按住 `Control` 点 `InternAgents`，选择「打开」。第一次打开后，以后通常就可以直接双击打开。
+如果 macOS 提示“无法验证开发者”，可以在「应用程序」里按住 `Control` 点 `InternAgentS`，选择「打开」。第一次打开后，以后通常就可以直接双击打开。
 
 ## 2. 第一次打开
 
@@ -26,7 +26,7 @@
 
 注意：
 
-- API key 只保存在这台 Mac 的 InternAgents 设置里。
+- API key 只保存在这台 Mac 的 InternAgentS 设置里。
 - 不要把 API key 发给别人，也不要写进论文、文档或聊天记录。
 - 如果你之前已经保存过 key，输入框可以留空，保存时不会覆盖旧 key。
 
@@ -48,12 +48,12 @@ deepseek/deepseek-v4-pro
 
 ### 2.3 工作区
 
-工作区就是 InternAgents 能看到和操作的文件夹。
+工作区就是 InternAgentS 能看到和操作的文件夹。
 
 默认建议使用：
 
 ```text
-~/InternAgents-Workspace
+~/InternAgentS-Workspace
 ```
 
 你可以把论文、数据说明、项目文档、Markdown、PDF 等文件放进去。之后左侧「工作区」会显示这些文件，Agent 也会以这个文件夹为工作范围。
@@ -80,7 +80,7 @@ deepseek/deepseek-v4-pro
 
 - 左上：`工作区`，显示当前文件夹里的文件。
 - 左下：`会话`，显示历史对话。
-- 中间：聊天区，直接向 InternAgents 提问题。
+- 中间：聊天区，直接向 InternAgentS 提问题。
 - 右侧：文件预览区，点选 Markdown、文本、图片或 PDF 后会显示内容。
 
 ## 4. 最常用的几种用法
@@ -101,7 +101,7 @@ deepseek/deepseek-v4-pro
 
 ### 4.2 让它看工作区文件
 
-把文件放到 `InternAgents-Workspace` 后，回到 App 左侧点击刷新图标。你可以：
+把文件放到 `InternAgentS-Workspace` 后，回到 App 左侧点击刷新图标。你可以：
 
 - 点击文件，在右侧预览。
 - 在聊天里说“请阅读工作区里的 xxx.md，并总结关键结论”。
@@ -173,7 +173,7 @@ deepseek/deepseek-v4-pro
 放到：
 
 ```text
-~/InternAgents-Workspace
+~/InternAgentS-Workspace
 ```
 
 然后回到 App，点击左侧工作区旁边的刷新按钮。
@@ -206,14 +206,14 @@ deepseek/deepseek-v4-pro
 
 ### Q6：它会不会乱改我的文件？
 
-InternAgents 的操作范围主要在你设置的工作区里。新用户建议先使用 `自动授权` 熟悉流程；如果你希望写文件前都确认，可以在配置页选择更严格的授权模式。
+InternAgentS 的操作范围主要在你设置的工作区里。新用户建议先使用 `自动授权` 熟悉流程；如果你希望写文件前都确认，可以在配置页选择更严格的授权模式。
 
 ## 8. 一个推荐的新手流程
 
-1. 安装并打开 InternAgents。
+1. 安装并打开 InternAgentS。
 2. 选择 OpenAI 兼容接口，填 Base URL 和 API key。
 3. 模型先填服务商推荐的模型 ID。
-4. 工作区使用默认的 `~/InternAgents-Workspace`。
+4. 工作区使用默认的 `~/InternAgentS-Workspace`。
 5. 把论文或项目文件放进工作区。
 6. 回到工作台刷新文件列表。
 7. 先问一个简单问题：

@@ -1,4 +1,4 @@
-"""Pure helpers for InternAgents thread goals."""
+"""Pure helpers for InternAgentS thread goals."""
 
 from __future__ import annotations
 

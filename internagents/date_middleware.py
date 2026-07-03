@@ -1,4 +1,4 @@
-"""Runtime date/time context injection for InternAgents."""
+"""Runtime date/time context injection for InternAgentS."""
 
 from __future__ import annotations
 

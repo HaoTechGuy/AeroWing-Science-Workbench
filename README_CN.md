@@ -91,7 +91,7 @@ skills
 .internagents/imported-skills
 ```
 
-设置 UI 支持 built-in skills、imported skills 和 science skills。导入的技能会复制到用户级 catalog，因此同一能力可以被多个 InternAgents 项目复用。
+设置 UI 支持 built-in skills、imported skills 和 science skills。导入的技能会复制到用户级 catalog，因此同一能力可以被多个 InternAgentS 项目复用。
 
 ### 模型、授权和外观设置
 
@@ -151,7 +151,7 @@ API 调用需要 `.internagents/compute/api-token` 中的本地 token：
 TOKEN="$(cat .internagents/compute/api-token)"
 curl -X POST http://127.0.0.1:3000/api/compute/ssh-hosts \
   -H 'Content-Type: application/json' \
-  -H "X-InternAgents-Compute-Token: $TOKEN" \
+  -H "X-InternAgentS-Compute-Token: $TOKEN" \
   -d '{"host":"my-linux-host","notes":"Use sbatch on gpu partition; conda envs live under ~/envs."}'
 ```
 

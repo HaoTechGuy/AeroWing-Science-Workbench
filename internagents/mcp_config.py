@@ -1,4 +1,4 @@
-"""MCP server configuration loading for InternAgents."""
+"""MCP server configuration loading for InternAgentS."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Thread-scoped skill loading for InternAgents."""
+"""Thread-scoped skill loading for InternAgentS."""
 
 from __future__ import annotations
 

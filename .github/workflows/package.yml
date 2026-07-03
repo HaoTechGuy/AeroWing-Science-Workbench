@@ -196,7 +196,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: internagents-package-dmg-${{ needs.metadata.outputs.desktop_version }}-${{ matrix.arch }}
-          path: desktop/release/InternAgents-*-${{ matrix.arch }}.dmg
+          path: desktop/release/InternAgentS-*-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
   build-windows:
@@ -301,7 +301,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: internagents-package-windows-${{ needs.metadata.outputs.desktop_version }}-x64
-          path: desktop/release/InternAgents-*-x64.exe
+          path: desktop/release/InternAgentS-*-x64.exe
           if-no-files-found: error
 
   build-remote-backend:
