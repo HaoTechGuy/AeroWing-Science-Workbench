@@ -703,7 +703,7 @@ function ConfigPageContent() {
                     ? t("saveIdleTitle")
                     : t("applyIdleTitle")
                 }
-                className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
+                className="h-9 bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -801,7 +801,7 @@ function ConfigPageContent() {
                 <span
                   className={cn(
                     restartResult.status === "restarted"
-                      ? "text-green-700 dark:text-[#38d0a7]"
+                      ? "text-primary"
                       : "text-red-700 dark:text-[#ff6d8d]"
                   )}
                 >
@@ -812,7 +812,7 @@ function ConfigPageContent() {
                 <span
                   className={cn(
                     backendStatus.status === "idle"
-                      ? "text-green-700 dark:text-[#38d0a7]"
+                      ? "text-primary"
                       : backendStatus.status === "busy"
                       ? "text-amber-700 dark:text-[#f5b85b]"
                       : "text-red-700 dark:text-[#ff6d8d]"
@@ -876,7 +876,7 @@ function ConfigPageContent() {
           >
             {!onboardingMode && (
               <div className="mb-5 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                   <Cpu className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
@@ -919,7 +919,7 @@ function ConfigPageContent() {
                         className={cn(
                           "rounded-full px-2 py-1 text-xs font-medium",
                           config.openaiCompatibleApiKeySet
-                            ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
+                            ? "bg-primary/10 text-primary"
                             : "bg-muted text-muted-foreground"
                         )}
                       >
@@ -1019,7 +1019,7 @@ function ConfigPageContent() {
               <Button
                 type="submit"
                 disabled={!canFinishOnboarding}
-                className="h-10 w-full bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
+                className="h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {saving || restarting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1051,7 +1051,7 @@ function ConfigPageContent() {
                 className="flex h-[min(760px,calc(100vh-8rem))] scroll-mt-24 flex-col overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex shrink-0 items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                     <Sparkles className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -1071,7 +1071,7 @@ function ConfigPageContent() {
                 className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                     <Plug className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -1095,7 +1095,7 @@ function ConfigPageContent() {
                 className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                     <FolderOpen className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -1142,7 +1142,7 @@ function ConfigPageContent() {
                 className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
               >
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                     <ServerCog className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
@@ -1161,7 +1161,7 @@ function ConfigPageContent() {
                 className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                     <ShieldCheck className="h-5 w-5" />
                   </div>
                   <div>
@@ -1195,7 +1195,7 @@ function ConfigPageContent() {
                         )}
                       >
                         <div className="mb-4 flex items-center justify-between gap-2">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-primary">
                             <Shield className="h-4 w-4" />
                           </div>
                           {option.badge && (
@@ -1224,7 +1224,7 @@ function ConfigPageContent() {
                 className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                     {themeMode === "dark" ? (
                       <Moon className="h-5 w-5" />
                     ) : (
@@ -1271,7 +1271,7 @@ function ConfigPageContent() {
                             : "border-border"
                         )}
                       >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-primary">
                           {option.id === "dark" ? (
                             <Moon className="h-4 w-4" />
                           ) : (

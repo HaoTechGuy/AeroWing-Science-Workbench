@@ -193,7 +193,7 @@ export function ComputeSettingsCard() {
 
       <div className="rounded-lg border border-border bg-background p-4">
         <div className="mb-3 flex items-center gap-2">
-          <Server className="h-4 w-4 text-[#2F6868] dark:text-[hsl(var(--primary))]" />
+          <Server className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-semibold">SSH hosts</h3>
         </div>
         <div className="mb-3 space-y-2 text-sm text-muted-foreground">
@@ -245,7 +245,7 @@ export function ComputeSettingsCard() {
         </div>
         <Button
           type="button"
-          className="mt-3 bg-[#2F6868] text-white hover:bg-[#2F6868]/90 dark:bg-[hsl(var(--primary))] dark:text-[hsl(var(--primary-foreground))] dark:hover:bg-[hsl(var(--primary)/0.9)]"
+          className="mt-3 bg-primary text-primary-foreground hover:bg-primary/90"
           onClick={() => void addHost()}
           disabled={addingHost}
         >
@@ -288,7 +288,7 @@ export function ComputeSettingsCard() {
                     className={cn(
                       "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
                       host.probe?.ok
-                        ? "bg-[#E8F3F1] text-[#2F6868] dark:bg-[hsl(var(--primary)/0.15)] dark:text-[hsl(var(--primary))]"
+                        ? "bg-primary/10 text-primary"
                         : "bg-red-50 text-red-700 dark:bg-[#ff6d8d]/10 dark:text-[#ffc7d4]"
                     )}
                   >

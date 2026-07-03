@@ -330,7 +330,7 @@ export function MoleculeViewer({ file }: { file: WorkspaceFileResponse }) {
   return (
     <div
       className={cn(
-        "relative h-full min-h-0 w-full touch-none select-none overflow-hidden bg-[#f7fbfa]",
+        "relative h-full min-h-0 w-full touch-none select-none overflow-hidden bg-[#f8f6fb]",
         isDragging ? "cursor-grabbing" : "cursor-grab"
       )}
       data-molecule-viewer="true"

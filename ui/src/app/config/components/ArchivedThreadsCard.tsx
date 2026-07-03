@@ -40,7 +40,7 @@ function ArchivedThreadsFrame({ children }: { children: ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
       <div className="mb-4 flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
           <Archive className="h-5 w-5" />
         </div>
         <div className="min-w-0">
@@ -130,8 +130,8 @@ function ArchivedThreadsCardContent() {
                       thread.status === "interrupted"
                         ? "bg-yellow-500"
                         : thread.status === "busy"
-                        ? "bg-blue-500"
-                        : "bg-green-500"
+                        ? "bg-primary"
+                        : "bg-stone-400"
                     )}
                   />
                 </div>
@@ -153,7 +153,7 @@ function ArchivedThreadsCardContent() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-[#2F6868] dark:hover:text-[hsl(var(--primary))]"
+                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
                 aria-label={t("openThread", { title: thread.title })}
               >
                 <Link href={`/?assistantId=agent&threadId=${thread.id}`}>

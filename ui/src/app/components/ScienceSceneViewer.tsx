@@ -72,7 +72,7 @@ const SCENE_LABELS: Record<ScienceSceneType, string> = {
 const ATOM_STYLES: Record<string, { color: string; radius: number }> = {
   C: { color: "#64748b", radius: 0.16 },
   H: { color: "#e2e8f0", radius: 0.1 },
-  N: { color: "#38bdf8", radius: 0.16 },
+  N: { color: "#c084fc", radius: 0.16 },
   O: { color: "#fb7185", radius: 0.16 },
   Pb: { color: "#cbd5e1", radius: 0.32 },
   Ti: { color: "#a78bfa", radius: 0.22 },
@@ -243,7 +243,7 @@ function parseCubeScene(
     ],
     densityPoints: Math.max(900, Math.min(2200, valueCount)),
     negativeColor: "#f472b6",
-    positiveColor: "#2dd4bf",
+    positiveColor: "#f59e0b",
   };
 }
 
@@ -305,7 +305,7 @@ function parseJcampScene(content: string): ScienceSceneData {
     return {
       color:
         assignment?.color ||
-        ["#38bdf8", "#2dd4bf", "#a78bfa", "#f59e0b", "#fb7185"][index % 5],
+        ["#a855f7", "#c02678", "#a78bfa", "#f59e0b", "#fb7185"][index % 5],
       fragment: assignment?.fragment || `${pair.x} ${xUnits}`,
       height,
       label: assignment?.label || `${Math.round(pair.x)}`,
@@ -343,7 +343,7 @@ function parseVtkFlowScene(content: string): ScienceSceneData {
       metric("vectors", vectorName),
     ],
     particleCount: Math.max(560, Math.min(1400, pointCount * 24 || 900)),
-    colorA: "#22d3ee",
+    colorA: "#a855f7",
     colorB: "#fb7185",
   };
 }
@@ -477,7 +477,7 @@ function buildCrystalScene(
         { element: "A", color: "#6d5dfc", radius: 0.2, position: [0, 0, 0] },
         {
           element: "B",
-          color: "#19b6a3",
+          color: "#c02678",
           radius: 0.18,
           position: [0.5, 0.5, 0.5],
         },
@@ -519,7 +519,7 @@ function buildOrbitalScene(
   root: Group
 ) {
   const positiveColor = new THREE.Color(
-    (data.positiveColor as string) || "#2dd4bf"
+    (data.positiveColor as string) || "#f59e0b"
   );
   const negativeColor = new THREE.Color(
     (data.negativeColor as string) || "#f472b6"
@@ -756,7 +756,7 @@ function buildFlowScene(
   const count = Number(data.particleCount) || 900;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
-  const colorA = new THREE.Color((data.colorA as string) || "#40e0d0");
+  const colorA = new THREE.Color((data.colorA as string) || "#a855f7");
   const colorB = new THREE.Color((data.colorB as string) || "#ff5ca8");
   const colorC = new THREE.Color("#facc15");
 
@@ -817,7 +817,7 @@ function buildFlowScene(
     new THREE.MeshPhysicalMaterial({
       blending: THREE.AdditiveBlending,
       color: "#ffffff",
-      emissive: "#22d3ee",
+      emissive: "#a855f7",
       emissiveIntensity: 1.1,
       opacity: 0.32,
       roughness: 0.1,
@@ -934,8 +934,8 @@ function createMicroscopyTexture(
     size * 0.5,
     size * 0.55
   );
-  gradient.addColorStop(0, `rgba(45, 212, 191, ${0.24 + centerPulse * 0.34})`);
-  gradient.addColorStop(0.34, "rgba(34, 211, 238, 0.2)");
+  gradient.addColorStop(0, `rgba(168, 85, 247, ${0.24 + centerPulse * 0.34})`);
+  gradient.addColorStop(0.34, "rgba(192, 132, 252, 0.2)");
   gradient.addColorStop(0.66, "rgba(168, 85, 247, 0.13)");
   gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = gradient;
@@ -947,7 +947,7 @@ function createMicroscopyTexture(
     context.beginPath();
     context.strokeStyle =
       ring % 2 === 0
-        ? `rgba(34, 211, 238, ${0.16 + centerPulse * 0.12})`
+        ? `rgba(192, 132, 252, ${0.16 + centerPulse * 0.12})`
         : `rgba(244, 114, 182, ${0.13 + centerPulse * 0.1})`;
     context.lineWidth = 2.2;
     context.ellipse(
@@ -980,14 +980,14 @@ function createMicroscopyTexture(
       blob.addColorStop(0, `rgba(251, 191, 36, ${alpha + 0.2})`);
       blob.addColorStop(1, "rgba(251, 191, 36, 0)");
     } else if (palette === 1) {
-      blob.addColorStop(0, `rgba(94, 234, 212, ${alpha + 0.18})`);
-      blob.addColorStop(1, "rgba(94, 234, 212, 0)");
+      blob.addColorStop(0, `rgba(168, 85, 247, ${alpha + 0.18})`);
+      blob.addColorStop(1, "rgba(168, 85, 247, 0)");
     } else if (palette === 2) {
       blob.addColorStop(0, `rgba(244, 114, 182, ${alpha + 0.16})`);
       blob.addColorStop(1, "rgba(244, 114, 182, 0)");
     } else {
-      blob.addColorStop(0, `rgba(129, 140, 248, ${alpha + 0.12})`);
-      blob.addColorStop(1, "rgba(129, 140, 248, 0)");
+      blob.addColorStop(0, `rgba(192, 132, 252, ${alpha + 0.12})`);
+      blob.addColorStop(1, "rgba(192, 132, 252, 0)");
     }
     context.fillStyle = blob;
     context.beginPath();
@@ -1047,7 +1047,7 @@ function buildMicroscopyScene(
   const pointCount = Number(data.hotspots) || 420;
   const pointPositions = new Float32Array(pointCount * 3);
   const pointColors = new Float32Array(pointCount * 3);
-  const colorA = new THREE.Color("#22d3ee");
+  const colorA = new THREE.Color("#a855f7");
   const colorB = new THREE.Color("#f472b6");
   const colorC = new THREE.Color("#facc15");
   for (let i = 0; i < pointCount; i += 1) {
@@ -1111,7 +1111,7 @@ function buildMicroscopyScene(
     new THREE.PlaneGeometry(4.1, 4.1),
     new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
-      color: "#22d3ee",
+      color: "#a855f7",
       depthWrite: false,
       opacity: 0.065,
       side: THREE.DoubleSide,
@@ -1124,7 +1124,7 @@ function buildMicroscopyScene(
     new THREE.PlaneGeometry(4.1, 4.1, 18, 18),
     new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
-      color: "#e0f2fe",
+      color: "#f3e8ff",
       depthWrite: false,
       opacity: 0.18,
       side: THREE.DoubleSide,
@@ -1137,7 +1137,7 @@ function buildMicroscopyScene(
   const frame = new THREE.Mesh(
     new THREE.BoxGeometry(3.95, 3.95, slices * sliceSpacing),
     new THREE.MeshBasicMaterial({
-      color: "#67e8f9",
+      color: "#c084fc",
       opacity: 0.08,
       transparent: true,
       wireframe: true,
@@ -1219,7 +1219,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
         ? peaks
         : [
             {
-              color: "#2dd4bf",
+              color: "#f59e0b",
               fragment: "reference band",
               height: 0.72,
               label: "peak",
@@ -1295,7 +1295,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
       const sample = index / 83;
       const value = signalAt(sample);
       const palette =
-        sample < 0.35 ? "#22d3ee" : sample < 0.66 ? "#a78bfa" : "#fb7185";
+        sample < 0.35 ? "#a855f7" : sample < 0.66 ? "#a78bfa" : "#fb7185";
       return {
         color: palette,
         height: Math.max(12, value * SPECTRUM_PLOT.height),
@@ -1354,7 +1354,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
             >
               <stop
                 offset="0%"
-                stopColor="#2dd4bf"
+                stopColor="#a855f7"
               />
               <stop
                 offset="55%"
@@ -1374,7 +1374,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
             >
               <stop
                 offset="0%"
-                stopColor="#2dd4bf"
+                stopColor="#a855f7"
                 stopOpacity="0.34"
               />
               <stop
@@ -1397,12 +1397,12 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
             >
               <stop
                 offset="0%"
-                stopColor="#22d3ee"
+                stopColor="#a855f7"
                 stopOpacity="0"
               />
               <stop
                 offset="45%"
-                stopColor="#e0f2fe"
+                stopColor="#f3e8ff"
                 stopOpacity="0.17"
               />
               <stop
@@ -1419,7 +1419,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
             >
               <stop
                 offset="0%"
-                stopColor="#164e63"
+                stopColor="#2e1065"
                 stopOpacity="0.42"
               />
               <stop
@@ -1880,7 +1880,7 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
   return (
     <div
       className={cn(
-        "relative h-full min-h-0 w-full touch-none select-none overflow-hidden bg-[radial-gradient(circle_at_20%_10%,rgba(45,212,191,0.18),transparent_28%),radial-gradient(circle_at_80%_25%,rgba(251,113,133,0.16),transparent_26%),linear-gradient(145deg,#06110f,#101623_55%,#0b1110)]",
+        "relative h-full min-h-0 w-full touch-none select-none overflow-hidden bg-[radial-gradient(circle_at_20%_10%,rgba(168,85,247,0.2),transparent_28%),radial-gradient(circle_at_80%_25%,rgba(251,113,133,0.16),transparent_26%),linear-gradient(145deg,#120b17,#17121f_55%,#110d16)]",
         isDragging ? "cursor-grabbing" : "cursor-grab"
       )}
       data-science-viewer="true"

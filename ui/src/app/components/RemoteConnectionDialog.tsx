@@ -307,7 +307,7 @@ export function RemoteConnectionDialog({
             onClick={() => switchConnectionMode("sshConfig")}
             className={`rounded-lg border p-3 text-left transition ${
               connectionMode === "sshConfig"
-                ? "border-[#2F6868] bg-[#F1F7F5] text-[#24595A]"
+                ? "border-primary bg-primary/10 text-primary"
                 : "border-border bg-background hover:bg-accent"
             }`}
           >
@@ -321,7 +321,7 @@ export function RemoteConnectionDialog({
             onClick={() => switchConnectionMode("sshCommand")}
             className={`rounded-lg border p-3 text-left transition ${
               connectionMode === "sshCommand"
-                ? "border-[#2F6868] bg-[#F1F7F5] text-[#24595A]"
+                ? "border-primary bg-primary/10 text-primary"
                 : "border-border bg-background hover:bg-accent"
             }`}
           >
@@ -483,7 +483,7 @@ export function RemoteConnectionDialog({
 
         <div className="rounded-lg border border-border bg-muted/30 p-3">
           <div className="flex items-start gap-3">
-            <ShieldCheck className="mt-0.5 h-4 w-4 flex-none text-[#2F6868]" />
+            <ShieldCheck className="mt-0.5 h-4 w-4 flex-none text-primary" />
             <div className="min-w-0 space-y-1">
               <div className="text-sm font-medium">自动同步本机运行配置</div>
               <p className="text-xs leading-5 text-muted-foreground">
@@ -498,7 +498,7 @@ export function RemoteConnectionDialog({
           <div
             className={`rounded-md border p-3 text-xs ${
               testResult.ok
-                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                ? "border-primary/25 bg-primary/10 text-primary dark:border-primary/35 dark:bg-primary/15 dark:text-[hsl(var(--primary))]"
                 : "border-red-200 bg-red-50 text-red-800"
             }`}
           >
@@ -509,12 +509,12 @@ export function RemoteConnectionDialog({
         )}
 
         {setupLog.length > 0 && (
-          <div className="overflow-hidden rounded-md border border-zinc-800 bg-zinc-950 text-xs shadow-inner">
-            <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-2 font-medium text-zinc-100">
+          <div className="overflow-hidden rounded-md border border-[#332941] bg-[#0d0b12] text-xs shadow-inner">
+            <div className="flex items-center gap-2 border-b border-[#332941] bg-[#17121f] px-3 py-2 font-medium text-[#f7f3fb]">
               <Terminal className="h-4 w-4" />
               接入日志
             </div>
-            <div className="max-h-56 overflow-auto px-3 py-3 font-mono leading-5 text-emerald-100">
+            <div className="max-h-56 overflow-auto px-3 py-3 font-mono leading-5 text-[#efe7fb]">
               {setupLog.map((line, index) => (
                 <div
                   key={`${index}-${line.slice(0, 24)}`}
@@ -549,7 +549,7 @@ export function RemoteConnectionDialog({
             type="button"
             onClick={setupConnection}
             disabled={!canSubmit}
-            className="bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
           >
             {settingUp ? (
               <Loader2 className="h-4 w-4 animate-spin" />

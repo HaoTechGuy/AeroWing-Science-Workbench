@@ -36,8 +36,8 @@ import { useThreads } from "@/app/hooks/useThreads";
 type ThreadGroup = "interrupted" | "today" | "yesterday" | "week" | "older";
 
 const STATUS_COLORS: Record<ThreadItem["status"], string> = {
-  idle: "bg-green-500",
-  busy: "bg-blue-500",
+  idle: "bg-stone-400",
+  busy: "bg-primary",
   interrupted: "bg-orange-500",
   error: "bg-red-600",
 };

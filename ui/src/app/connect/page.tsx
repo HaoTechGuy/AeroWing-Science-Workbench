@@ -103,7 +103,7 @@ export default function ConnectPage() {
         >
           <div className="mb-5 flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-              <Server className="h-5 w-5 text-[#2F6868]" />
+              <Server className="h-5 w-5 text-primary" />
             </div>
             <div>
               <h2 className="text-base font-semibold">
@@ -148,7 +148,7 @@ export default function ConnectPage() {
             </Button>
             <Button
               type="submit"
-              className="bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Save className="h-4 w-4" />
               {t("saveAndReturnWorkbench")}
@@ -159,12 +159,12 @@ export default function ConnectPage() {
         <section className="rounded-lg border border-border bg-card p-5">
           <div className="mb-4 flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-              <Cloud className="h-5 w-5 text-[#2F6868]" />
+              <Cloud className="h-5 w-5 text-primary" />
             </div>
             <div className="min-w-0">
               <h2 className="flex items-center gap-2 text-base font-semibold">
                 {t("cloudHosting")}
-                <span className="rounded-full border border-[#BFD9D4] bg-[#F1F7F5] px-2 py-0.5 text-[11px] font-medium leading-4 text-[#2F6868]">
+                <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-medium leading-4 text-primary">
                   Beta
                 </span>
               </h2>
@@ -176,7 +176,7 @@ export default function ConnectPage() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border border-border/80 bg-background px-3 py-3">
-              <Globe2 className="mb-2 h-4 w-4 text-[#2F6868]" />
+              <Globe2 className="mb-2 h-4 w-4 text-primary" />
               <div className="text-sm font-medium">
                 {t("deploymentAddress")}
               </div>
@@ -185,7 +185,7 @@ export default function ConnectPage() {
               </div>
             </div>
             <div className="rounded-md border border-border/80 bg-background px-3 py-3">
-              <Server className="mb-2 h-4 w-4 text-[#2F6868]" />
+              <Server className="mb-2 h-4 w-4 text-primary" />
               <div className="text-sm font-medium">Assistant ID</div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
                 {t("assistantIdHelp")}

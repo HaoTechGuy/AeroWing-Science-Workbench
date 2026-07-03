@@ -67,11 +67,11 @@ function FileIcon({ entry }: { entry: WorkspaceEntry }) {
   }
 
   if (entry.previewKind === "docx") {
-    return <FileText className="h-4 w-4 text-[#2F6868]" />;
+    return <FileText className="h-4 w-4 text-primary" />;
   }
 
   if (entry.previewKind === "xlsx") {
-    return <FileSpreadsheet className="h-4 w-4 text-[#2E7D4F]" />;
+    return <FileSpreadsheet className="h-4 w-4 text-[#9A5B13]" />;
   }
 
   if (entry.previewKind === "pptx") {
@@ -85,7 +85,7 @@ function FileIcon({ entry }: { entry: WorkspaceEntry }) {
   if (
     [".js", ".jsx", ".py", ".ts", ".tsx", ".sh"].includes(entry.extension || "")
   ) {
-    return <FileCode2 className="h-4 w-4 text-[#3B6FA8]" />;
+    return <FileCode2 className="h-4 w-4 text-[#6D28D9]" />;
   }
 
   return <File className="h-4 w-4 text-muted-foreground" />;
@@ -200,7 +200,7 @@ export function WorkspaceExplorer({
               "hover:border-border hover:bg-card",
               dragPayload && "cursor-grab active:cursor-grabbing",
               isSelected &&
-                "border-[#BFD9D4] bg-[#F1F7F5] text-[#24595A] ring-1 ring-inset ring-[#2F6868]/15 hover:bg-[#E6F0EE] dark:border-teal-800 dark:bg-teal-950/30 dark:text-teal-100 dark:ring-teal-300/15 dark:hover:bg-teal-950/40"
+                "border-primary/25 bg-primary/10 text-primary ring-1 ring-inset ring-primary/15 hover:bg-primary/15 dark:border-primary/35 dark:bg-primary/15 dark:text-foreground dark:ring-primary/20 dark:hover:bg-primary/20"
             )}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             aria-expanded={isDirectory ? isExpanded : undefined}

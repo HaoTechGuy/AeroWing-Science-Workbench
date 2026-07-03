@@ -366,7 +366,7 @@ function AboutPageContent() {
           <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="flex min-w-0 flex-1 items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-teal-300">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                   <Info className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
@@ -381,7 +381,7 @@ function AboutPageContent() {
               <Button
                 asChild
                 size="sm"
-                className="h-9 shrink-0 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+                className="h-9 shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <a
                   href="https://internscience.github.io/InternAgents/user-manual/"
@@ -419,7 +419,7 @@ function AboutPageContent() {
                     !updateStatus?.updateAvailable ||
                     !updateStatus.canApply
                   }
-                  className="h-9 bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
+                  className="h-9 bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   {applyingUpdate ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -529,7 +529,7 @@ function AboutPageContent() {
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full rounded-full bg-[#2F6868] transition-[width] duration-300 dark:bg-teal-300"
+                      className="h-full rounded-full bg-primary transition-[width] duration-300"
                       style={{
                         width:
                           downloadPercent !== undefined

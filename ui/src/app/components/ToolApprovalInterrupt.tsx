@@ -171,7 +171,7 @@ export function ToolApprovalInterrupt({
       {isRemoteComputeApproval ? (
         <div className="mb-4 rounded-md border border-border bg-card p-3">
           <div className="mb-3 flex items-center gap-2">
-            <Server className="h-4 w-4 text-[#2F6868] dark:text-[hsl(var(--primary))]" />
+            <Server className="h-4 w-4 text-primary" />
             <div className="text-sm font-semibold">
               {t("runJobOnHost", { host: remoteHost })}
             </div>
@@ -296,7 +296,7 @@ export function ToolApprovalInterrupt({
               size="sm"
               onClick={handleEdit}
               disabled={isLoading}
-              className="bg-green-600 text-white hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Check size={14} />
               {isLoading ? t("saving") : t("saveAndApprove")}
@@ -355,8 +355,7 @@ export function ToolApprovalInterrupt({
                 onClick={handleApprove}
                 disabled={isLoading}
                 className={cn(
-                  "bg-green-600 text-white hover:bg-green-700",
-                  "dark:bg-green-600 dark:hover:bg-green-700"
+                  "bg-primary text-primary-foreground hover:bg-primary/90"
                 )}
               >
                 <Check size={14} />
@@ -520,8 +519,7 @@ export function BatchToolApprovalInterrupt({
                 onClick={() => submitDecision("approve")}
                 disabled={isLoading}
                 className={cn(
-                  "bg-green-600 text-white hover:bg-green-700",
-                  "dark:bg-green-600 dark:hover:bg-green-700"
+                  "bg-primary text-primary-foreground hover:bg-primary/90"
                 )}
               >
                 <Check size={14} />
