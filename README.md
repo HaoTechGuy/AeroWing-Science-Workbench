@@ -41,35 +41,22 @@ extends them with project-scoped runtimes, backend adapters, a workspace
 protocol, skill catalogs, local approval controls, and remote-resource
 coordination for research workflows.
 
-The project is still early, but it is already useful as a local research agent
-system: open a project, configure a model, browse files, start a conversation,
-attach skills, and connect remote resources or domain capabilities as your
-workflow grows.
-
 ## Highlights
 
-- Built on DeepAgents/LangGraph: InternAgentS keeps the mature agent runtime and
-  orchestration layer, then connects them to the project files, skills, and
-  compute resources researchers use every day.
-- Remote connectivity is a first-class capability: connect SSH workspaces,
-  prepare or sync remote runtimes, inspect diagnostic logs, and approve remote
-  compute jobs directly from the conversation.
-- End-to-end project workflow: local reading, code changes, remote runs, and
-  result collection can be chained inside one workbench.
-- Science skills included: literature search, experiment-result analysis,
-  figures, paper writing, documents, slides, and domain workflows can be enabled
-  as skills and reused across projects.
-- MCP/SCP ecosystem support: local or project-level MCP configuration can load
-  external tools, while SCP connectors can extend scientific workflows and
-  domain services.
-- Model freedom and local-first privacy: any OpenAI-compatible endpoint can be
-  used, including cloud models, private gateways, and local model servers;
-  project files, secrets, and runtime state stay on your machine or machines you
-  control by default, without requiring Claude, Claude Science, or any fixed
-  cloud service.
-- Scientific file support: PDFs, Office documents, images, molecular structures,
-  scientific data outputs, and generated artifacts can be browsed, searched,
-  previewed, and referenced in conversations.
+- DeepAgents/LangGraph, extended for research: InternAgentS reshapes runtime,
+  workspace, skills, tools, and approvals around scientific projects.
+- Remote research environments, built in: connect SSH workspaces, sync remote
+  runtimes, inspect logs, and approve remote compute jobs from the conversation.
+- A large science skill set: literature search, result analysis, figures, paper
+  writing, documents, slides, and domain workflows are reusable skills.
+- MCP/SCP plus any model: connect external tools through MCP/SCP, and use cloud
+  models, private gateways, or local model servers.
+- Local-first data control: project files, secrets, and runtime state stay on
+  machines you control by default, without requiring Claude, Claude Science, or
+  any fixed cloud service.
+- Built for real scientific files: browse, search, preview, and reference PDFs,
+  Office files, images, molecular structures, scientific data outputs, and
+  generated artifacts.
 
 ## Quick Start
 

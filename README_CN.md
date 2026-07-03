@@ -36,17 +36,14 @@
 
 InternAgentS 为研究者和开发者提供一个本地优先的科研 Agent 工作台，用来完成论文阅读、实验分析、代码迭代、技能调用和计算资源协作等任务。项目基于 DeepAgents/LangGraph 开发，并在项目级 runtime、backend adapter、workspace protocol、技能目录、本地授权和远程资源协作等层面做了面向科研场景的扩展。
 
-项目仍处于早期阶段，但已经可以作为本地科研 Agent 系统使用：打开项目、配置模型、浏览文件、启动会话、接入技能，并随着工作流增长逐步连接远程资源和领域能力。
-
 ## 亮点
 
-- 基于 DeepAgents/LangGraph 开发：沿用成熟的 Agent runtime 和编排能力，并把它们落到科研项目、文件、技能和计算资源这些日常工作对象上。
-- 远程连接是一等能力：可以连接 SSH workspace，准备或同步 remote runtime，查看诊断日志，并在对话中确认远程计算任务。
-- 完整项目工作流：本地阅读、代码修改、远程运行和结果回收可以在同一个工作台里串起来。
-- 配套科学技能库：文献调研、实验结果分析、图表、论文写作、文档、幻灯片和领域 workflow 可以作为 skills 启用，并在不同项目之间复用。
-- 可连接 MCP/SCP 生态：本地或项目级 MCP 配置可以接入外部工具；SCP connector 可用于扩展科学工作流和领域服务。
-- 模型自由和本地优先：支持 OpenAI-compatible endpoint，可接云模型、私有网关或本地模型；项目文件、密钥和运行状态默认留在本机或你控制的机器上，不要求交给 Claude、Claude Science 或任何固定云端服务。
-- 科研文件支持：围绕 PDF、Office 文档、图片、分子结构、科学数据输出和生成 artifact 做浏览、搜索、preview 和会话引用。
+- 基于 DeepAgents/LangGraph 深度扩展：不止是对话入口，而是面向科研项目重组 runtime、workspace、skills、tools 和授权流程。
+- 远程科研环境即插即用：连接 SSH workspace、同步 remote runtime、查看诊断日志，并在对话中确认远程计算任务。
+- 内置大量科学技能：文献调研、实验结果分析、图表、论文写作、文档、幻灯片和领域 workflow 可以直接作为 skills 复用。
+- 打通 MCP/SCP 和任意模型：可接 MCP/SCP 工具生态，也可使用云模型、私有网关或本地模型服务。
+- 本地优先，数据不交出去：项目文件、密钥和运行状态默认留在你控制的机器上，不要求交给 Claude、Claude Science 或任何固定云端服务。
+- 面向真实科研文件：支持 PDF、Office 文档、图片、分子结构、科学数据输出和生成 artifact 的浏览、搜索、preview 和引用。
 
 ## 快速开始
 
