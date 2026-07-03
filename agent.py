@@ -42,7 +42,7 @@ OPENAI_COMPATIBLE_PROVIDER_ALIASES = {
 }
 RETIRED_GATEWAY_HOST = "43.106.18.167"
 MISSING_MODEL_CREDENTIALS_RESPONSE = (
-    "模型服务尚未配置。请先在初始配置页面填写 OpenAI 兼容接口的 API Key。"
+    "Model service is not configured. Please configure an OpenAI-compatible API key first."
 )
 BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
@@ -79,6 +79,7 @@ from deepagents.profiles.provider import apply_provider_profile
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
+from langgraph.types import Command, interrupt
 
 from dynamic_local_backend import DynamicLocalShellBackend, DynamicLocalShellBackendFactory
 from date_middleware import RuntimeDateContextMiddleware
@@ -88,6 +89,7 @@ from goal_tools import goal_tools
 from internagent_resources import ResourceConfig, load_resource_config
 from kb_sync_middleware import KbSyncMiddleware
 from mcp_tools import load_configured_mcp_tools
+from remote_compute_tools import REMOTE_COMPUTE_SUBMIT_TOOL, remote_compute_tools
 from thread_skill_middleware import ThreadSkillMiddleware
 from ssh_backend import SshShellBackend
 from web_search_tools import (
@@ -239,6 +241,14 @@ def _config_openai_compatible_base_url(
     return None
 
 
+def _env_openai_compatible_model() -> str | None:
+    for key in ("DEEPAGENT_MODEL", "OPENAI_MODEL", "DEEPSEEK_MODEL"):
+        value = _env_value(key)
+        if value:
+            return value
+    return None
+
+
 def _is_retired_gateway_base_url(value: str | None) -> bool:
     if not value:
         return False
@@ -275,18 +285,32 @@ def _lock_openai_compatible_environment() -> None:
 
     _clear_retired_gateway_environment()
 
-    base_url = (
-        _config_openai_compatible_base_url(config)
-        or _env_value("OPENAI_BASE_URL")
-        or _env_value("OPENAI_API_BASE")
-        or _env_value("OPENROUTER_API_BASE")
-        or _env_value("OPENROUTER_BASE_URL")
+    using_deepseek_alias = any(
+        _env_value(key) for key in ("DEEPSEEK_API_KEY", "DEEPSEEK_MODEL")
     )
+    if using_deepseek_alias and _env_value("DEEPSEEK_BASE_URL"):
+        base_url = _env_value("DEEPSEEK_BASE_URL")
+    else:
+        base_url = (
+            _config_openai_compatible_base_url(config)
+            or _env_value("OPENAI_BASE_URL")
+            or _env_value("OPENAI_API_BASE")
+            or _env_value("OPENROUTER_API_BASE")
+            or _env_value("OPENROUTER_BASE_URL")
+            or _env_value("DEEPSEEK_BASE_URL")
+        )
     if base_url and not _is_retired_gateway_base_url(base_url):
         os.environ["OPENAI_BASE_URL"] = base_url
         os.environ["OPENAI_API_BASE"] = base_url
 
-    api_key = _env_value("OPENAI_API_KEY") or _env_value("OPENROUTER_API_KEY")
+    if using_deepseek_alias and _env_value("DEEPSEEK_API_KEY"):
+        api_key = _env_value("DEEPSEEK_API_KEY")
+    else:
+        api_key = (
+            _env_value("OPENAI_API_KEY")
+            or _env_value("OPENROUTER_API_KEY")
+            or _env_value("DEEPSEEK_API_KEY")
+        )
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
 
@@ -294,9 +318,12 @@ def _lock_openai_compatible_environment() -> None:
 def _resolve_model() -> str:
     config = _read_config_for_model()
     provider = _effective_model_provider(config)
+    explicit_openai_model = _env_openai_compatible_model()
     config_model = _config_model(config)
 
     if provider == OPENAI_COMPATIBLE_PROVIDER:
+        if explicit_openai_model:
+            return _openai_compatible_model_spec(explicit_openai_model)
         if config_model:
             return _openai_compatible_model_spec(config_model)
 
@@ -335,7 +362,11 @@ REASONING_OUTPUT_MODEL_ALIASES = {
 }
 GOAL_CONTINUATION_TURNS_KEY = "goalContinuationTurns"
 GOAL_MAX_AUTO_TURNS_ENV = "INTERNAGENT_GOAL_MAX_AUTO_TURNS"
-REMOTE_RUNTIME_INTERNAL_STATE_KEYS = {GOAL_CONTINUATION_TURNS_KEY}
+REMOTE_RUNTIME_PENDING_INTERRUPT_KEY = "remoteRuntimePendingInterrupt"
+REMOTE_RUNTIME_INTERNAL_STATE_KEYS = {
+    GOAL_CONTINUATION_TURNS_KEY,
+    REMOTE_RUNTIME_PENDING_INTERRUPT_KEY,
+}
 REMOTE_RUNTIME_PARENT_CONFIG_KEYS = {
     "assistant_id",
     "checkpoint_id",
@@ -402,6 +433,7 @@ class InternAgentState(TypedDict):
     files: NotRequired[dict[str, str]]
     goal: NotRequired[dict[str, Any]]
     goalContinuationTurns: NotRequired[int]
+    remoteRuntimePendingInterrupt: NotRequired[dict[str, Any]]
     threadSkills: NotRequired[dict[str, Any]]
     email: NotRequired[dict[str, Any]]
     ui: NotRequired[Any]
@@ -541,9 +573,22 @@ def _resolve_skills(config: dict[str, Any]) -> list[str] | None:
 
 def _resolve_tools(config: dict[str, Any]) -> list[Any]:
     tools = list(goal_tools())
+    tools.extend(remote_compute_tools())
     tools.extend(web_search_tools(config))
     tools.extend(load_configured_mcp_tools(config, root_dir=ROOT_DIR))
     return tools
+
+
+def _interrupt_on_with_remote_compute(config: dict[str, Any]) -> dict[str, Any]:
+    interrupt_on = dict(config.get("interrupt_on") or {})
+    interrupt_on[REMOTE_COMPUTE_SUBMIT_TOOL] = {
+        "allowed_decisions": ["approve", "reject"],
+        "description": (
+            "Run this job on the selected SSH compute host? "
+            "Review the host and command before approving."
+        ),
+    }
+    return interrupt_on
 
 
 def _skill_source_paths(skills: list[Any] | None) -> list[Path]:
@@ -674,6 +719,14 @@ def _agent_system_prompt(base_prompt: str, agent_config: dict[str, Any]) -> str:
     reference_prompt = web_search_reference_prompt(agent_config)
     if reference_prompt:
         base_prompt = f"{base_prompt}\n\n{reference_prompt}"
+    base_prompt = (
+        f"{base_prompt}\n\n"
+        "Remote compute: when the user explicitly asks to run a lightweight, "
+        "non-interactive shell job on a registered SSH compute host such as `rd`, "
+        f"use the `{REMOTE_COMPUTE_SUBMIT_TOOL}` tool. Keep the command "
+        "self-contained, create harvestable files under `out/` when useful, and "
+        "explain that the user must approve the remote job card before it runs."
+    )
     return goal_system_prompt(base_prompt)
 
 
@@ -1096,14 +1149,14 @@ def _remote_runtime_exception_message(resource: ResourceConfig, error: Exception
         and any("body.error.code" in candidate for candidate in string_candidates)
     ):
         return (
-            "远端 runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应"
-            "（error.code 为 null）。请查看远端 runtime 日志获取真实失败原因。"
+            "Remote runtime returned an error response that the current LangGraph SDK "
+            "could not parse. Check the remote runtime logs for the real failure."
         )
 
     if message:
         return _friendly_remote_runtime_error(message)
 
-    return f"远端 runtime {resource.id!r} 返回了空错误。请查看 runtime 日志。"
+    return f"Remote runtime {resource.id!r} returned an empty error. Check runtime logs."
 
 
 def _goal_blocked_after_remote_runtime_error(
@@ -1119,8 +1172,8 @@ def _goal_blocked_after_remote_runtime_error(
 
     blocked_goal = update_goal_status(goal, "blocked")
     notice = (
-        "后续自动执行时远端 runtime 失败，已暂停当前 goal。"
-        f"原因：{message}"
+        "Remote runtime failed during automatic continuation; current goal is paused. "
+        f"Reason: {message}"
     )
     return {
         "goal": blocked_goal,
@@ -1129,20 +1182,75 @@ def _goal_blocked_after_remote_runtime_error(
     }
 
 
-async def _invoke_remote_runtime(
+def _remote_interrupt_value(result: Any) -> Any | None:
+    if not isinstance(result, dict):
+        return None
+    interrupts = result.get("__interrupt__")
+    if not isinstance(interrupts, list) or not interrupts:
+        return None
+    first = interrupts[0]
+    if isinstance(first, dict):
+        return first.get("value")
+    return getattr(first, "value", None)
+
+
+async def _submit_remote_runtime(
     remote: RemoteGraph,
     resource: ResourceConfig,
     state: InternAgentState,
     config: RunnableConfig,
-) -> Any:
+) -> dict[str, Any]:
+    payload = _normalize_state_for_remote_runtime(state)
+    remote_config = _sanitize_remote_runtime_config(config)
     try:
-        return await remote.ainvoke(
-            _normalize_state_for_remote_runtime(state),
-            config=_sanitize_remote_runtime_config(config),
-        )
+        result = await remote.ainvoke(payload, config=remote_config)
     except Exception as exc:
         message = _remote_runtime_exception_message(resource, exc)
         raise RuntimeError(message) from exc
+
+    interrupt_value = _remote_interrupt_value(result)
+    if interrupt_value is not None:
+        return {
+            REMOTE_RUNTIME_PENDING_INTERRUPT_KEY: {
+                "resourceId": resource.id,
+                "value": interrupt_value,
+            }
+        }
+    if not isinstance(result, dict):
+        raise RuntimeError("Remote runtime did not return a valid LangGraph state.")
+    return _with_goal_continuation_accounting(dict(state), result)
+
+
+async def _resume_remote_runtime(
+    remote: RemoteGraph,
+    resource: ResourceConfig,
+    state: InternAgentState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    pending = state.get(REMOTE_RUNTIME_PENDING_INTERRUPT_KEY)
+    if not isinstance(pending, dict) or pending.get("resourceId") != resource.id:
+        return {REMOTE_RUNTIME_PENDING_INTERRUPT_KEY: None}
+
+    decision = interrupt(pending.get("value"))
+    payload: Any = Command(resume=decision)
+    remote_config = _sanitize_remote_runtime_config(config)
+    try:
+        while True:
+            result = await remote.ainvoke(payload, config=remote_config)
+            interrupt_value = _remote_interrupt_value(result)
+            if interrupt_value is None:
+                break
+            payload = Command(resume=interrupt(interrupt_value))
+    except Exception as exc:
+        message = _remote_runtime_exception_message(resource, exc)
+        raise RuntimeError(message) from exc
+
+    if not isinstance(result, dict):
+        raise RuntimeError("Remote runtime did not return a valid LangGraph state.")
+
+    result = dict(result)
+    result[REMOTE_RUNTIME_PENDING_INTERRUPT_KEY] = None
+    return _with_goal_continuation_accounting(dict(state), result)
 
 
 def _goal_status(state: dict[str, Any]) -> str | None:
@@ -1185,6 +1293,14 @@ def _should_continue_goal(state: dict[str, Any], *, max_turns: int | None = None
 
 
 def _route_after_remote_runtime(state: dict[str, Any]) -> str:
+    if state.get(REMOTE_RUNTIME_PENDING_INTERRUPT_KEY):
+        return "remote_runtime_resume"
+    return "remote_runtime" if _should_continue_goal(state) else END
+
+
+def _route_after_remote_runtime_resume(state: dict[str, Any]) -> str:
+    if state.get(REMOTE_RUNTIME_PENDING_INTERRUPT_KEY):
+        return "remote_runtime_resume"
     return "remote_runtime" if _should_continue_goal(state) else END
 
 
@@ -1334,9 +1450,9 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             config: RunnableConfig,
         ) -> dict[str, Any]:
             try:
-                result = await _invoke_remote_runtime(remote, resource, state, config)
+                return await _submit_remote_runtime(remote, resource, state, config)
             except RuntimeError as exc:
-                message = str(exc).strip() or "远端 runtime 返回了空错误。"
+                message = str(exc).strip() or "Remote runtime returned an empty error."
                 goal_update = _goal_blocked_after_remote_runtime_error(
                     dict(state),
                     message,
@@ -1344,18 +1460,42 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
                 if goal_update is not None:
                     return goal_update
                 raise
-            if not isinstance(result, dict):
-                raise RuntimeError("远端 runtime 没有返回有效的 LangGraph 状态。")
-            return _with_goal_continuation_accounting(dict(state), result)
+
+        async def resume_remote_runtime(
+            state: InternAgentState,
+            config: RunnableConfig,
+        ) -> dict[str, Any]:
+            try:
+                return await _resume_remote_runtime(remote, resource, state, config)
+            except RuntimeError as exc:
+                message = str(exc).strip() or "Remote runtime returned an empty error."
+                goal_update = _goal_blocked_after_remote_runtime_error(
+                    dict(state),
+                    message,
+                )
+                if goal_update is not None:
+                    return goal_update
+                raise
 
         graph = StateGraph(InternAgentState)
         graph.add_node("remote_runtime", call_remote_runtime)
+        graph.add_node("remote_runtime_resume", resume_remote_runtime)
         graph.add_edge(START, "remote_runtime")
         graph.add_conditional_edges(
             "remote_runtime",
             _route_after_remote_runtime,
             {
                 "remote_runtime": "remote_runtime",
+                "remote_runtime_resume": "remote_runtime_resume",
+                END: END,
+            },
+        )
+        graph.add_conditional_edges(
+            "remote_runtime_resume",
+            _route_after_remote_runtime_resume,
+            {
+                "remote_runtime": "remote_runtime",
+                "remote_runtime_resume": "remote_runtime_resume",
                 END: END,
             },
         )
@@ -1372,8 +1512,9 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     base_prompt = agent_config.get(
         "system_prompt",
         (
-            "你是一个简洁、可靠、严谨的科研助手，擅长协助用户进行论文阅读、文献调研、实验分析、"
-            "代码理解、研究方案设计和本地科研项目开发。请尽可能使用中文回答用户。"
+            "You are a concise, reliable research assistant for paper reading, "
+            "literature investigation, experiment analysis, code understanding, "
+            "research planning, and local scientific project development."
         ),
     )
     resolved_skills = _resolve_skills(agent_config)
@@ -1398,7 +1539,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             _resource_system_prompt(base_prompt, resource),
             agent_config,
         ),
-        interrupt_on=agent_config.get("interrupt_on") or None,
+        interrupt_on=_interrupt_on_with_remote_compute(agent_config),
         middleware=middleware,
     )
 
@@ -1421,8 +1562,9 @@ def create_runtime_agent():  # noqa: ANN201
     base_prompt = agent_config.get(
         "system_prompt",
         (
-            "你是一个简洁、可靠、严谨的科研助手，擅长协助用户进行论文阅读、文献调研、实验分析、"
-            "代码理解、研究方案设计和本地科研项目开发。请尽可能使用中文回答用户。"
+            "You are a concise, reliable research assistant for paper reading, "
+            "literature investigation, experiment analysis, code understanding, "
+            "research planning, and local scientific project development."
         ),
     )
     system_prompt = (
@@ -1468,7 +1610,7 @@ def create_runtime_agent():  # noqa: ANN201
         skills=resolved_skills,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(system_prompt, agent_config),
-        interrupt_on=agent_config.get("interrupt_on") or None,
+        interrupt_on=_interrupt_on_with_remote_compute(agent_config),
         middleware=middleware,
     )
 

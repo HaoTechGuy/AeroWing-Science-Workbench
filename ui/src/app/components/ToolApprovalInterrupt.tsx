@@ -3,16 +3,53 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertCircle, Check, X, Pencil } from "lucide-react";
+import { AlertCircle, Check, X, Pencil, Server, Terminal } from "lucide-react";
 import type { ActionRequest, ReviewConfig } from "@/app/types/types";
 import { cn } from "@/lib/utils";
 import { getToolDisplayName } from "@/app/utils/toolDisplayNames";
+
+const REMOTE_COMPUTE_SUBMIT_TOOL = "remote_compute_submit_job";
 
 interface ToolApprovalInterruptProps {
   actionRequest: ActionRequest;
   reviewConfig?: ReviewConfig;
   onResume: (value: any) => void;
   isLoading?: boolean;
+}
+
+interface BatchToolApprovalInterruptProps {
+  actionRequests: ActionRequest[];
+  reviewConfigs: ReviewConfig[];
+  onResume: (value: any) => void;
+  isLoading?: boolean;
+}
+
+function reviewConfigActionName(reviewConfig: ReviewConfig): string | undefined {
+  return reviewConfig.actionName ?? reviewConfig.action_name;
+}
+
+function reviewConfigAllowedDecisions(
+  reviewConfig: ReviewConfig | undefined
+): string[] {
+  return (
+    reviewConfig?.allowedDecisions ??
+    reviewConfig?.allowed_decisions ?? ["approve", "reject", "edit"]
+  );
+}
+
+function remoteComputeSummary(args: Record<string, unknown>) {
+  const outputGlobs = Array.isArray(args.output_globs)
+    ? args.output_globs
+    : Array.isArray(args.outputGlobs)
+      ? args.outputGlobs
+      : undefined;
+  return {
+    host: String(args.host_id ?? args.hostId ?? "remote host"),
+    command: String(args.command || ""),
+    outputGlobs,
+    timeoutSeconds: args.timeout_seconds ?? args.timeoutSeconds,
+    maxWaitSeconds: args.max_wait_seconds ?? args.maxWaitSeconds,
+  };
 }
 
 export function ToolApprovalInterrupt({
@@ -27,11 +64,18 @@ export function ToolApprovalInterrupt({
   const [showRejectionInput, setShowRejectionInput] = useState(false);
   const toolDisplayName = getToolDisplayName(actionRequest.name);
 
-  const allowedDecisions = reviewConfig?.allowedDecisions ?? [
-    "approve",
-    "reject",
-    "edit",
-  ];
+  const allowedDecisions = reviewConfigAllowedDecisions(reviewConfig);
+  const isRemoteComputeApproval =
+    actionRequest.name === REMOTE_COMPUTE_SUBMIT_TOOL;
+  const remoteSummary = isRemoteComputeApproval
+    ? remoteComputeSummary(actionRequest.args)
+    : null;
+  const remoteTimeoutLabel = remoteSummary?.timeoutSeconds
+    ? `Timeout: ${String(remoteSummary.timeoutSeconds)}s`
+    : "";
+  const remoteWaitLabel = remoteSummary?.maxWaitSeconds
+    ? `Wait: ${String(remoteSummary.maxWaitSeconds)}s`
+    : "";
 
   const handleApprove = () => {
     onResume({
@@ -120,14 +164,48 @@ export function ToolApprovalInterrupt({
       </div>
 
       {/* Description */}
-      {actionRequest.description && (
+      {isRemoteComputeApproval ? (
+        <div className="mb-4 rounded-md border border-border bg-card p-3">
+          <div className="mb-3 flex items-center gap-2">
+            <Server className="h-4 w-4 text-[#2F6868] dark:text-[hsl(var(--primary))]" />
+            <div className="text-sm font-semibold">
+              Run this job on {remoteSummary?.host}?
+            </div>
+          </div>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Terminal className="h-3.5 w-3.5" />
+              Command
+            </div>
+            <pre className="max-h-44 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs leading-5 text-foreground">
+              {remoteSummary?.command}
+            </pre>
+            {remoteSummary?.outputGlobs && (
+              <div className="text-xs text-muted-foreground">
+                Outputs: {remoteSummary.outputGlobs.join(", ")}
+              </div>
+            )}
+            {(remoteTimeoutLabel || remoteWaitLabel) && (
+              <div className="text-xs text-muted-foreground">
+                {remoteTimeoutLabel}
+                {remoteTimeoutLabel && remoteWaitLabel ? " / " : null}
+                {remoteWaitLabel}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : actionRequest.description ? (
         <p className="mb-3 text-sm text-muted-foreground">
           {actionRequest.description}
         </p>
-      )}
+      ) : null}
 
       {/* Tool Info Card */}
-      <div className="mb-4 rounded-md border border-border bg-card p-3">
+      <div
+        className={cn(
+          "mb-4 rounded-md border border-border bg-card p-3"
+        )}
+      >
         <div className="mb-2">
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Tool
@@ -278,7 +356,171 @@ export function ToolApprovalInterrupt({
                 )}
               >
                 <Check size={14} />
-                {isLoading ? "Approving..." : "Approve"}
+                {isLoading
+                  ? "Approving..."
+                  : isRemoteComputeApproval
+                    ? "Run job"
+                    : "Approve"}
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function BatchToolApprovalInterrupt({
+  actionRequests,
+  reviewConfigs,
+  onResume,
+  isLoading,
+}: BatchToolApprovalInterruptProps) {
+  const [showRejectionInput, setShowRejectionInput] = useState(false);
+  const [rejectionMessage, setRejectionMessage] = useState("");
+  const reviewConfigByName = new Map(
+    reviewConfigs
+      .map((config) => [reviewConfigActionName(config), config] as const)
+      .filter(([name]) => Boolean(name))
+  );
+  const allAllowApprove = actionRequests.every((request) =>
+    reviewConfigAllowedDecisions(reviewConfigByName.get(request.name)).includes(
+      "approve"
+    )
+  );
+  const allAllowReject = actionRequests.every((request) =>
+    reviewConfigAllowedDecisions(reviewConfigByName.get(request.name)).includes(
+      "reject"
+    )
+  );
+
+  const submitDecision = (type: "approve" | "reject") => {
+    onResume({
+      decisions: actionRequests.map(() =>
+        type === "reject"
+          ? { type, message: rejectionMessage.trim() }
+          : { type }
+      ),
+    });
+  };
+
+  return (
+    <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 shadow-sm shadow-black/[0.025]">
+      <div className="mb-3 flex items-center gap-2 text-foreground">
+        <AlertCircle
+          size={16}
+          className="text-yellow-600 dark:text-yellow-400"
+        />
+        <span className="text-xs font-semibold uppercase tracking-wider">
+          Approval Required
+        </span>
+      </div>
+
+      <div className="mb-4 space-y-3">
+        {actionRequests.map((request, index) => {
+          const isRemoteCompute = request.name === REMOTE_COMPUTE_SUBMIT_TOOL;
+          const remoteSummary = isRemoteCompute
+            ? remoteComputeSummary(request.args)
+            : null;
+          return (
+            <div
+              key={`${request.name}-${index}`}
+              className="rounded-md border border-border bg-card p-3"
+            >
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold">
+                  {index + 1}. {getToolDisplayName(request.name)}
+                </div>
+                {isRemoteCompute && (
+                  <div className="text-xs text-muted-foreground">
+                    {remoteSummary?.host}
+                  </div>
+                )}
+              </div>
+              {request.description && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {request.description}
+                </p>
+              )}
+              {isRemoteCompute ? (
+                <pre className="max-h-36 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs leading-5 text-foreground">
+                  {remoteSummary?.command}
+                </pre>
+              ) : (
+                <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/40 p-2 font-mono text-xs leading-5 text-foreground">
+                  {JSON.stringify(request.args, null, 2)}
+                </pre>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {showRejectionInput && (
+        <div className="mb-4">
+          <label className="mb-2 block text-xs font-medium text-foreground">
+            Rejection Message (optional)
+          </label>
+          <Textarea
+            value={rejectionMessage}
+            onChange={(event) => setRejectionMessage(event.target.value)}
+            placeholder="Explain why you're rejecting these actions..."
+            className="text-sm"
+            rows={2}
+            disabled={isLoading}
+          />
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        {showRejectionInput ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowRejectionInput(false);
+                setRejectionMessage("");
+              }}
+              disabled={isLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => submitDecision("reject")}
+              disabled={isLoading || !allAllowReject}
+            >
+              {isLoading ? "Rejecting..." : "Reject all"}
+            </Button>
+          </>
+        ) : (
+          <>
+            {allAllowReject && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowRejectionInput(true)}
+                disabled={isLoading}
+                className="text-destructive hover:bg-destructive/10"
+              >
+                <X size={14} />
+                Reject all
+              </Button>
+            )}
+            {allAllowApprove && (
+              <Button
+                size="sm"
+                onClick={() => submitDecision("approve")}
+                disabled={isLoading}
+                className={cn(
+                  "bg-green-600 text-white hover:bg-green-700",
+                  "dark:bg-green-600 dark:hover:bg-green-700"
+                )}
+              >
+                <Check size={14} />
+                {isLoading ? "Approving..." : "Approve all"}
               </Button>
             )}
           </>

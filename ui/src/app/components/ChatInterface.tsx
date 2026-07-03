@@ -44,7 +44,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ChatMessage } from "@/app/components/ChatMessage";
-import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
+import {
+  BatchToolApprovalInterrupt,
+  ToolApprovalInterrupt,
+} from "@/app/components/ToolApprovalInterrupt";
 import type {
   TodoItem,
   ToolCall,
@@ -104,6 +107,14 @@ const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
 const CHAT_COMPOSER_HASH = "#chat-composer";
 const IME_COMPOSITION_END_GRACE_MS = 80;
+
+function normalizeReviewConfig(config: ReviewConfig): ReviewConfig {
+  return {
+    ...config,
+    actionName: config.actionName ?? config.action_name,
+    allowedDecisions: config.allowedDecisions ?? config.allowed_decisions,
+  };
+}
 
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
@@ -2427,7 +2438,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const reviewConfigs = useMemo(() => {
       return interruptValues.flatMap((value: any) =>
         Array.isArray(value.review_configs) ? value.review_configs : []
-      ) as ReviewConfig[];
+      ).map((config: ReviewConfig) => normalizeReviewConfig(config));
     }, [interruptValues]);
 
     const interruptedToolNames = useMemo(() => {
@@ -2848,15 +2859,21 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     const hasFiles = Object.keys(files).length > 0;
 
     // Parse out any action requests or review configs from the interrupt
+    const useBatchApproval = actionRequests.length > 1;
+
     const actionRequestsMap: Map<string, ActionRequest> | null = useMemo(() => {
+      if (useBatchApproval) return null;
       return new Map(actionRequests.map((ar: ActionRequest) => [ar.name, ar]));
-    }, [actionRequests]);
+    }, [actionRequests, useBatchApproval]);
 
     const reviewConfigsMap: Map<string, ReviewConfig> | null = useMemo(() => {
+      if (useBatchApproval) return null;
       return new Map(
-        reviewConfigs.map((rc: ReviewConfig) => [rc.actionName, rc])
+        reviewConfigs
+          .filter((rc: ReviewConfig) => rc.actionName)
+          .map((rc: ReviewConfig) => [rc.actionName as string, rc])
       );
-    }, [reviewConfigs]);
+    }, [reviewConfigs, useBatchApproval]);
 
     const hasVisibleInterruptToolCall = useMemo(() => {
       return processedMessages.some((data) =>
@@ -2870,8 +2887,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     }, [processedMessages, interruptedToolNames]);
 
     const orphanActionRequests = useMemo(() => {
+      if (useBatchApproval) return actionRequests;
       return hasVisibleInterruptToolCall ? [] : actionRequests;
-    }, [actionRequests, hasVisibleInterruptToolCall]);
+    }, [actionRequests, hasVisibleInterruptToolCall, useBatchApproval]);
 
     const dropOverlayVisible = isChatDropActive || isPreparingDroppedAttachment;
     const dropOverlayTitle = isPreparingDroppedAttachment
@@ -3062,10 +3080,10 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       }
                       isLoading={isLoading}
                       actionRequestsMap={
-                        isLastMessage ? actionRequestsMap : undefined
+                        isLastMessage ? actionRequestsMap ?? undefined : undefined
                       }
                       reviewConfigsMap={
-                        isLastMessage ? reviewConfigsMap : undefined
+                        isLastMessage ? reviewConfigsMap ?? undefined : undefined
                       }
                       ui={showInlineToolCalls ? messageUi : undefined}
                       stream={stream}
@@ -3257,15 +3275,24 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 )}
                 {orphanActionRequests.length > 0 && (
                   <div className="mt-4 flex w-full flex-col gap-3">
-                    {orphanActionRequests.map((actionRequest, index) => (
-                      <ToolApprovalInterrupt
-                        key={`${actionRequest.name}-${index}`}
-                        actionRequest={actionRequest}
-                        reviewConfig={reviewConfigsMap?.get(actionRequest.name)}
+                    {useBatchApproval ? (
+                      <BatchToolApprovalInterrupt
+                        actionRequests={orphanActionRequests}
+                        reviewConfigs={reviewConfigs}
                         onResume={resumeInterrupt}
                         isLoading={isLoading}
                       />
-                    ))}
+                    ) : (
+                      orphanActionRequests.map((actionRequest, index) => (
+                        <ToolApprovalInterrupt
+                          key={`${actionRequest.name}-${index}`}
+                          actionRequest={actionRequest}
+                          reviewConfig={reviewConfigsMap?.get(actionRequest.name)}
+                          onResume={resumeInterrupt}
+                          isLoading={isLoading}
+                        />
+                      ))
+                    )}
                   </div>
                 )}
               </>

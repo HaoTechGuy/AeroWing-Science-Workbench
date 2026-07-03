@@ -19,6 +19,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   get_goal: "读取目标",
   create_goal: "创建目标",
   update_goal: "更新目标",
+  remote_compute_submit_job: "SSH remote job",
   compact_conversation: "压缩上下文",
   start_async_task: "启动后台任务",
   check_async_task: "检查后台任务",

@@ -83,6 +83,19 @@ OPENAI_API_KEY=sk-...
 DEEPAGENT_MODEL=your-model-id
 ```
 
+DeepSeek's official OpenAI-compatible endpoint can also be configured with
+provider-specific aliases:
+
+```env
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+When the OpenAI-compatible provider is selected, `DEEPSEEK_API_KEY`,
+`DEEPSEEK_BASE_URL`, and `DEEPSEEK_MODEL` are treated as aliases for the
+corresponding OpenAI-compatible API key, base URL, and model.
+
 Keep API keys and machine-specific paths in local `.env` or runtime config
 files. Do not commit secrets.
 
@@ -145,6 +158,7 @@ The unified settings page manages:
 
 - model provider, Base URL, API key, and model ID
 - project directory
+- Linux SSH compute host registration and job activity
 - tool-call authorization mode
 - language and appearance
 - archived conversations
@@ -167,6 +181,46 @@ INTERNAGENT_MCP_CONFIG_FILE
 ```
 
 Connector secrets, private commands, headers, and endpoints should stay local.
+
+### Linux SSH Compute Jobs
+
+InternAgentS has an experimental Linux-only SSH compute provider. This is
+separate from SSH remote runtime setup: the local backend keeps the current
+conversation session and submits detached jobs to a registered Linux SSH host.
+
+Current scope:
+
+- Linux hosts only.
+- SSH hosts are registered by `Host` alias from the local `~/.ssh/config`.
+  Address, user, port, `ProxyJump`, and key settings come from OpenSSH.
+- Jobs run as detached `bash` processes under a per-job scratch directory.
+- Job status is polled over SSH; outputs matching configured globs are harvested
+  back as base64 payloads when they fit under the configured size cap.
+- Settings > Compute registers and probes SSH hosts. Job submission happens from
+  the conversation when the agent proposes a remote compute tool call.
+- Proposed remote compute calls appear as permission cards in chat. The user
+  must approve the card before the local backend submits the SSH job.
+
+Local compute state lives under `.internagents/compute/`, which is ignored by
+git. The local API surface is:
+
+```text
+GET  /api/compute/ssh-hosts
+POST /api/compute/ssh-hosts
+GET  /api/compute/remote-jobs
+POST /api/compute/remote-jobs
+GET  /api/compute/remote-jobs/:jobId
+```
+
+API calls require the local token stored at `.internagents/compute/api-token`:
+
+```bash
+TOKEN="$(cat .internagents/compute/api-token)"
+curl -X POST http://127.0.0.1:3000/api/compute/ssh-hosts \
+  -H 'Content-Type: application/json' \
+  -H "X-InternAgents-Compute-Token: $TOKEN" \
+  -d '{"host":"my-linux-host","notes":"Use sbatch on gpu partition; conda envs live under ~/envs."}'
+```
 
 ## Architecture
 

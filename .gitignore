@@ -18,6 +18,8 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 build/
+dist/
+.adapter-run-logs/
 
 # Local vendored SDK checkout; the app depends on deepagents via pyproject.toml.
 deepagents/
