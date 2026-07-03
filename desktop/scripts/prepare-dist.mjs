@@ -63,7 +63,6 @@ const runtimeEntries = [
   "agent.py",
   "main.py",
   "internagents",
-  "internagents_backend_cli.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.json",

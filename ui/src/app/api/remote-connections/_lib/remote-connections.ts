@@ -53,7 +53,6 @@ const BACKEND_CLI_PACKAGE_ENTRIES = [
   "agent.py",
   "main.py",
   "internagents",
-  "internagents_backend_cli.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.runtime.json",

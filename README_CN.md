@@ -252,9 +252,9 @@ flowchart LR
 ## 仓库结构
 
 ```text
-agent.py                         LangGraph graph assembly and assistant exports
+agent.py                         LangGraph entrypoint shim
 deepagent.config.json            local backend, skills, model, and UI defaults
-internagents/                    backend adapters, middleware, tools, and resource loading
+internagents/                    graph assembly, backend adapters, middleware, tools, and resource loading
 scripts/dev.sh                   one-command local development launcher
 ui/                              Next.js workbench UI
 skills/                          bundled project skills

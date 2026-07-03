@@ -12,7 +12,8 @@
 
 ## 架构地图
 
-- `agent.py`：LangGraph graph 组装和导出；导出 `agent`、`agent_local`、`agent_remote1` 到 `agent_remote8`。
+- `agent.py`：LangGraph 根入口 shim，保持 `./agent.py:agent` 等启动路径兼容。
+- `internagents/agent_graph.py`：LangGraph graph 组装和导出；导出 `agent`、`agent_local`、`agent_remote1` 到 `agent_remote8`。
 - `internagents/internagent_resources.py`：读取 `internagent.resources.json` 或 `INTERNAGENT_RESOURCES_FILE`，生成资源配置。
 - `internagents/ssh_backend.py`：把 DeepAgents backend protocol 映射到固定 SSH workspace。
 - `internagents/kb_sync_middleware.py`：agent run 前后的 best-effort KB 同步。
@@ -45,7 +46,7 @@
 - DeepAgents backend 能力：新增或修改 backend adapter，例如 `internagents/ssh_backend.py`。
 - run 前后逻辑：放进 middleware，例如 `internagents/kb_sync_middleware.py`。
 - 资源 schema 或选择逻辑：同步更新 `internagents/internagent_resources.py`、UI 资源读取、示例配置和文档。
-- LangGraph graph 组装：`agent.py` 保持薄封装，不做安装、daemon 状态轮询或 SSH 协议管理。
+- LangGraph graph 组装：`agent.py` 只做根入口 shim；真实实现放在 `internagents/agent_graph.py`，且不做安装、daemon 状态轮询或 SSH 协议管理。
 - workspace/file 浏览：走 workspace API，不在 React 组件里直接访问本地文件或 SSH。
 - 复用 UI 协议、状态和 helper：放到 `ui/src/lib`、`ui/src/app/types` 或组件附近的 `_lib`。
 
