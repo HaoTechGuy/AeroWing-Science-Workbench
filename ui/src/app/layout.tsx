@@ -36,7 +36,9 @@ const startupSplashDismissScript = `
 const startupSplashLanguageScript = `
 (() => {
   try {
-    const language = localStorage.getItem("internagents.ui.language") === "en" ? "en" : "zh";
+    const storedLanguage = localStorage.getItem("internagents.ui.language");
+    const inferredLanguage = navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
+    const language = storedLanguage === "zh" || storedLanguage === "en" ? storedLanguage : inferredLanguage;
     const text = language === "en" ? "Starting InternAgentS..." : "InternAgentS 正在启动中...";
     document.documentElement.lang = language === "en" ? "en" : "zh-CN";
     const target = document.querySelector("[data-internagents-startup-text]");
@@ -75,7 +77,12 @@ export default function RootLayout({
           aria-live="polite"
         >
           <span className="internagents-startup-splash__spinner" />
-          <span data-internagents-startup-text>InternAgentS 正在启动中...</span>
+          <span
+            data-internagents-startup-text
+            suppressHydrationWarning
+          >
+            InternAgentS
+          </span>
         </div>
         <script
           dangerouslySetInnerHTML={{ __html: startupSplashLanguageScript }}

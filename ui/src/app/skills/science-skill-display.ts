@@ -2,6 +2,7 @@ import type {
   ScienceSkillCategory,
   ScienceSkillSnapshot,
 } from "@/app/skills/science-skill-catalog";
+import type { UiLanguage } from "@/lib/i18n";
 
 export interface ScienceSkillDisplayText {
   description: string;
@@ -512,10 +513,36 @@ function scienceSkillDescription(
   return `用于${categoryName}场景：${selected.join("、")}。`;
 }
 
+function englishScienceSkillName(skill: ScienceSkillSnapshot): string {
+  const descriptionTitle = skill.description.split(" - ")[0]?.trim();
+  if (descriptionTitle && descriptionTitle.length <= 96) {
+    return descriptionTitle;
+  }
+
+  return skill.name
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((token) => {
+      if (/^[A-Z0-9]+$/.test(token)) {
+        return token;
+      }
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    })
+    .join(" ");
+}
+
 export function scienceSkillDisplayText(
   skill: ScienceSkillSnapshot,
-  category?: ScienceSkillCategory
+  category?: ScienceSkillCategory,
+  language: UiLanguage = "zh"
 ): ScienceSkillDisplayText {
+  if (language === "en") {
+    return {
+      name: englishScienceSkillName(skill),
+      description: skill.description,
+    };
+  }
+
   return {
     name: scienceSkillName(skill),
     description: scienceSkillDescription(skill, category),

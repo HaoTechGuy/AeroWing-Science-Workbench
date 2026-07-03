@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import type { ResourceConfig } from "@/lib/config";
 
 type ConnectionMode = "sshConfig" | "sshCommand";
@@ -82,6 +83,7 @@ export function RemoteConnectionDialog({
   onOpenChange,
   onConfigured,
 }: RemoteConnectionDialogProps) {
+  const { t } = useLanguage();
   const [hosts, setHosts] = useState<SshHostEntry[]>([]);
   const [connectionMode, setConnectionMode] =
     useState<ConnectionMode>("sshConfig");
@@ -109,17 +111,17 @@ export function RemoteConnectionDialog({
           error?: string;
         };
         if (!response.ok) {
-          throw new Error(payload.error || "SSH Host 读取失败");
+          throw new Error(payload.error || t("sshHostReadFailed"));
         }
         setHosts(payload.hosts || []);
       })
       .catch((error) => {
         const message =
-          error instanceof Error ? error.message : "SSH Host 读取失败";
+          error instanceof Error ? error.message : t("sshHostReadFailed");
         toast.error(message);
       })
       .finally(() => setLoadingHosts(false));
-  }, [open]);
+  }, [open, t]);
 
   const connectionReady =
     connectionMode === "sshConfig" ? selectedHost.trim() : sshCommand.trim();
@@ -181,11 +183,12 @@ export function RemoteConnectionDialog({
       const payload = (await response.json()) as TestResult;
       setTestResult(payload);
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.stderr || "SSH 连接失败");
+        throw new Error(payload.stderr || t("sshConnectionFailed"));
       }
-      toast.success("SSH 连接可用");
+      toast.success(t("sshConnectionReady"));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "SSH 连接失败";
+      const message =
+        error instanceof Error ? error.message : t("sshConnectionFailed");
       toast.error(message);
     } finally {
       setTesting(false);
@@ -218,11 +221,11 @@ export function RemoteConnectionDialog({
         const payload = (await response.json().catch(() => null)) as {
           error?: string;
         } | null;
-        throw new Error(payload?.error || "远程机器配置失败");
+        throw new Error(payload?.error || t("remoteSetupFailed"));
       }
 
       if (!response.body) {
-        throw new Error("远程机器配置失败：服务器没有返回配置日志。");
+        throw new Error(t("remoteSetupNoLog"));
       }
 
       const reader = response.body.getReader();
@@ -251,7 +254,7 @@ export function RemoteConnectionDialog({
           } else if (event.type === "done" && event.result) {
             result = event.result;
           } else if (event.type === "error") {
-            streamError = event.error || "远程机器配置失败";
+            streamError = event.error || t("remoteSetupFailed");
           }
         }
         if (done) break;
@@ -262,7 +265,7 @@ export function RemoteConnectionDialog({
       } else if (lastEvent?.type === "done" && lastEvent.result) {
         result = lastEvent.result;
       } else if (lastEvent?.type === "error") {
-        streamError = lastEvent.error || "远程机器配置失败";
+        streamError = lastEvent.error || t("remoteSetupFailed");
       }
 
       if (streamError) {
@@ -270,16 +273,18 @@ export function RemoteConnectionDialog({
       }
       const setupResult = result;
       if (!setupResult) {
-        throw new Error("远程机器配置失败：未收到完成事件。");
+        throw new Error(t("remoteSetupNoResult"));
       }
 
       setSetupLog(setupResult.log || []);
       await onConfigured(setupResult.resource, setupResult.resources);
-      toast.success(`${setupResult.resource.label} 已接入`);
+      toast.success(
+        t("remoteProjectConnectedToast", { label: setupResult.resource.label })
+      );
       onOpenChange(false);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "远程机器配置失败";
+        error instanceof Error ? error.message : t("remoteSetupFailed");
       setSetupLog((log) => [...log, message]);
       toast.error(message);
     } finally {
@@ -294,10 +299,9 @@ export function RemoteConnectionDialog({
     >
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>接入远程项目</DialogTitle>
+          <DialogTitle>{t("remoteConnectionTitle")}</DialogTitle>
           <DialogDescription>
-            连接一台可以通过 SSH 登录的远端机器。InternAgents
-            会在远端准备运行环境，并把你指定的目录加入项目列表，之后可以像本地项目一样切换使用。
+            {t("remoteConnectionDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -311,9 +315,11 @@ export function RemoteConnectionDialog({
                 : "border-border bg-background hover:bg-accent"
             }`}
           >
-            <div className="text-sm font-semibold">从 SSH config 选择</div>
+            <div className="text-sm font-semibold">
+              {t("remoteConnectionSshConfigTitle")}
+            </div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              适合已经在本机 SSH config 里配置好 Host、端口和私钥的机器。
+              {t("remoteConnectionSshConfigDescription")}
             </div>
           </button>
           <button
@@ -325,10 +331,11 @@ export function RemoteConnectionDialog({
                 : "border-border bg-background hover:bg-accent"
             }`}
           >
-            <div className="text-sm font-semibold">粘贴 SSH 连接命令</div>
+            <div className="text-sm font-semibold">
+              {t("remoteConnectionCommandTitle")}
+            </div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              适合直接粘贴能在本机终端运行的 ssh 命令，例如 ssh -p 2222
-              user@example.com。
+              {t("remoteConnectionCommandDescription")}
             </div>
           </button>
         </div>
@@ -336,7 +343,7 @@ export function RemoteConnectionDialog({
         <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
           {connectionMode === "sshConfig" ? (
             <div className="space-y-2">
-              <Label>SSH config Host</Label>
+              <Label>{t("sshConfigHostLabel")}</Label>
               <Select
                 value={selectedHost}
                 onValueChange={applyHost}
@@ -344,14 +351,16 @@ export function RemoteConnectionDialog({
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      loadingHosts ? "读取 SSH config..." : "选择 SSH Host"
+                      loadingHosts
+                        ? t("sshConfigLoading")
+                        : t("sshConfigChooseHost")
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
                   {hosts.length === 0 && (
                     <div className="px-2 py-2 text-sm text-muted-foreground">
-                      未在 ~/.ssh/config 读取到 Host
+                      {t("sshConfigNoHosts")}
                     </div>
                   )}
                   {hosts.map((host) => (
@@ -365,13 +374,12 @@ export function RemoteConnectionDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                只使用本机 ~/.ssh/config 的 Host；私钥和 HostName 由本机 ssh
-                读取。
+                {t("sshConfigHostHelp")}
               </p>
             </div>
           ) : (
             <div className="space-y-2">
-              <Label htmlFor="ssh-command">SSH 连接指令</Label>
+              <Label htmlFor="ssh-command">{t("sshCommandLabel")}</Label>
               <Input
                 id="ssh-command"
                 value={sshCommand}
@@ -379,23 +387,23 @@ export function RemoteConnectionDialog({
                 placeholder="ssh -p 2222 user@example.com"
               />
               <p className="text-xs text-muted-foreground">
-                填写能在本机终端直接连通的单行 ssh 命令；不要附加远端命令。
+                {t("sshCommandHelp")}
               </p>
             </div>
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="remote-label">显示名称</Label>
+            <Label htmlFor="remote-label">{t("remoteDisplayName")}</Label>
             <Input
               id="remote-label"
               value={label}
               onChange={(event) => setLabel(event.target.value)}
-              placeholder="实验服务器"
+              placeholder={t("remoteDisplayNamePlaceholder")}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="remote-workspace">远端项目目录</Label>
+            <Label htmlFor="remote-workspace">{t("remoteWorkspaceLabel")}</Label>
             <Input
               id="remote-workspace"
               value={workspace}
@@ -403,37 +411,37 @@ export function RemoteConnectionDialog({
               placeholder="~/internagents-projects/volcano"
             />
             <p className="text-xs text-muted-foreground">
-              这是远端机器上的项目目录。InternAgents
-              会把它作为文件浏览和任务执行的项目目录；运行环境会安装到独立目录，不会放进这里。
+              {t("remoteWorkspaceHelp")}
             </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="local-port">本机连接端口（可选）</Label>
+            <Label htmlFor="local-port">{t("localPortLabel")}</Label>
             <Input
               id="local-port"
               value={localPort}
               onChange={(event) => setLocalPort(event.target.value)}
-              placeholder="自动选择，例如 22025"
+              placeholder={t("localPortPlaceholder")}
               inputMode="numeric"
             />
             <p className="text-xs text-muted-foreground">
-              通常无需填写，系统会自动选择可用端口。只有需要固定端口时再手动填写。
+              {t("localPortHelp")}
             </p>
           </div>
         </div>
 
         <div className="rounded-lg border border-border bg-muted/30 p-3">
           <div className="mb-3">
-            <div className="text-sm font-semibold">高级安装选项</div>
+            <div className="text-sm font-semibold">
+              {t("advancedInstallOptions")}
+            </div>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              默认自动检测远端 python3 + venv；不可用时会尝试你填写的 Python
-              路径或 Conda/Mamba。
+              {t("advancedInstallHelp")}
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
             <div className="space-y-2">
-              <Label>安装方式</Label>
+              <Label>{t("installModeLabel")}</Label>
               <Select
                 value={installMode}
                 onValueChange={(value) =>
@@ -444,17 +452,19 @@ export function RemoteConnectionDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">自动检测</SelectItem>
-                  <SelectItem value="venv">系统 python3 + venv</SelectItem>
-                  <SelectItem value="pythonPath">指定 Python</SelectItem>
-                  <SelectItem value="conda">Conda/Mamba</SelectItem>
+                  <SelectItem value="auto">{t("installAuto")}</SelectItem>
+                  <SelectItem value="venv">{t("installVenv")}</SelectItem>
+                  <SelectItem value="pythonPath">
+                    {t("installPythonPath")}
+                  </SelectItem>
+                  <SelectItem value="conda">{t("installConda")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="remote-python-path">
-                自定义 Python 路径
-                {installMode === "pythonPath" ? "" : "（可选）"}
+                {t("customPythonPath")}
+                {installMode === "pythonPath" ? "" : t("optionalSuffix")}
               </Label>
               <Input
                 id="remote-python-path"
@@ -465,17 +475,16 @@ export function RemoteConnectionDialog({
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="remote-conda-command">
-                Conda/Mamba 命令路径（可选）
+                {t("condaCommandLabel")}
               </Label>
               <Input
                 id="remote-conda-command"
                 value={condaCommand}
                 onChange={(event) => setCondaCommand(event.target.value)}
-                placeholder="mamba 或 /opt/conda/bin/conda"
+                placeholder={t("condaCommandPlaceholder")}
               />
               <p className="text-xs leading-5 text-muted-foreground">
-                自动模式下，venv 不可用时会优先使用这里填写的命令；未填写则依次检测
-                mamba 和 conda。
+                {t("condaCommandHelp")}
               </p>
             </div>
           </div>
@@ -485,10 +494,11 @@ export function RemoteConnectionDialog({
           <div className="flex items-start gap-3">
             <ShieldCheck className="mt-0.5 h-4 w-4 flex-none text-primary" />
             <div className="min-w-0 space-y-1">
-              <div className="text-sm font-medium">自动同步本机运行配置</div>
+              <div className="text-sm font-medium">
+                {t("autoSyncLocalConfigTitle")}
+              </div>
               <p className="text-xs leading-5 text-muted-foreground">
-                首次接入和每次切换到远端项目时，都会同步本机 .env 和
-                deepagent.config.json。配置可能包含 API Key，请只连接信任的远端机器。
+                {t("autoSyncLocalConfigHelp")}
               </p>
             </div>
           </div>
@@ -512,7 +522,7 @@ export function RemoteConnectionDialog({
           <div className="overflow-hidden rounded-md border border-[#332941] bg-[#0d0b12] text-xs shadow-inner">
             <div className="flex items-center gap-2 border-b border-[#332941] bg-[#17121f] px-3 py-2 font-medium text-[#f7f3fb]">
               <Terminal className="h-4 w-4" />
-              接入日志
+              {t("setupLog")}
             </div>
             <div className="max-h-56 overflow-auto px-3 py-3 font-mono leading-5 text-[#efe7fb]">
               {setupLog.map((line, index) => (
@@ -534,7 +544,7 @@ export function RemoteConnectionDialog({
             onClick={() => onOpenChange(false)}
             disabled={settingUp}
           >
-            取消
+            {t("cancel")}
           </Button>
           <Button
             type="button"
@@ -543,7 +553,7 @@ export function RemoteConnectionDialog({
             disabled={!connectionReady || testing || settingUp}
           >
             {testing && <Loader2 className="h-4 w-4 animate-spin" />}
-            测试连接
+            {t("testConnection")}
           </Button>
           <Button
             type="button"
@@ -556,7 +566,7 @@ export function RemoteConnectionDialog({
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            接入并启动
+            {t("connectAndStart")}
           </Button>
         </DialogFooter>
       </DialogContent>

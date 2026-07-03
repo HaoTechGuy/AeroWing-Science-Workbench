@@ -32,17 +32,20 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import {
   WORKBENCH_RETURN_STORAGE_KEY,
   safeWorkbenchHref,
   workbenchHrefFromSearchParams,
 } from "@/app/utils/navigationContext";
 import { cn } from "@/lib/utils";
+import type { CopyKey, UiLanguage } from "@/lib/i18n";
 import {
   SCIENCE_SKILL_CATEGORIES,
   SCIENCE_SKILL_SOURCE,
   SCIENCE_SKILLS,
   type ScienceSkillSnapshot,
+  type ScienceSkillCategory,
 } from "@/app/skills/science-skill-catalog";
 import {
   filterAndRankBySearch,
@@ -165,63 +168,102 @@ const SCP_EXAMPLE_MCP_CONFIG = JSON.stringify(
 const SKILL_DISPLAY_TEXT: Record<
   string,
   {
-    name: string;
-    description: string;
+    nameKey: CopyKey;
+    descriptionKey: CopyKey;
   }
 > = {
   "skill-creator": {
-    name: "技能创建器",
-    description: "创建或更新 InternAgents 技能，把常用流程封装成可复用能力。",
+    nameKey: "skillCreatorName",
+    descriptionKey: "skillCreatorDescription",
   },
   "patent-disclosure-skill": {
-    name: "专利申请",
-    description:
-      "扫描技术资料挖掘专利点，完成查新对比、自检，并生成专利技术交底书。",
+    nameKey: "patentDisclosureName",
+    descriptionKey: "patentDisclosureDescription",
   },
   "baoyu-compress-image": {
-    name: "图片压缩",
-    description: "压缩和优化图片体积，支持转换为 WebP、PNG、JPEG 等格式。",
+    nameKey: "imageCompressionName",
+    descriptionKey: "imageCompressionDescription",
   },
   "baoyu-xhs-images": {
-    name: "小红书图片生成",
-    description:
-      "把内容拆成适合社交媒体传播的系列图片卡片，支持多种风格、布局和配色。",
+    nameKey: "socialImageGenerationName",
+    descriptionKey: "socialImageGenerationDescription",
   },
   docx: {
-    name: "Docx文档处理",
-    description:
-      "创建、读取、编辑和整理 Docx 文档，支持版式、批注、修订和导出检查。",
+    nameKey: "docxSkillName",
+    descriptionKey: "docxSkillDescription",
   },
   pptx: {
-    name: "PPT幻灯片处理",
-    description:
-      "创建、读取、编辑和整理演示文稿，支持模板、版式、讲稿备注和幻灯片合并拆分。",
+    nameKey: "pptxSkillName",
+    descriptionKey: "pptxSkillDescription",
   },
   xlsx: {
-    name: "Excel表格处理",
-    description:
-      "读取、清洗、编辑和生成 Excel 表格，支持公式、格式、图表和数据整理。",
+    nameKey: "xlsxSkillName",
+    descriptionKey: "xlsxSkillDescription",
   },
   pdf: {
-    name: "PDF 处理",
-    description:
-      "读取、合并、拆分、旋转、加水印、生成和填写表单，也可处理文字识别流程。",
+    nameKey: "pdfSkillName",
+    descriptionKey: "pdfSkillDescription",
   },
   "code-review": {
-    name: "代码审查",
-    description: "检查代码改动中的正确性、回归风险、可维护性、测试和安全问题。",
+    nameKey: "codeReviewSkillName",
+    descriptionKey: "codeReviewSkillDescription",
   },
   "experiment-analysis": {
-    name: "实验结果分析",
-    description: "分析实验结果、比较指标、生成统计表和关键结论。",
+    nameKey: "experimentAnalysisSkillName",
+    descriptionKey: "experimentAnalysisSkillDescription",
   },
   "paper-reading": {
-    name: "论文阅读",
-    description: "阅读论文并提炼研究问题、方法、实验设计和可复用结论。",
+    nameKey: "paperReadingSkillName",
+    descriptionKey: "paperReadingSkillDescription",
   },
   "project-design-philosophy": {
-    name: "项目设计哲学",
-    description: "整理项目设计原则、架构取舍、边界约束和实现风格。",
+    nameKey: "projectDesignSkillName",
+    descriptionKey: "projectDesignSkillDescription",
+  },
+};
+const SCIENCE_CATEGORY_DISPLAY_TEXT: Record<
+  string,
+  { name: string; description: string }
+> = {
+  "drug-discovery-pharmacology": {
+    name: "Drug discovery and pharmacology",
+    description:
+      "Target identification, ADMET prediction, virtual screening, docking, drug safety, and repurposing.",
+  },
+  "genomics-genetic-analysis": {
+    name: "Genomics and genetic analysis",
+    description:
+      "Variant pathogenicity, cancer genomics, population genetics, rare diseases, viral genomes, and epigenomics.",
+  },
+  "protein-science-engineering": {
+    name: "Protein science and engineering",
+    description:
+      "Structure prediction, binding sites, mutation impact, antibody and peptide design, enzyme engineering, and protein interactions.",
+  },
+  "chemistry-molecular-science": {
+    name: "Chemistry and molecular science",
+    description:
+      "Molecular structures, fingerprints and similarity, SAR, material composition, natural products, and metabolomics.",
+  },
+  "physics-engineering-computing": {
+    name: "Physics and engineering computing",
+    description:
+      "Circuits, thermodynamics, optics, electromagnetics, crystallography, geometry, and unit conversion.",
+  },
+  "lab-automation-literature-mining": {
+    name: "Lab automation and literature mining",
+    description:
+      "Protocol generation, PDF protocol extraction, PubMed and scientific literature retrieval, and meta-analysis.",
+  },
+  "earth-environmental-science": {
+    name: "Earth and environmental science",
+    description:
+      "Atmospheric science, wind-energy assessment, seawater properties, ocean sound speed, and freezing-point calculations.",
+  },
+  "other-scientific-computing": {
+    name: "Other scientific computing",
+    description:
+      "Supplemental scientific workflows such as cross-domain databases, seismic waveforms, and nanoscale unit conversion.",
   },
 };
 const SCIENCE_SKILL_IDS = new Set(SCIENCE_SKILLS.map((skill) => skill.id));
@@ -291,27 +333,50 @@ function skillPath(skill: SkillEntry): string {
   return skill.relativePath || skill.folderName || skill.key;
 }
 
-function displayTextForSkill(skill: SkillEntry) {
+function scienceCategoryDisplayText(
+  category: ScienceSkillCategory | undefined,
+  language: UiLanguage
+) {
+  if (!category) {
+    return null;
+  }
+  if (language === "en") {
+    return SCIENCE_CATEGORY_DISPLAY_TEXT[category.id] ?? category;
+  }
+  return category;
+}
+
+function displayTextForSkill(
+  skill: SkillEntry,
+  t: (key: CopyKey, params?: Record<string, string | number>) => string,
+  language: UiLanguage
+) {
   const scienceSkillId = scienceSkillIdForInstalledSkill(skill);
   const scienceSkill = scienceSkillId
     ? SCIENCE_SKILL_BY_ID.get(scienceSkillId)
     : null;
   if (scienceSkill) {
+    const category = SCIENCE_CATEGORY_BY_ID.get(scienceSkill.categoryId);
     return scienceSkillDisplayText(
       scienceSkill,
-      SCIENCE_CATEGORY_BY_ID.get(scienceSkill.categoryId)
+      category,
+      language
     );
   }
 
   const translation = SKILL_DISPLAY_TEXT[skill.folderName.toLowerCase()];
   return {
-    name: translation?.name ?? skill.name,
-    description: translation?.description ?? skill.description,
+    name: translation ? t(translation.nameKey) : skill.name,
+    description: translation ? t(translation.descriptionKey) : skill.description,
   };
 }
 
-function searchDocumentForSkill(skill: SkillEntry): SearchDocument {
-  const display = displayTextForSkill(skill);
+function searchDocumentForSkill(
+  skill: SkillEntry,
+  t: (key: CopyKey, params?: Record<string, string | number>) => string,
+  language: UiLanguage
+): SearchDocument {
+  const display = displayTextForSkill(skill, t, language);
   return {
     title: display.name,
     description: display.description,
@@ -326,10 +391,12 @@ function searchDocumentForSkill(skill: SkillEntry): SearchDocument {
 }
 
 function searchDocumentForScienceSkill(
-  skill: ScienceSkillSnapshot
+  skill: ScienceSkillSnapshot,
+  language: UiLanguage
 ): SearchDocument {
   const category = SCIENCE_CATEGORY_BY_ID.get(skill.categoryId);
-  const display = scienceSkillDisplayText(skill, category);
+  const displayCategory = scienceCategoryDisplayText(category, language);
+  const display = scienceSkillDisplayText(skill, category, language);
   return {
     title: display.name,
     description: display.description,
@@ -338,8 +405,8 @@ function searchDocumentForScienceSkill(
       skill.description,
       skill.id,
       skill.sourcePath,
-      category?.name ?? "",
-      category?.description ?? "",
+      displayCategory?.name ?? "",
+      displayCategory?.description ?? "",
     ],
   };
 }
@@ -374,7 +441,8 @@ function withEnabledSkill(href: string, skillId: string): string {
 }
 
 function SkillGlyph({ skill }: { skill: SkillEntry }) {
-  const display = displayTextForSkill(skill);
+  const { language, t } = useLanguage();
+  const display = displayTextForSkill(skill, t, language);
   const label = display.name.trim().charAt(0).toUpperCase() || "S";
 
   return (
@@ -423,10 +491,15 @@ function InstalledSkillCard({
   skill: SkillEntry;
   updating?: boolean;
 }) {
-  const display = displayTextForSkill(skill);
+  const { language, t } = useLanguage();
+  const display = displayTextForSkill(skill, t, language);
   const isScienceGroup = group === "science";
   const sourceLabel =
-    group === "default" ? "内置" : group === "science" ? "科学" : "导入";
+    group === "default"
+      ? t("builtIn")
+      : group === "science"
+        ? t("science")
+        : t("imported");
 
   return (
     <article
@@ -443,7 +516,7 @@ function InstalledSkillCard({
           "flex min-w-0 flex-1 cursor-pointer items-start gap-4 px-4 py-4 text-left outline-none transition-[box-shadow] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           "pr-24"
         )}
-        aria-label={`查看 ${display.name} 详情`}
+        aria-label={t("viewSkillDetails", { name: display.name })}
       >
         <SkillGlyph skill={skill} />
         <div className="min-w-0 flex-1">
@@ -466,8 +539,12 @@ function InstalledSkillCard({
           checked={enabled}
           disabled={updating}
           onCheckedChange={(checked) => onToggleEnabled(skill, checked)}
-          aria-label={`${enabled ? "停用" : "启用"} ${display.name}`}
-          title={`${enabled ? "停用" : "启用"} ${display.name}`}
+          aria-label={t(enabled ? "disableSkillName" : "enableSkillName", {
+            name: display.name,
+          })}
+          title={t(enabled ? "disableSkillName" : "enableSkillName", {
+            name: display.name,
+          })}
         />
       </div>
     </article>
@@ -496,7 +573,8 @@ function ScienceSkillCard({
   skill: ScienceSkillSnapshot;
 }) {
   const category = SCIENCE_CATEGORY_BY_ID.get(skill.categoryId);
-  const display = scienceSkillDisplayText(skill, category);
+  const { language, t } = useLanguage();
+  const display = scienceSkillDisplayText(skill, category, language);
   const label = display.name.trim().charAt(0).toUpperCase() || "S";
   const installed = Boolean(installedSkill);
 
@@ -518,7 +596,7 @@ function ScienceSkillCard({
               </h3>
               {installed ? (
                 <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  已安装
+                  {t("installed")}
                 </span>
               ) : null}
             </div>
@@ -533,14 +611,16 @@ function ScienceSkillCard({
                 variant="outline"
                 size="sm"
                 className="h-8 px-2"
-                title={`在当前会话使用 ${display.name}`}
+                title={t("useInCurrentSession", { name: display.name })}
               >
                 <Link
                   href={enableHref}
-                  aria-label={`在当前会话使用 ${display.name}`}
+                  aria-label={t("useInCurrentSession", {
+                    name: display.name,
+                  })}
                 >
                   <MessageCircle className="h-4 w-4" />
-                  会话
+                  {t("session")}
                 </Link>
               </Button>
               {updating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -550,8 +630,15 @@ function ScienceSkillCard({
                 onCheckedChange={(checked) =>
                   onToggleEnabled(installedSkill, checked)
                 }
-                aria-label={`${enabled ? "停用" : "启用"} ${display.name}`}
-                title={`${enabled ? "停用" : "启用"} ${display.name}`}
+                aria-label={t(
+                  enabled ? "disableSkillName" : "enableSkillName",
+                  {
+                    name: display.name,
+                  }
+                )}
+                title={t(enabled ? "disableSkillName" : "enableSkillName", {
+                  name: display.name,
+                })}
               />
             </div>
           ) : (
@@ -562,14 +649,14 @@ function ScienceSkillCard({
               onClick={() => onInstall(skill)}
               disabled={installDisabled || installing}
               className="h-8 shrink-0 px-2"
-              title={`安装 ${display.name}`}
+              title={t("installSkillName", { name: display.name })}
             >
               {installing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <CloudDownload className="h-4 w-4" />
               )}
-              {installing ? "安装中" : "安装"}
+              {installing ? t("installing") : t("install")}
             </Button>
           )}
         </div>
@@ -586,6 +673,7 @@ export function SkillsMarketplace({
   initialTab = INSTALLED_SKILLS_TAB,
   view = "all",
 }: SkillsMarketplaceProps) {
+  const { language, t } = useLanguage();
   const searchParams = useSearchParams();
   const [data, setData] = useState<SkillsConfigResponse>(() => emptyResponse());
   const [connections, setConnections] = useState<SkillConnectionsResponse>(() =>
@@ -727,12 +815,12 @@ export function SkillsMarketplace({
       filterAndRankBySearch(
         featuredSkills,
         preparedSearchQuery,
-        searchDocumentForSkill
+        (skill) => searchDocumentForSkill(skill, t, language)
       ),
-    [featuredSkills, preparedSearchQuery]
+    [featuredSkills, language, preparedSearchQuery, t]
   );
   const detailSkillDisplay = detailSkill
-    ? displayTextForSkill(detailSkill)
+    ? displayTextForSkill(detailSkill, t, language)
     : null;
   const selectedSkillKeys = useMemo(
     () => new Set(data.selected),
@@ -791,18 +879,18 @@ export function SkillsMarketplace({
       filterAndRankBySearch(
         installedScienceSkills,
         preparedSearchQuery,
-        searchDocumentForSkill
+        (skill) => searchDocumentForSkill(skill, t, language)
       ),
-    [installedScienceSkills, preparedSearchQuery]
+    [installedScienceSkills, language, preparedSearchQuery, t]
   );
   const filteredImportedSkills = useMemo(
     () =>
       filterAndRankBySearch(
         importedSkills,
         preparedSearchQuery,
-        searchDocumentForSkill
+        (skill) => searchDocumentForSkill(skill, t, language)
       ),
-    [importedSkills, preparedSearchQuery]
+    [importedSkills, language, preparedSearchQuery, t]
   );
   const activeScienceCategory = useMemo(
     () =>
@@ -810,6 +898,10 @@ export function SkillsMarketplace({
         (category) => category.id === scienceCategoryId
       ),
     [scienceCategoryId]
+  );
+  const activeScienceCategoryDisplay = scienceCategoryDisplayText(
+    activeScienceCategory,
+    language
   );
   const filteredScienceSkills = useMemo(() => {
     const searching = Boolean(preparedSearchQuery.normalized);
@@ -823,9 +915,9 @@ export function SkillsMarketplace({
     return filterAndRankBySearch(
       categorySkills,
       preparedSearchQuery,
-      searchDocumentForScienceSkill
+      (skill) => searchDocumentForScienceSkill(skill, language)
     );
-  }, [availableScienceSkills, preparedSearchQuery, scienceCategoryId]);
+  }, [availableScienceSkills, language, preparedSearchQuery, scienceCategoryId]);
 
   async function saveSelectedSkills(updateSelected: SelectedSkillsUpdate) {
     const run = selectedSaveQueueRef.current.then(async () => {
@@ -834,7 +926,7 @@ export function SkillsMarketplace({
       });
       const currentPayload = await currentResponse.json();
       if (!currentResponse.ok) {
-        throw new Error(currentPayload.error || "技能加载失败");
+        throw new Error(currentPayload.error || t("skillsLoadFailed"));
       }
 
       const currentData = currentPayload as SkillsConfigResponse;
@@ -854,7 +946,7 @@ export function SkillsMarketplace({
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "技能安装失败");
+        throw new Error(payload.error || t("skillInstallFailed"));
       }
 
       const nextData = payload as SkillsConfigResponse;
@@ -878,16 +970,18 @@ export function SkillsMarketplace({
       const response = await fetch("/api/skills", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "技能加载失败");
+        throw new Error(payload.error || t("skillsLoadFailed"));
       }
       const nextData = payload as SkillsConfigResponse;
       setData(nextData);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "技能加载失败");
+      setError(
+        loadError instanceof Error ? loadError.message : t("skillsLoadFailed")
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadConnections = useCallback(async () => {
     setConnectionsLoading(true);
@@ -898,19 +992,21 @@ export function SkillsMarketplace({
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "连接配置加载失败");
+        throw new Error(payload.error || t("connectionsLoadFailed"));
       }
       const nextConnections = payload as SkillConnectionsResponse;
       setConnections(nextConnections);
       setMcpConfigText(nextConnections.mcp.configText);
     } catch (loadError) {
       setError(
-        loadError instanceof Error ? loadError.message : "连接配置加载失败"
+        loadError instanceof Error
+          ? loadError.message
+          : t("connectionsLoadFailed")
       );
     } finally {
       setConnectionsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const checkBackendStatus =
     useCallback(async (): Promise<BackendStatusResult> => {
@@ -935,7 +1031,7 @@ export function SkillsMarketplace({
       });
       const restart = (await response.json()) as BackendRestartResult;
       if (!response.ok || restart.status !== "restarted") {
-        throw new Error(restart.message || "后台应用失败");
+        throw new Error(restart.message || t("backendApplyFailed"));
       }
 
       setAutoRestart(false);
@@ -957,12 +1053,14 @@ export function SkillsMarketplace({
       }));
     } catch (restartError) {
       setError(
-        restartError instanceof Error ? restartError.message : "后台应用失败"
+        restartError instanceof Error
+          ? restartError.message
+          : t("backendApplyFailed")
       );
     } finally {
       setRestarting(false);
     }
-  }, []);
+  }, [t]);
 
   async function saveScpConfig(options: { clear?: boolean } = {}) {
     if (actionBusy) {
@@ -972,8 +1070,8 @@ export function SkillsMarketplace({
     if (!options.clear && !scpApiKey.trim()) {
       toast.error(
         connections.scp.apiKeySet
-          ? "当前 SCP Key 保持不变。"
-          : "请填写 SCP Hub API Key。",
+          ? t("scpKeyUnchanged")
+          : t("scpApiKeyRequired"),
         { position: "top-center" }
       );
       return;
@@ -993,7 +1091,7 @@ export function SkillsMarketplace({
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "SCP 配置保存失败");
+        throw new Error(payload.error || t("scpConfigSaveFailed"));
       }
       const nextConnections = payload as SkillConnectionsResponse;
       setConnections(nextConnections);
@@ -1002,12 +1100,14 @@ export function SkillsMarketplace({
       if (nextConnections.requiresRestart) {
         setAutoRestart(true);
       }
-      toast.success(nextConnections.message || "SCP 配置已保存", {
+      toast.success(nextConnections.message || t("scpConfigSaved"), {
         position: "top-center",
       });
     } catch (saveError) {
       const message =
-        saveError instanceof Error ? saveError.message : "SCP 配置保存失败";
+        saveError instanceof Error
+          ? saveError.message
+          : t("scpConfigSaveFailed");
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
@@ -1030,7 +1130,7 @@ export function SkillsMarketplace({
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "MCP 配置保存失败");
+        throw new Error(payload.error || t("mcpConfigSaveFailed"));
       }
       const nextConnections = payload as SkillConnectionsResponse;
       setConnections(nextConnections);
@@ -1039,12 +1139,14 @@ export function SkillsMarketplace({
       if (nextConnections.requiresRestart) {
         setAutoRestart(true);
       }
-      toast.success(nextConnections.message || "MCP 配置已保存", {
+      toast.success(nextConnections.message || t("mcpConfigSaved"), {
         position: "top-center",
       });
     } catch (saveError) {
       const message =
-        saveError instanceof Error ? saveError.message : "MCP 配置保存失败";
+        saveError instanceof Error
+          ? saveError.message
+          : t("mcpConfigSaveFailed");
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
@@ -1068,7 +1170,7 @@ export function SkillsMarketplace({
       (type === "local" ? localSource.trim() : cloudSource.trim());
     if (!source) {
       toast.error(
-        type === "local" ? "请输入本地技能路径" : "请输入 GitHub 技能地址",
+        type === "local" ? t("localSkillPathRequired") : t("githubSkillUrlRequired"),
         {
           position: "top-center",
         }
@@ -1095,7 +1197,7 @@ export function SkillsMarketplace({
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "技能添加失败");
+        throw new Error(payload.error || t("skillAddFailed"));
       }
 
       const importResult = payload as ImportSkillsResponse;
@@ -1118,7 +1220,7 @@ export function SkillsMarketplace({
       }
       toast.success(
         options.successMessage?.(importResult.imported.length) ??
-          `已安装 ${importResult.imported.length} 个技能`,
+          t("skillsInstalledCount", { count: importResult.imported.length }),
         {
           position: "top-center",
         }
@@ -1136,10 +1238,10 @@ export function SkillsMarketplace({
           importError.name === "TimeoutError");
       const message =
         timedOut
-          ? "技能安装超时，请检查网络或代理后重试。"
+          ? t("skillInstallTimeout")
           : importError instanceof Error
             ? importError.message
-            : "技能安装失败";
+            : t("skillInstallFailed");
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
@@ -1180,13 +1282,13 @@ export function SkillsMarketplace({
       };
 
       if (!response.ok) {
-        throw new Error(payload.error || "无法打开本地文件夹选择器");
+        throw new Error(payload.error || t("localFolderPickerOpenFailed"));
       }
       if (payload.cancelled) {
         return;
       }
       if (!payload.path) {
-        throw new Error("没有选择本地技能文件夹。");
+        throw new Error(t("localSkillFolderNotSelected"));
       }
 
       setLocalSource(payload.path);
@@ -1199,7 +1301,7 @@ export function SkillsMarketplace({
       const message =
         pickError instanceof Error
           ? pickError.message
-          : "无法打开本地文件夹选择器";
+          : t("localFolderPickerOpenFailed");
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
@@ -1222,10 +1324,11 @@ export function SkillsMarketplace({
     });
     const display = scienceSkillDisplayText(
       skill,
-      SCIENCE_CATEGORY_BY_ID.get(skill.categoryId)
+      SCIENCE_CATEGORY_BY_ID.get(skill.categoryId),
+      language
     );
     if (!connections.scp.apiKeySet) {
-      toast.info("科学技能可先导入；调用 SCP 工具前需要先配置 SCP Hub Key。", {
+      toast.info(t("scienceSkillScpHintToast"), {
         position: "top-center",
       });
     }
@@ -1233,7 +1336,7 @@ export function SkillsMarketplace({
       await importAndInstallSkill("cloud", skill.installUrl, {
         clearInput: false,
         suppressGlobalBusy: true,
-        successMessage: () => `已安装「${display.name}」技能`,
+        successMessage: () => t("skillInstalledName", { name: display.name }),
       });
     } finally {
       setInstallingScienceSkillIds((current) => {
@@ -1249,7 +1352,7 @@ export function SkillsMarketplace({
       return;
     }
 
-    const display = displayTextForSkill(skill);
+    const display = displayTextForSkill(skill, t, language);
     setUpdatingSkillKey(skill.key);
     setError(null);
     try {
@@ -1262,12 +1365,17 @@ export function SkillsMarketplace({
         }
         return nextSelected;
       });
-      toast.success(`${enabled ? "已启用" : "已停用"}「${display.name}」`, {
+      toast.success(
+        t(enabled ? "skillEnabledName" : "skillDisabledName", {
+          name: display.name,
+        }),
+        {
         position: "top-center",
-      });
+        }
+      );
     } catch (toggleError) {
       const message =
-        toggleError instanceof Error ? toggleError.message : "技能更新失败";
+        toggleError instanceof Error ? toggleError.message : t("skillUpdateFailed");
       setError(message);
       toast.error(message, { position: "top-center" });
     } finally {
@@ -1347,13 +1455,15 @@ export function SkillsMarketplace({
             >
               <Link href={workbenchHref}>
                 <ArrowLeft className="h-4 w-4" />
-                工作台
+                {t("workbench")}
               </Link>
             </Button>
             <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold">能力配置</h1>
+              <h1 className="truncate text-xl font-semibold">
+                {t("skillsConfigTitle")}
+              </h1>
               <div className="truncate text-xs text-muted-foreground">
-                Skills · 管理项目默认启用的技能，也可以为当前会话临时添加
+                {t("skillsConfigSubtitle")}
               </div>
             </div>
           </div>
@@ -1396,8 +1506,8 @@ export function SkillsMarketplace({
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder={
                   activeTabForView === SCIENCE_MARKET_TAB
-                    ? "搜索科学技能库"
-                    : "搜索已安装技能"
+                    ? t("searchScienceSkills")
+                    : t("searchInstalledSkills")
                 }
                 className={cn(
                   "rounded-md pl-9",
@@ -1419,7 +1529,7 @@ export function SkillsMarketplace({
                 }}
               >
                 <FolderPlus className="h-4 w-4" />
-                添加本地技能
+                {t("addLocalSkill")}
               </Button>
               <Button
                 type="button"
@@ -1434,7 +1544,7 @@ export function SkillsMarketplace({
                 }}
               >
                 <CloudDownload className="h-4 w-4" />
-                从 GitHub 导入
+                {t("importFromGitHub")}
               </Button>
             </div>
           </div>
@@ -1446,7 +1556,7 @@ export function SkillsMarketplace({
             )}
           >
             <div className="min-w-0 text-sm text-muted-foreground">
-              连接配置保存在本地 `.env` 和 `.mcp.json`，保存后后台会自动应用。
+              {t("connectionsAutoApplyHint")}
             </div>
             <Button
               type="button"
@@ -1463,7 +1573,7 @@ export function SkillsMarketplace({
               ) : (
                 <Plug className="h-4 w-4" />
               )}
-              刷新
+              {t("refresh")}
             </Button>
           </div>
         )}
@@ -1498,7 +1608,7 @@ export function SkillsMarketplace({
                   embedded ? "h-10 after:h-0.5" : "h-11 after:h-[3px]"
                 )}
               >
-                技能管理
+                {t("skillManagement")}
                 <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
                   {data.skills.length}
                 </span>
@@ -1511,7 +1621,7 @@ export function SkillsMarketplace({
                   embedded ? "h-10 after:h-0.5" : "h-11 after:h-[3px]"
                 )}
               >
-                科学技能库
+                {t("scienceSkillLibrary")}
                 <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
                   {SCIENCE_SKILL_SOURCE.total}
                 </span>
@@ -1525,9 +1635,9 @@ export function SkillsMarketplace({
                     embedded ? "h-10 after:h-0.5" : "h-11 after:h-[3px]"
                   )}
                 >
-                  连接配置
+                  {t("connectionSettings")}
                   <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors">
-                    {connections.scp.apiKeySet ? "SCP" : "待配置"}
+                    {connections.scp.apiKeySet ? "SCP" : t("pendingConfig")}
                   </span>
                 </TabsTrigger>
               )}
@@ -1564,8 +1674,8 @@ export function SkillsMarketplace({
                   <div className="min-w-0">
                     <div className="font-medium">
                       {connections.scp.apiKeySet
-                        ? "SCP Hub 已配置"
-                        : "使用科学技能前需要配置 SCP Hub"}
+                        ? t("scpHubConfigured")
+                        : t("scpHubRequiredForScience")}
                     </div>
                     <div
                       className={cn(
@@ -1575,7 +1685,7 @@ export function SkillsMarketplace({
                           : "text-amber-800 dark:text-amber-200"
                       )}
                     >
-                      科学技能会调用 SCP Hub 上的 MCP 工具；安装可以先完成，真正调用前需要可用的 SCP Key 和对应 MCP server。
+                      {t("scienceSkillScpRequirement")}
                     </div>
                   </div>
                 </div>
@@ -1593,14 +1703,18 @@ export function SkillsMarketplace({
                   }}
                 >
                   <KeyRound className="h-4 w-4" />
-                  {connections.scp.apiKeySet ? "查看配置" : "去配置"}
+                  {connections.scp.apiKeySet
+                    ? t("viewConfiguration")
+                    : t("configureNow")}
                 </Button>
               </div>
 
               <div>
                 <div className="mb-4 flex items-center gap-2">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  <h2 className="text-sm font-semibold">已导入科学技能</h2>
+                  <h2 className="text-sm font-semibold">
+                    {t("importedScienceSkills")}
+                  </h2>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {installedScienceSkills.length}
                   </span>
@@ -1609,9 +1723,9 @@ export function SkillsMarketplace({
                 {loading ? (
                   <SkillSkeleton />
                 ) : installedScienceSkills.length === 0 ? (
-                  <EmptyState compact>还没有导入科学技能</EmptyState>
+                  <EmptyState compact>{t("noImportedScienceSkills")}</EmptyState>
                 ) : filteredInstalledScienceSkills.length === 0 ? (
-                  <EmptyState compact>没有找到匹配的科学技能</EmptyState>
+                  <EmptyState compact>{t("noMatchingScienceSkills")}</EmptyState>
                 ) : (
                   <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
                     {filteredInstalledScienceSkills.map((skill) => (
@@ -1633,14 +1747,16 @@ export function SkillsMarketplace({
                 <div className="mb-5">
                   <div className="mb-4 flex items-center gap-2">
                     <CloudDownload className="h-3.5 w-3.5 text-primary" />
-                    <h2 className="text-sm font-semibold">可导入科学技能</h2>
+                    <h2 className="text-sm font-semibold">
+                      {t("availableScienceSkills")}
+                    </h2>
                     <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                       {availableScienceSkills.length}
                     </span>
                   </div>
                   <div className="min-w-0">
                     <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                      科学技能库是可导入的技能来源；导入后可设为项目默认启用，也可临时加入当前会话。
+                      {t("scienceSkillLibraryDescription")}
                     </p>
                   </div>
                 </div>
@@ -1649,7 +1765,7 @@ export function SkillsMarketplace({
                   <div
                     className="flex min-w-max gap-2"
                     role="tablist"
-                    aria-label="科学技能分类"
+                    aria-label={t("scienceSkillCategories")}
                   >
                     <Button
                       type="button"
@@ -1669,15 +1785,20 @@ export function SkillsMarketplace({
                         scienceCategoryId === ALL_SCIENCE_CATEGORY_ID
                       }
                     >
-                      全部
+                      {t("all")}
                       <span className="ml-1 text-[11px] opacity-75">
                         {availableScienceSkills.length}
                       </span>
                     </Button>
-                    {SCIENCE_SKILL_CATEGORIES.map((category) => (
-                      <Button
-                        key={category.id}
-                        type="button"
+                    {SCIENCE_SKILL_CATEGORIES.map((category) => {
+                      const displayCategory = scienceCategoryDisplayText(
+                        category,
+                        language
+                      );
+                      return (
+                        <Button
+                          key={category.id}
+                          type="button"
                         variant="ghost"
                         size="sm"
                         className={cn(
@@ -1690,30 +1811,32 @@ export function SkillsMarketplace({
                         role="tab"
                         aria-selected={scienceCategoryId === category.id}
                       >
-                        {category.name}
+                        {displayCategory?.name ?? category.name}
                         <span className="ml-1 text-[11px] opacity-75">
                           {availableScienceCategoryCounts.get(category.id) ??
                             0}
-                        </span>
-                      </Button>
-                    ))}
+                          </span>
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {!searchQuery.trim() && activeScienceCategory && (
+                {!searchQuery.trim() && activeScienceCategoryDisplay && (
                   <div className="mb-6 max-w-3xl border-t border-border/70 pt-3 text-sm leading-6 text-muted-foreground">
                     <span className="font-medium text-foreground">
-                      {activeScienceCategory.name}：
+                      {activeScienceCategoryDisplay.name}
+                      {language === "zh" ? "：" : ": "}
                     </span>
-                    {activeScienceCategory.description}
+                    {activeScienceCategoryDisplay.description}
                   </div>
                 )}
 
                 {filteredScienceSkills.length === 0 ? (
                   <EmptyState>
                     {availableScienceSkills.length === 0
-                      ? "科学技能库里的技能都已导入"
-                      : "没有找到匹配的未导入科学技能"}
+                      ? t("allScienceSkillsImported")
+                      : t("noMatchingAvailableScienceSkills")}
                   </EmptyState>
                 ) : (
                   <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
@@ -1751,7 +1874,9 @@ export function SkillsMarketplace({
               <div>
                 <div className="mb-4 flex items-center gap-2">
                   <PackageCheck className="h-3.5 w-3.5 text-primary" />
-                  <h2 className="text-sm font-semibold">内置技能</h2>
+                  <h2 className="text-sm font-semibold">
+                    {t("builtInSkills")}
+                  </h2>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {featuredSkills.length}
                   </span>
@@ -1760,9 +1885,9 @@ export function SkillsMarketplace({
                 {loading ? (
                   <SkillSkeleton />
                 ) : featuredSkills.length === 0 ? (
-                  <EmptyState>暂时没有默认通用技能</EmptyState>
+                  <EmptyState>{t("noDefaultSkills")}</EmptyState>
                 ) : filteredDefaultSkills.length === 0 ? (
-                  <EmptyState>没有找到匹配的默认通用技能</EmptyState>
+                  <EmptyState>{t("noMatchingDefaultSkills")}</EmptyState>
                 ) : (
                   <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
                     {filteredDefaultSkills.map((skill) => (
@@ -1783,7 +1908,9 @@ export function SkillsMarketplace({
               <div>
                 <div className="mb-4 flex items-center gap-2">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  <h2 className="text-sm font-semibold">科学技能</h2>
+                  <h2 className="text-sm font-semibold">
+                    {t("scienceSkills")}
+                  </h2>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {installedScienceSkills.length}
                   </span>
@@ -1792,9 +1919,9 @@ export function SkillsMarketplace({
                 {loading ? (
                   <SkillSkeleton />
                 ) : installedScienceSkills.length === 0 ? (
-                  <EmptyState compact>还没有导入科学技能</EmptyState>
+                  <EmptyState compact>{t("noImportedScienceSkills")}</EmptyState>
                 ) : filteredInstalledScienceSkills.length === 0 ? (
-                  <EmptyState compact>没有找到匹配的科学技能</EmptyState>
+                  <EmptyState compact>{t("noMatchingScienceSkills")}</EmptyState>
                 ) : (
                   <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
                     {filteredInstalledScienceSkills.map((skill) => (
@@ -1815,7 +1942,9 @@ export function SkillsMarketplace({
               <div>
                 <div className="mb-4 flex items-center gap-2">
                   <FolderPlus className="h-3.5 w-3.5 text-primary" />
-                  <h2 className="text-sm font-semibold">导入技能</h2>
+                  <h2 className="text-sm font-semibold">
+                    {t("importedSkills")}
+                  </h2>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {importedSkills.length}
                   </span>
@@ -1824,9 +1953,9 @@ export function SkillsMarketplace({
                 {loading ? (
                   <SkillSkeleton />
                 ) : importedSkills.length === 0 ? (
-                  <EmptyState compact>还没有导入技能</EmptyState>
+                  <EmptyState compact>{t("noImportedSkills")}</EmptyState>
                 ) : filteredImportedSkills.length === 0 ? (
-                  <EmptyState compact>没有找到匹配的导入技能</EmptyState>
+                  <EmptyState compact>{t("noMatchingImportedSkills")}</EmptyState>
                 ) : (
                   <div className="grid w-full max-w-full grid-cols-1 gap-3 overflow-x-hidden lg:grid-cols-2">
                     {filteredImportedSkills.map((skill) => (
@@ -1858,7 +1987,7 @@ export function SkillsMarketplace({
                     <div className="min-w-0">
                       <h2 className="text-sm font-semibold">SCP Hub</h2>
                       <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        科学技能库里的远程工具需要 SCP Hub API Key。
+                        {t("scpHubDescription")}
                       </p>
                     </div>
                   </div>
@@ -1870,7 +1999,9 @@ export function SkillsMarketplace({
                         : "bg-muted text-muted-foreground"
                     )}
                   >
-                    {connections.scp.apiKeySet ? "已配置" : "未配置"}
+                    {connections.scp.apiKeySet
+                      ? t("configured")
+                      : t("notConfigured")}
                   </span>
                 </div>
 
@@ -1890,8 +2021,10 @@ export function SkillsMarketplace({
                         onChange={(event) => setScpApiKey(event.target.value)}
                         placeholder={
                           connections.scp.apiKeySet
-                            ? `已保存 ${connections.scp.apiKeyPreview}`
-                            : "粘贴 SCP Hub API Key"
+                            ? t("savedApiKeyPreview", {
+                                preview: connections.scp.apiKeyPreview,
+                              })
+                            : t("scpApiKeyPlaceholder")
                         }
                         disabled={actionBusy || connectionsLoading}
                         className="min-w-0 flex-1"
@@ -1909,7 +2042,7 @@ export function SkillsMarketplace({
                         ) : (
                           <KeyRound className="h-4 w-4" />
                         )}
-                        保存 SCP
+                        {t("saveScp")}
                       </Button>
                       {connections.scp.apiKeySet ? (
                         <Button
@@ -1919,14 +2052,14 @@ export function SkillsMarketplace({
                           disabled={actionBusy || connectionsLoading}
                           className="h-10"
                         >
-                          清除
+                          {t("clear")}
                         </Button>
                       ) : null}
                     </div>
                   </div>
 
                   <div className="rounded-md bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                    Key 只写入本地 .env；保存后后台会重新加载环境变量和 MCP server。
+                    {t("scpKeyStorageHint")}
                   </div>
                 </div>
               </div>
@@ -1938,9 +2071,11 @@ export function SkillsMarketplace({
                       <Server className="h-5 w-5" />
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-semibold">MCP Servers</h2>
+                      <h2 className="text-sm font-semibold">
+                        {t("mcpServersTitle")}
+                      </h2>
                       <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        配置本地可加载的 MCP server；SCP endpoint 也走这里。
+                        {t("mcpServersDescription")}
                       </p>
                     </div>
                   </div>
@@ -1955,15 +2090,17 @@ export function SkillsMarketplace({
                     )}
                   >
                     {connections.mcp.error
-                      ? "JSON 错误"
-                      : `${connections.mcp.serverCount} servers`}
+                      ? t("jsonError")
+                      : t("mcpServerCount", {
+                          count: connections.mcp.serverCount,
+                        })}
                   </span>
                 </div>
 
                 <div className="space-y-4 px-5 py-5">
                   <div className="flex flex-col gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                     <span className="min-w-0 truncate">
-                      本地文件：{connections.mcp.configPath}
+                      {t("localFileLabel", { path: connections.mcp.configPath })}
                     </span>
                     <Button
                       type="button"
@@ -1973,7 +2110,7 @@ export function SkillsMarketplace({
                       onClick={() => setMcpConfigText(`${SCP_EXAMPLE_MCP_CONFIG}\n`)}
                       disabled={actionBusy || connectionsLoading}
                     >
-                      填入 SCP 示例
+                      {t("fillScpExample")}
                     </Button>
                   </div>
 
@@ -2002,7 +2139,7 @@ export function SkillsMarketplace({
 
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-xs leading-5 text-muted-foreground">
-                      Header 支持 `${"{SCP_HUB_API_KEY}"}` 这类环境变量引用。
+                      {t("mcpHeaderEnvHint")}
                     </div>
                     <Button
                       type="button"
@@ -2015,7 +2152,7 @@ export function SkillsMarketplace({
                       ) : (
                         <Plug className="h-4 w-4" />
                       )}
-                      保存 MCP
+                      {t("saveMcp")}
                     </Button>
                   </div>
                 </div>
@@ -2027,7 +2164,7 @@ export function SkillsMarketplace({
 
         {backendStatus?.status === "busy" && (
           <div className="mt-4 text-xs text-muted-foreground">
-            技能已保存，后台空闲后会自动准备好。
+            {t("skillsSavedApplyWhenIdle")}
           </div>
         )}
       </main>
@@ -2040,11 +2177,11 @@ export function SkillsMarketplace({
           <DialogHeader>
             <DialogTitle>
               {uploadSkillMode === UPLOAD_LOCAL_MODE
-                ? "添加本地技能"
-                : "从 GitHub 导入技能"}
+                ? t("addLocalSkill")
+                : t("importSkillFromGitHub")}
             </DialogTitle>
             <DialogDescription>
-              添加后会出现在技能管理列表里，你可以决定是否设为项目默认启用。
+              {t("skillImportDialogDescription")}
             </DialogDescription>
           </DialogHeader>
 
@@ -2052,7 +2189,7 @@ export function SkillsMarketplace({
             <div
               className="grid grid-cols-2 rounded-lg bg-muted p-1"
               role="tablist"
-              aria-label="上传技能方式"
+              aria-label={t("skillUploadMode")}
             >
               <button
                 type="button"
@@ -2066,7 +2203,7 @@ export function SkillsMarketplace({
                 )}
                 onClick={() => setUploadSkillMode(UPLOAD_LOCAL_MODE)}
               >
-                本地目录
+                {t("localFolder")}
               </button>
               <button
                 type="button"
@@ -2080,7 +2217,7 @@ export function SkillsMarketplace({
                 )}
                 onClick={() => setUploadSkillMode(UPLOAD_CLOUD_MODE)}
               >
-                GitHub 地址
+                {t("githubAddress")}
               </button>
             </div>
 
@@ -2089,10 +2226,10 @@ export function SkillsMarketplace({
                 <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
                   <FolderPlus className="mx-auto h-8 w-8 text-muted-foreground" />
                   <div className="mt-3 text-sm font-medium">
-                    选择本地技能目录
+                    {t("chooseLocalSkillFolder")}
                   </div>
                   <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                    目录内需要包含 SKILL.md 文件
+                    {t("localSkillFolderRequirement")}
                   </div>
                   <Button
                     type="button"
@@ -2112,11 +2249,11 @@ export function SkillsMarketplace({
                     ) : (
                       <FolderPlus className="h-4 w-4" />
                     )}
-                    选择目录并添加
+                    {t("chooseFolderAndAdd")}
                   </Button>
                 </div>
                 <div className="rounded-md bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                  适合已经下载到本机的技能。选择目录后会导入列表，并默认启用。
+                  {t("localSkillImportHelp")}
                 </div>
               </div>
             ) : (
@@ -2126,14 +2263,14 @@ export function SkillsMarketplace({
                     htmlFor="skills-cloud-source"
                     className="text-xs text-muted-foreground"
                   >
-                    云端地址
+                    {t("cloudAddress")}
                   </Label>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       id="skills-cloud-source"
                       value={cloudSource}
                       onChange={(event) => setCloudSource(event.target.value)}
-                      placeholder="github:owner/repo/path 或 https://github.com/owner/repo"
+                      placeholder={t("githubSkillPlaceholder")}
                       disabled={actionBusy}
                       className="min-w-0 flex-1"
                     />
@@ -2153,12 +2290,12 @@ export function SkillsMarketplace({
                       ) : (
                         <CloudDownload className="h-4 w-4" />
                       )}
-                      导入
+                      {t("import")}
                     </Button>
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                  支持 GitHub 仓库地址、tree 链接或 github:owner/repo/path 格式。
+                  {t("githubSkillImportHelp")}
                 </div>
               </div>
             )}
@@ -2188,7 +2325,7 @@ export function SkillsMarketplace({
             </DialogHeader>
             <div className="text-sm leading-6">
               <p className="text-muted-foreground">
-                {detailSkillDisplay.description || "暂无介绍"}
+                {detailSkillDisplay.description || t("noDescription")}
               </p>
             </div>
           </DialogContent>

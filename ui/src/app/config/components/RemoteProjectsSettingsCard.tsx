@@ -57,18 +57,25 @@ function workbenchHref(resource: ResourceConfig) {
   return `/?${params.toString()}`;
 }
 
-async function readResources(): Promise<ResourcesPayload> {
+async function readResources(
+  fallbackMessage: string
+): Promise<ResourcesPayload> {
   const response = await fetch("/api/resources", { cache: "no-store" });
   const payload = (await response.json().catch(() => ({}))) as ResourcesPayload;
   if (!response.ok) {
-    throw new Error(payload.error || "Unable to read resources.");
+    throw new Error(payload.error || fallbackMessage);
   }
   return payload;
 }
 
 async function readRemoteEnsureStream(
   resourceId: string,
-  onLog: (message: string) => void
+  onLog: (message: string) => void,
+  messages: {
+    failed: string;
+    noLog: string;
+    noResult: string;
+  }
 ): Promise<RemoteEnsureResult> {
   const response = await fetch("/api/remote-connections/ensure", {
     method: "POST",
@@ -80,10 +87,10 @@ async function readRemoteEnsureStream(
     const payload = (await response.json().catch(() => null)) as {
       error?: string;
     } | null;
-    throw new Error(payload?.error || "Remote runtime sync failed.");
+    throw new Error(payload?.error || messages.failed);
   }
   if (!response.body) {
-    throw new Error("Remote runtime sync failed: no log stream returned.");
+    throw new Error(messages.noLog);
   }
 
   const reader = response.body.getReader();
@@ -112,7 +119,7 @@ async function readRemoteEnsureStream(
       } else if (event.type === "done" && event.result) {
         result = event.result;
       } else if (event.type === "error") {
-        streamError = event.error || "Remote runtime sync failed.";
+        streamError = event.error || messages.failed;
       }
     }
     if (done) {
@@ -127,7 +134,7 @@ async function readRemoteEnsureStream(
     } else if (event?.type === "done" && event.result) {
       result = event.result;
     } else if (event?.type === "error") {
-      streamError = event.error || "Remote runtime sync failed.";
+      streamError = event.error || messages.failed;
     }
   }
 
@@ -135,7 +142,7 @@ async function readRemoteEnsureStream(
     throw new Error(streamError);
   }
   if (!result) {
-    throw new Error("Remote runtime sync failed: no result returned.");
+    throw new Error(messages.noResult);
   }
   return result;
 }
@@ -157,7 +164,7 @@ export function RemoteProjectsSettingsCard() {
   const loadResources = useCallback(async () => {
     setRefreshing(true);
     try {
-      const payload = await readResources();
+      const payload = await readResources(t("remoteProjectsLoadFailed"));
       setResources(payload.resources || []);
       setDefaultResourceId(payload.defaultResourceId || "local");
     } catch (error) {
@@ -198,12 +205,20 @@ export function RemoteProjectsSettingsCard() {
         },
       }));
       try {
-        const result = await readRemoteEnsureStream(resource.id, (message) => {
-          setStatuses((current) => ({
-            ...current,
-            [resource.id]: { state: "checking", message },
-          }));
-        });
+        const result = await readRemoteEnsureStream(
+          resource.id,
+          (message) => {
+            setStatuses((current) => ({
+              ...current,
+              [resource.id]: { state: "checking", message },
+            }));
+          },
+          {
+            failed: t("remoteProjectSyncFailed"),
+            noLog: t("remoteProjectSyncNoLog"),
+            noResult: t("remoteProjectSyncNoResult"),
+          }
+        );
         setResources(result.resources);
         setStatuses((current) => ({
           ...current,
@@ -324,7 +339,7 @@ export function RemoteProjectsSettingsCard() {
                         {t("resource")}: {resource.id}
                       </div>
                       <div className="min-w-0 truncate">
-                        Runtime: {resource.runtimeUrl || "-"}
+                        {t("runtime")}: {resource.runtimeUrl || "-"}
                       </div>
                       <div className="min-w-0 truncate md:col-span-2">
                         {t("remoteProjectPath")}:{" "}
