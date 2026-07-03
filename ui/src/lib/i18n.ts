@@ -375,7 +375,7 @@ const COPY = {
     assistantIdHelp: "使用云端 graph 或 assistant 对应的 ID。",
 
     configTitle: "配置",
-    configSubtitle: "模型、能力、连接器、项目目录、远程项目、授权模式和界面风格",
+    configSubtitle: "模型、能力、连接器、远程项目、授权模式和界面风格",
     backToProject: "项目",
     backToWorkbench: "工作台",
     saveAndApplyIdle: "保存并空闲时应用",
@@ -394,7 +394,7 @@ const COPY = {
     skipSetupTitle: "先进入项目，之后可在设置页配置模型服务。",
     configPending: "有配置等待应用。",
     configEffectHint:
-      "模型和授权模式需要重启后端后生效；项目目录、语言和界面风格会立即生效。",
+      "模型和授权模式需要重启后端后生效；语言和界面风格会立即生效。",
     quickJump: "快速跳转到配置分区。",
     configNavLabel: "配置分区",
     configFile: "配置文件",
@@ -748,7 +748,7 @@ const COPY = {
     language: "Language",
     chinese: "Chinese",
     english: "English",
-    labName: "Shanghai AI Laboratory",
+    labName: "Shanghai Artificial Intelligence Laboratory",
     open: "Open",
     thisFile: "this",
     unknownTool: "Unknown tool",
@@ -1060,7 +1060,7 @@ const COPY = {
     aboutSubtitle: "Introduction and local updates",
     aboutIntroTitle: "I am InternAgentS",
     aboutIntroBody:
-      "InternAgentS is developed by Shanghai AI Laboratory. It is not just a large model that chats; it is an agentic workbench for research and technical exploration. It brings conversations, files, code, and compute resources into one workspace so AI can participate in real research and development: understanding materials, breaking down tasks, using tools, advancing experiments, and keeping human supervision, approval, and correction in the loop at critical steps.",
+      "InternAgentS is developed by Shanghai Artificial Intelligence Laboratory. It is not just a large model that chats; it is an agentic workbench for research and technical exploration. It brings conversations, files, code, and compute resources into one workspace so AI can participate in real research and development: understanding materials, breaking down tasks, using tools, advancing experiments, and keeping human supervision, approval, and correction in the loop at critical steps.",
     helpDocs: "Docs",
     updates: "Updates",
     updateDescription:
@@ -1118,7 +1118,7 @@ const COPY = {
 
     configTitle: "Settings",
     configSubtitle:
-      "Models, capabilities, connectors, project folder, remote projects, authorization, and appearance",
+      "Models, capabilities, connectors, remote projects, authorization, and appearance",
     backToProject: "Projects",
     backToWorkbench: "Workbench",
     saveAndApplyIdle: "Save and apply when idle",
@@ -1140,7 +1140,7 @@ const COPY = {
       "Enter Projects now. You can configure the model service later in Settings.",
     configPending: "Configuration is waiting to be applied.",
     configEffectHint:
-      "Models and authorization require a backend restart; project folder, language, and appearance apply immediately.",
+      "Models and authorization require a backend restart; language and appearance apply immediately.",
     quickJump: "Jump to a settings section.",
     configNavLabel: "Settings sections",
     configFile: "Config file",

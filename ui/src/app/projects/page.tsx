@@ -32,7 +32,6 @@ import {
 } from "@/app/utils/navigationContext";
 import { useLanguage } from "@/app/hooks/useLanguage";
 import { getConfig } from "@/lib/config";
-import { cn } from "@/lib/utils";
 
 interface WorkspacesPayload {
   cancelled?: boolean;
@@ -84,7 +83,6 @@ function ProjectsPageContent() {
   const { t } = useLanguage();
   const config = useMemo(() => getConfig(), []);
   const [workspaces, setWorkspaces] = useState<LocalWorkspace[]>([]);
-  const [defaultWorkspaceId, setDefaultWorkspaceId] = useState("");
   const [loading, setLoading] = useState(true);
   const [checkingInitialConfig, setCheckingInitialConfig] = useState(true);
   const [picking, setPicking] = useState(false);
@@ -134,7 +132,6 @@ function ProjectsPageContent() {
         throw new Error(payload.error || t("projectListReadFailed"));
       }
       setWorkspaces(payload.workspaces || []);
-      setDefaultWorkspaceId(payload.defaultWorkspaceId || "");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : t("projectListReadFailed");
@@ -158,9 +155,6 @@ function ProjectsPageContent() {
       const nextWorkspaceId = payload.workspaceId || payload.defaultWorkspaceId;
       if (payload.workspaces) {
         setWorkspaces(payload.workspaces);
-      }
-      if (payload.defaultWorkspaceId) {
-        setDefaultWorkspaceId(payload.defaultWorkspaceId);
       }
       if (nextWorkspaceId) {
         router.push(workbenchHref(nextWorkspaceId));
@@ -194,7 +188,6 @@ function ProjectsPageContent() {
           throw new Error(payload.error || t("removeProjectFailed"));
         }
         setWorkspaces(payload.workspaces || []);
-        setDefaultWorkspaceId(payload.defaultWorkspaceId || "");
         toast.success(t("removeProjectSuccess"));
       } catch (error) {
         const message =
@@ -238,7 +231,6 @@ function ProjectsPageContent() {
 
         const nextWorkspaces = payload.workspaces || [];
         setWorkspaces(nextWorkspaces);
-        setDefaultWorkspaceId(payload.defaultWorkspaceId || "");
         setEditingWorkspace(null);
         setEditName("");
         toast.success(t("projectUpdated"));
@@ -339,80 +331,69 @@ function ProjectsPageContent() {
             </div>
           ) : workspaces.length > 0 ? (
             <div className="space-y-2">
-              {workspaces.map((workspace) => {
-                const active = workspace.id === defaultWorkspaceId;
-                return (
-                  <article
-                    key={workspace.id}
-                    className={cn(
-                      "group flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-4 shadow-sm transition hover:border-primary/35 hover:bg-accent/45",
-                      active && "border-primary/35"
-                    )}
+              {workspaces.map((workspace) => (
+                <article
+                  key={workspace.id}
+                  className="group flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-4 shadow-sm transition hover:border-primary/35 hover:bg-accent/45"
+                >
+                  <Link
+                    href={workbenchHref(workspace.id)}
+                    className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
                   >
-                    <Link
-                      href={workbenchHref(workspace.id)}
-                      className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-base font-semibold">
-                            {workspace.label}
-                          </h3>
-                          {active && (
-                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                              {t("current")}
-                            </span>
-                          )}
-                          {workspace.isRemote && (
-                            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                              {t("remote")}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-2 truncate text-sm text-muted-foreground">
-                          {compactPath(workspace.resolvedPath || workspace.path)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-6 text-sm text-muted-foreground">
-                        <span>
-                          {workspace.isRemote ? t("remote") : t("local")}
-                        </span>
-                        <span>{t("ready")}</span>
-                        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-                      </div>
-                    </Link>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                        title={t("editProject")}
-                        aria-label={t("editProject")}
-                        onClick={() => openWorkspaceEditor(workspace)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        title={t("removeProject")}
-                        aria-label={t("removeProject")}
-                        onClick={() => void removeWorkspace(workspace)}
-                        disabled={removingWorkspaceId === workspace.id}
-                      >
-                        {removingWorkspaceId === workspace.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <X className="h-4 w-4" />
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate text-base font-semibold">
+                          {workspace.label}
+                        </h3>
+                        {workspace.isRemote && (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                            {t("remote")}
+                          </span>
                         )}
-                      </Button>
+                      </div>
+                      <p className="mt-2 truncate text-sm text-muted-foreground">
+                        {compactPath(workspace.resolvedPath || workspace.path)}
+                      </p>
                     </div>
-                  </article>
-                );
-              })}
+                    <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                      <span>
+                        {workspace.isRemote ? t("remote") : t("local")}
+                      </span>
+                      <span>{t("ready")}</span>
+                      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </div>
+                  </Link>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                      title={t("editProject")}
+                      aria-label={t("editProject")}
+                      onClick={() => openWorkspaceEditor(workspace)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      title={t("removeProject")}
+                      aria-label={t("removeProject")}
+                      onClick={() => void removeWorkspace(workspace)}
+                      disabled={removingWorkspaceId === workspace.id}
+                    >
+                      {removingWorkspaceId === workspace.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <X className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </article>
+              ))}
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-card px-5 py-8 text-center">

@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   Archive,
   Cpu,
-  FolderOpen,
   KeyRound,
   Loader2,
   Moon,
@@ -50,9 +49,6 @@ type OnboardingMissing = "openaiCompatibleApiKey";
 interface ConfigResponse {
   configPath: string;
   envPath: string;
-  resourcesPath: string;
-  workspacePath: string;
-  workspaceResolvedPath: string;
   modelProvider: ModelProvider;
   model: string;
   modelSelectionMode: ModelSelectionMode;
@@ -93,9 +89,6 @@ interface BackendStatusResult {
 const DEFAULT_CONFIG: ConfigResponse = {
   configPath: "",
   envPath: "",
-  resourcesPath: "",
-  workspacePath: ".",
-  workspaceResolvedPath: "",
   modelProvider: "openai_compatible",
   model: "deepseek-v4-flash",
   modelSelectionMode: "manual",
@@ -182,12 +175,6 @@ const SETTINGS_SECTIONS: Array<{
     title: "connectors",
     description: "connectorsDescription",
     icon: Plug,
-  },
-  {
-    id: "settings-workspace",
-    title: "projectDirectory",
-    description: "projectDirectoryDescription",
-    icon: FolderOpen,
   },
   {
     id: "settings-remote-projects",
@@ -278,7 +265,6 @@ function ConfigPageContent() {
       config.model !== savedConfig.model ||
       config.modelSelectionMode !== savedConfig.modelSelectionMode ||
       config.authorizationMode !== savedConfig.authorizationMode ||
-      config.workspacePath !== savedConfig.workspacePath ||
       config.language !== savedConfig.language
     );
   }, [
@@ -289,14 +275,12 @@ function ConfigPageContent() {
     config.openaiCompatibleBaseUrl,
     config.openaiCompatibleModel,
     config.language,
-    config.workspacePath,
     savedConfig.authorizationMode,
     savedConfig.model,
     savedConfig.modelSelectionMode,
     savedConfig.openaiCompatibleBaseUrl,
     savedConfig.openaiCompatibleModel,
     savedConfig.language,
-    savedConfig.workspacePath,
   ]);
   const restartSensitiveChanged = useMemo(() => {
     return (
@@ -409,7 +393,6 @@ function ConfigPageContent() {
           authorizationMode: config.authorizationMode,
           language: config.language,
           onboardingSkipped: options.onboardingSkipped === true,
-          workspacePath: onboardingMode ? undefined : config.workspacePath,
         }),
       });
       const payload = await response.json();
@@ -435,7 +418,7 @@ function ConfigPageContent() {
             ? scheduleIdle
               ? t("configSavedIdle")
               : t("configSaved")
-            : t("projectDirectorySaved")
+            : t("configSaved")
         );
       }
       return { saved: true, needsRestart };
@@ -1096,53 +1079,6 @@ function ConfigPageContent() {
                   initialTab="connections"
                   view="connections"
                 />
-              </section>
-
-              <section
-                id="settings-workspace"
-                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
-              >
-                <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
-                    <FolderOpen className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-base font-semibold">
-                      {t("projectDirectory")}
-                    </h2>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {t("projectDirectoryHelp")}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="workspace-path">
-                      {t("localProjectPath")}
-                    </Label>
-                    <Input
-                      id="workspace-path"
-                      value={config.workspacePath}
-                      disabled={loading}
-                      onChange={(event) =>
-                        setConfig((current) => ({
-                          ...current,
-                          workspacePath: event.target.value,
-                        }))
-                      }
-                      placeholder="/Users/you/Projects/example"
-                    />
-                  </div>
-                  <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-                    <div className="min-w-0 truncate">
-                      {t("resolvedPath")}: {config.workspaceResolvedPath || "-"}
-                    </div>
-                    <div className="min-w-0 truncate">
-                      {t("resourceConfig")}: {config.resourcesPath || "-"}
-                    </div>
-                  </div>
-                </div>
               </section>
 
               <section
