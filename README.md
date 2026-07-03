@@ -19,6 +19,9 @@
     <img alt="License" src="https://img.shields.io/badge/License-MIT-green">
     <img alt="Status" src="https://img.shields.io/badge/status-active%20development-0f766e">
   </p>
+  <p align="center">
+    <strong>English</strong> | <a href="./README_CN.md">简体中文</a>
+  </p>
   <p>
     <a href="#quick-start">Quick Start</a>
     · <a href="#example-workflows">Workflows</a>
