@@ -48,24 +48,27 @@ BUNDLED_DEEPAGENTS = ROOT_DIR / "deepagents" / "libs" / "deepagents"
 if BUNDLED_DEEPAGENTS.exists():
     sys.path.insert(0, str(BUNDLED_DEEPAGENTS))
 
+IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE = (
+    "当前模型端点不支持图片输入：模型服务拒绝了 image_url 内容块（只接受 text）。"
+    "系统会移除图片内容并仅基于文本继续；如需图片理解，请切换支持视觉输入的模型。"
+)
 IMAGE_INPUT_OMITTED_TEXT = (
-    "[Image attachment omitted because the current model endpoint does not support "
-    "image input.]"
+    f"[{IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE} 这是一条兼容性提示，不要假装已经看到了图片。]"
 )
 IMAGE_INPUT_UNSUPPORTED_NOTICE_TEXT = (
-    "[Image attachment omitted because the current model endpoint does not support "
-    "image input. Tell the user that this model cannot understand images, and "
-    "continue with any text-only parts of the request.]"
+    f"[{IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE} 请明确告诉用户你无法读取图片内容，"
+    "然后只处理请求中的文本部分。]"
 )
 IMAGE_INPUT_UNSUPPORTED_RETRY_NOTICE_TEXT = (
-    "[The previous model call failed because the current model endpoint does not "
-    "support image input. Tell the user that this model cannot understand images, "
-    "then continue with any text-only parts of the request.]"
+    f"[上一轮模型调用失败，原因是：{IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE} "
+    "请先向用户说明这个限制，再继续处理文本部分。]"
 )
 IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS = (
     "no endpoints found that support image input",
     "does not support image input",
     "unsupported image input",
+    "unknown variant `image_url`, expected `text`",
+    "unknown variant image_url, expected text",
 )
 _IMAGE_INPUT_UNSUPPORTED_MODEL_KEYS: set[str] = set()
 
@@ -476,27 +479,23 @@ def _clear_directory(path: Path) -> None:
             child.unlink()
 
 
-def _normalize_skill_sources(raw_sources: Any) -> list[Any]:
+def _normalize_skill_sources(raw_sources: Any) -> list[str]:
     if not isinstance(raw_sources, list):
         return []
 
-    sources: list[Any] = []
+    sources: list[str] = []
     for source in raw_sources:
         if isinstance(source, str) and source.strip():
             sources.append(source.strip())
         elif isinstance(source, dict):
             path = source.get("path")
-            label = source.get("label")
             enabled = source.get("enabled", True)
             if isinstance(path, str) and path.strip() and enabled:
-                if isinstance(label, str) and label.strip():
-                    sources.append((path.strip(), label.strip()))
-                else:
-                    sources.append(path.strip())
+                sources.append(path.strip())
     return sources
 
 
-def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
+def _sync_selected_skills(skills_config: dict[str, Any]) -> list[str] | None:
     if not skills_config.get("enabled", False):
         return None
 
@@ -559,12 +558,10 @@ def _sync_selected_skills(skills_config: dict[str, Any]) -> list[Any] | None:
     if enabled_count == 0:
         return None
 
-    label = skills_config.get("label")
-    source_label = label.strip() if isinstance(label, str) and label.strip() else "InternAgents"
-    return [(str(active_path), source_label)]
+    return [str(active_path)]
 
 
-def _resolve_skills(config: dict[str, Any]) -> list[Any] | None:
+def _resolve_skills(config: dict[str, Any]) -> list[str] | None:
     skills_config = config.get("skills")
     if isinstance(skills_config, list):
         sources = _normalize_skill_sources(skills_config)
@@ -1039,6 +1036,13 @@ def _is_unsupported_image_input_error(error: BaseException) -> bool:
     )
 
 
+def _specific_model_error_message(message: str) -> str | None:
+    lowered = message.lower()
+    if any(pattern in lowered for pattern in IMAGE_INPUT_UNSUPPORTED_ERROR_PATTERNS):
+        return IMAGE_INPUT_UNSUPPORTED_USER_MESSAGE
+    return None
+
+
 def _normalize_state_for_remote_runtime(state: InternAgentState) -> dict[str, Any]:
     payload = {
         key: value
@@ -1098,8 +1102,16 @@ def _string_from_error_body(body: Any) -> str | None:
 
 
 def _friendly_remote_runtime_error(message: str) -> str:
+    if specific_message := _specific_model_error_message(message):
+        return specific_message
     if message == "Upstream request failed.":
-        return "Upstream model gateway request failed. Please retry later or switch models."
+        return "模型网关上游请求失败，请稍后重试或切换模型。"
+    if message == "An internal error occurred":
+        return (
+            "远端 runtime 返回内部错误，但没有把原始异常带回主进程。"
+            "请按同一 thread_id/run_id 查看 local-runtime 日志中的具体原因；"
+            "如果是模型不支持 image_url/text 图片块，系统会提示并改用文本部分继续。"
+        )
     return message
 
 
@@ -1142,7 +1154,7 @@ def _remote_runtime_exception_message(resource: ResourceConfig, error: Exception
         )
 
     if message:
-        return message
+        return _friendly_remote_runtime_error(message)
 
     return f"Remote runtime {resource.id!r} returned an empty error. Check runtime logs."
 
@@ -1505,9 +1517,10 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
             "research planning, and local scientific project development."
         ),
     )
+    resolved_skills = _resolve_skills(agent_config)
     backend = _create_backend_for_resource(
         resource,
-        read_only_roots=_skill_read_only_roots(agent_config, None),
+        read_only_roots=_skill_read_only_roots(agent_config, resolved_skills),
     )
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
@@ -1520,6 +1533,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
+        skills=resolved_skills,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(
             _resource_system_prompt(base_prompt, resource),
@@ -1539,10 +1553,11 @@ def create_runtime_agent():  # noqa: ANN201
         runtime_resource = resources.get(runtime_id)
     except Exception:
         runtime_resource = None
+    resolved_skills = _resolve_skills(agent_config)
     backend = _create_runtime_backend(
         agent_config,
         runtime_resource,
-        read_only_roots=_skill_read_only_roots(agent_config, None),
+        read_only_roots=_skill_read_only_roots(agent_config, resolved_skills),
     )
     base_prompt = agent_config.get(
         "system_prompt",
@@ -1592,6 +1607,7 @@ def create_runtime_agent():  # noqa: ANN201
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
+        skills=resolved_skills,
         subagents=_thread_skill_subagents(agent_config, backend),
         system_prompt=_agent_system_prompt(system_prompt, agent_config),
         interrupt_on=_interrupt_on_with_remote_compute(agent_config),

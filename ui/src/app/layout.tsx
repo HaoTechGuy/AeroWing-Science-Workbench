@@ -34,8 +34,8 @@ const startupSplashDismissScript = `
 `;
 
 export const metadata = {
-  title: "InternAgents",
-  description: "Local InternAgents UI",
+  title: "InternAgentS",
+  description: "Local InternAgentS UI",
 };
 
 export default function RootLayout({
@@ -60,7 +60,7 @@ export default function RootLayout({
           aria-live="polite"
         >
           <span className="internagents-startup-splash__spinner" />
-          <span>InternAgents正在启动中...</span>
+          <span>InternAgentS正在启动中...</span>
         </div>
         <script src="/api/runtime/desktop-config" />
         <NuqsAdapter>

@@ -34,6 +34,7 @@ interface ChatMessageProps {
   runtimeMuted?: boolean;
   showTerminalToolIssueNotice?: boolean;
   onOpenAttachment?: (path: string) => void;
+  workspaceRoot?: string;
 }
 
 export const ChatMessage = React.memo<ChatMessageProps>(
@@ -51,6 +52,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     runtimeMuted,
     showTerminalToolIssueNotice,
     onOpenAttachment,
+    workspaceRoot,
   }) => {
     const isUser = message.type === "human";
     const messageContent = extractVisibleStringFromMessageContent(message);
@@ -165,6 +167,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   <MarkdownContent
                     content={messageContent}
                     onOpenWorkspacePath={onOpenAttachment}
+                    workspaceRoot={workspaceRoot}
                   />
                 ) : null}
               </div>
@@ -279,6 +282,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                           <MarkdownContent
                             content={extractSubAgentContent(subAgent.input)}
                             onOpenWorkspacePath={onOpenAttachment}
+                            workspaceRoot={workspaceRoot}
                             className={cn(
                               showMutedRuntime &&
                                 "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"
@@ -298,6 +302,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                             <MarkdownContent
                               content={extractSubAgentContent(subAgent.output)}
                               onOpenWorkspacePath={onOpenAttachment}
+                              workspaceRoot={workspaceRoot}
                               className={cn(
                                 showMutedRuntime &&
                                   "text-muted-foreground/70 [&_a]:!text-muted-foreground/70 [&_code]:!text-muted-foreground/70"

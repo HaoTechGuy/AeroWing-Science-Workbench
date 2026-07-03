@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  MAX_TEXT_FILE_SIZE,
   assertReadableFilePath,
   getFileExtension,
   getMimeType,
+  getPreviewContentSizeLimit,
   getPreviewKind,
   readWorkspaceFileData,
   readWorkspaceRawFile,
@@ -55,13 +55,12 @@ export async function GET(request: NextRequest) {
       rawUrl: `/api/workspace/file/raw?${rawParams.toString()}`,
     };
 
-    if (
-      previewKind === "markdown" ||
-      previewKind === "molecule" ||
-      previewKind === "science" ||
-      previewKind === "text"
-    ) {
-      if (fileData.size <= MAX_TEXT_FILE_SIZE && fileData.content !== undefined) {
+    const previewContentSizeLimit = getPreviewContentSizeLimit(previewKind);
+    if (previewContentSizeLimit > 0) {
+      if (
+        fileData.size <= previewContentSizeLimit &&
+        fileData.content !== undefined
+      ) {
         payload.content = fileData.content;
       } else {
         payload.tooLarge = true;

@@ -15,12 +15,6 @@
     ],
     "active_path": ".internagents/active-skills",
     "selected": [
-      ".internagents/imported-skills/molclaw-boltz2-affinity",
-      ".internagents/imported-skills/molclaw-scp-server",
-      ".internagents/imported-skills/molclaw-mol2mol-sampling",
-      ".internagents/imported-skills/molclaw-admet",
-      ".internagents/imported-skills/molclaw-drug-likeness",
-      ".internagents/imported-skills/molclaw-protein-sequence-retrieve",
       "skills/skill-creator"
     ],
     "label": "InternAgents"

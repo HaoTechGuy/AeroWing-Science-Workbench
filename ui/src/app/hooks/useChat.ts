@@ -1575,8 +1575,12 @@ export function useChat({
     (generatedThreadId: string) => {
       onGeneratedThreadId?.(generatedThreadId);
       setThreadId(generatedThreadId);
+      onHistoryRevalidate?.();
+      window.setTimeout(() => {
+        onHistoryRevalidate?.();
+      }, 500);
     },
-    [onGeneratedThreadId, setThreadId]
+    [onGeneratedThreadId, onHistoryRevalidate, setThreadId]
   );
 
   const handleStreamCreated = useCallback(

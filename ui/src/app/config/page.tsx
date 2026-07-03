@@ -11,10 +11,12 @@ import {
   KeyRound,
   Loader2,
   Moon,
+  Plug,
   Save,
   ServerCog,
   Shield,
   ShieldCheck,
+  Sparkles,
   Sun,
   type LucideIcon,
 } from "lucide-react";
@@ -33,6 +35,7 @@ import { LanguageToggle } from "@/app/components/LanguageToggle";
 import { useLanguage } from "@/app/hooks/useLanguage";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
 import { ComputeSettingsCard } from "@/app/config/components/ComputeSettingsCard";
+import { SkillsMarketplace } from "@/app/skills/components/SkillsMarketplace";
 import {
   appReturnHrefFromSearchParams,
 } from "@/app/utils/navigationContext";
@@ -165,6 +168,18 @@ const SETTINGS_SECTIONS: Array<{
     title: "model",
     description: "modelDescription",
     icon: Cpu,
+  },
+  {
+    id: "settings-skills",
+    title: "skills",
+    description: "skillsDescription",
+    icon: Sparkles,
+  },
+  {
+    id: "settings-connectors",
+    title: "connectors",
+    description: "connectorsDescription",
+    icon: Plug,
   },
   {
     id: "settings-workspace",
@@ -648,9 +663,7 @@ function ConfigPageContent() {
   return (
     <div className="min-h-[calc(100vh-var(--app-footer-height))] bg-background text-foreground">
       {!onboardingMode && (
-        <header
-          className="flex h-16 items-center justify-between border-b border-border px-6"
-        >
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="flex min-w-0 items-center gap-4">
             <Button
               asChild
@@ -729,7 +742,7 @@ function ConfigPageContent() {
           "mx-auto w-full px-6 py-6",
           onboardingMode
             ? "flex min-h-[calc(100vh-var(--app-footer-height))] max-w-lg flex-col justify-center"
-            : "max-w-5xl"
+            : "max-w-6xl"
         )}
       >
         {onboardingMode && (
@@ -812,7 +825,7 @@ function ConfigPageContent() {
           )}
 
           {!onboardingMode && (
-            <aside className="sticky top-5 hidden rounded-lg border border-border bg-card/90 p-2 shadow-sm backdrop-blur lg:block">
+            <aside className="sticky top-20 hidden rounded-lg border border-border bg-card/90 p-2 shadow-sm backdrop-blur lg:block">
               <div className="px-2 pb-2 pt-1">
                 <div className="text-sm font-semibold">{t("settings")}</div>
                 <div className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -847,11 +860,17 @@ function ConfigPageContent() {
             </aside>
           )}
 
+          <div
+            className={cn(
+              onboardingMode
+                ? "space-y-4"
+                : "min-w-0 space-y-5 lg:col-start-2"
+            )}
+          >
           <section
             id="settings-model"
             className={cn(
-              "scroll-mt-5 rounded-lg border border-border bg-card shadow-sm",
-              !onboardingMode && "lg:col-start-2",
+              "scroll-mt-24 rounded-lg border border-border bg-card shadow-sm",
               onboardingMode ? "p-4" : "p-5"
             )}
           >
@@ -1028,8 +1047,52 @@ function ConfigPageContent() {
           {!onboardingMode && (
             <>
               <section
+                id="settings-skills"
+                className="flex h-[min(760px,calc(100vh-8rem))] scroll-mt-24 flex-col overflow-hidden rounded-lg border border-border bg-card p-5 shadow-sm"
+              >
+                <div className="mb-4 flex shrink-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">{t("skills")}</h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {t("skillsSectionHelp")}
+                    </div>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1">
+                  <SkillsMarketplace embedded view="skills" />
+                </div>
+              </section>
+
+              <section
+                id="settings-connectors"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
+                    <Plug className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">
+                      {t("connectors")}
+                    </h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {t("connectorsSectionHelp")}
+                    </div>
+                  </div>
+                </div>
+                <SkillsMarketplace
+                  embedded
+                  initialTab="connections"
+                  view="connections"
+                />
+              </section>
+
+              <section
                 id="settings-workspace"
-                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
@@ -1095,7 +1158,7 @@ function ConfigPageContent() {
 
               <section
                 id="settings-authorization"
-                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
@@ -1158,7 +1221,7 @@ function ConfigPageContent() {
 
               <section
                 id="settings-appearance"
-                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm"
               >
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-[#2F6868] dark:text-[hsl(var(--primary))]">
@@ -1231,18 +1294,19 @@ function ConfigPageContent() {
 
               <div
                 id="settings-archives"
-                className="scroll-mt-5 lg:col-start-2"
+                className="scroll-mt-24"
               >
                 <ArchivedThreadsCard />
               </div>
 
-              <div className="flex justify-end text-xs text-muted-foreground lg:col-start-2">
+              <div className="flex justify-end text-xs text-muted-foreground">
                 <div className="truncate">
                   {t("configFile")}: {config.configPath || "-"}
                 </div>
               </div>
             </>
           )}
+          </div>
         </form>
       </main>
     </div>

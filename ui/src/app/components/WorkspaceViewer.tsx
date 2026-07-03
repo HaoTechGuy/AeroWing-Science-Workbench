@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownContent } from "@/app/components/MarkdownContent";
 import { MoleculeViewer } from "@/app/components/MoleculeViewer";
+import { ScienceSceneViewer } from "@/app/components/ScienceSceneViewer";
 import {
   Tooltip,
   TooltipContent,
@@ -68,7 +69,7 @@ const PREVIEW_KIND_LABELS: Record<WorkspaceFileResponse["previewKind"], string> 
     molecule: "Molecule",
     pdf: "PDF",
     pptx: "PPT",
-    science: "Science scene",
+    science: "Science",
     text: "Text",
     unsupported: "File",
     xlsx: "Excel",
@@ -587,6 +588,10 @@ export function WorkspaceViewer({
           <MoleculeViewer file={file} />
         )}
 
+        {!isLoading && !error && file?.previewKind === "science" && (
+          <ScienceSceneViewer file={file} />
+        )}
+
         {!isLoading && !error && file?.previewKind === "text" && (
           <div className="h-full overflow-auto">
             <div className="min-w-0 p-4">
@@ -644,7 +649,14 @@ export function WorkspaceViewer({
         {!isLoading &&
           !error &&
           file &&
-          !["image", "markdown", "pdf", "text"].includes(file.previewKind) &&
+          ![
+            "image",
+            "markdown",
+            "molecule",
+            "pdf",
+            "science",
+            "text",
+          ].includes(file.previewKind) &&
           !isOfficePreviewKind(file.previewKind) && (
             <div className="flex h-full items-center justify-center px-8 text-center">
               <div className="max-w-xs rounded-md border border-border bg-muted p-5 text-sm text-muted-foreground">

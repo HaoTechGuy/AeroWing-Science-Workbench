@@ -1,0 +1,23 @@
+data_PbTiO3_perovskite_demo
+_audit_creation_method 'InternAgents science viewer demo'
+_chemical_name_common 'lead titanate perovskite'
+_chemical_formula_sum 'Pb Ti O3'
+_symmetry_space_group_name_H-M 'P m -3 m'
+_cell_length_a 3.905
+_cell_length_b 3.905
+_cell_length_c 3.905
+_cell_angle_alpha 90
+_cell_angle_beta 90
+_cell_angle_gamma 90
+
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Pb1 Pb 0.00000 0.00000 0.00000
+Ti1 Ti 0.50000 0.50000 0.50000
+O1  O  0.50000 0.50000 0.00000
+O2  O  0.50000 0.00000 0.50000
+O3  O  0.00000 0.50000 0.50000

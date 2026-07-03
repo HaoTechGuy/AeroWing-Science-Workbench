@@ -1,0 +1,30 @@
+##TITLE=Spectral Fragment Linkage
+##JCAMP-DX=5.00
+##DATA TYPE=INFRARED SPECTRUM
+##ORIGIN=InternAgents science viewer demo
+##XUNITS=CM-1
+##YUNITS=RELATIVE INTENSITY
+##FIRSTX=400
+##LASTX=4000
+##NPOINTS=9
+##$PEAK_ASSIGNMENTS=
+690|Ring|low-frequency ring puckering|#38bdf8
+980|C-N|ring nitrogen stretch|#2dd4bf
+1420|C=O|carbonyl symmetric stretch|#a78bfa
+1760|Imide|imide coupled vibration|#fbbf24
+2200|Aro|heteroaromatic ring mode|#f59e0b
+2670|N-CH3|substituent rocking mode|#38bdf8
+3000|C-H|methyl bending mode|#fb7185
+3370|CH3|methyl asymmetric stretch|#f472b6
+3740|Tail|weak combination band|#22d3ee
+##PEAK TABLE=(XY..XY)
+690, 28
+980, 46
+1420, 72
+1760, 44
+2200, 62
+2670, 54
+3000, 90
+3370, 50
+3740, 34
+##END=
