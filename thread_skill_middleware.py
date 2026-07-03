@@ -314,7 +314,7 @@ class ThreadSkillMiddleware(AgentMiddleware):
     backend: Any
     root_dir: Path
     catalog_paths: Sequence[str]
-    label: str = "InternAgents"
+    label: str = "InternAgentS"
 
     state_schema = ThreadSkillState
 

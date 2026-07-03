@@ -671,7 +671,7 @@ def _thread_skill_catalog_paths(config: dict[str, Any]) -> list[str]:
 def _thread_skill_label(config: dict[str, Any]) -> str:
     skills_config = config.get("skills")
     label = skills_config.get("label") if isinstance(skills_config, dict) else None
-    return label.strip() if isinstance(label, str) and label.strip() else "InternAgents"
+    return label.strip() if isinstance(label, str) and label.strip() else "InternAgentS"
 
 
 def _thread_skill_middleware(
@@ -850,7 +850,7 @@ def _resource_system_prompt(base_prompt: str, resource: ResourceConfig) -> str:
     )
     return (
         f"{base_prompt}\n\n"
-        "You are running in a resource-bound InternAgents session.\n"
+        "You are running in a resource-bound InternAgentS session.\n"
         f"Resource id: {resource.id}\n"
         f"Resource label: {resource.label}\n"
         "Workspace logical root: /\n"
@@ -1569,9 +1569,9 @@ def create_runtime_agent():  # noqa: ANN201
     )
     system_prompt = (
         f"{base_prompt}\n\n"
-        "You are running inside an InternAgents agent runtime process.\n"
+        "You are running inside an InternAgentS agent runtime process.\n"
         f"Runtime id: {runtime_id}\n"
-        "The main InternAgents server coordinates sessions and projects your state to the frontend. "
+        "The main InternAgentS server coordinates sessions and projects your state to the frontend. "
         "Do not change server network settings, firewall settings, SSH daemon settings, or cloud security-group settings. "
         "If such a change seems necessary, stop and ask the user.\n"
         f"{_office_attachment_prompt()}"

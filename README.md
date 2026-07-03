@@ -136,6 +136,38 @@ INTERNAGENTS_SKIP_INSTALL=1 ./scripts/dev.sh
 - Remote compute handoff: register a Linux SSH host, review the proposed compute
   job in chat, approve it, and let the local backend harvest configured outputs.
 
+## New Features
+
+- Remote projects: Settings now includes SSH remote workspace management. You
+  can add a remote project, prepare or sync its remote runtime, check connection
+  status, and open it directly in the workbench as a remote resource.
+- Remote backend package: remote runtime setup uses a standalone backend CLI
+  package instead of the desktop app bundle. Build it with:
+
+  ```bash
+  npm --prefix desktop run prepare:remote
+  ```
+
+  The package is written to `dist-remote/internagents-backend-cli.tar.gz`. If it
+  is missing during remote setup, the UI reports the command to run instead of
+  silently trying to build a desktop installer.
+- Better remote diagnostics: remote runtime health checks include the tail of
+  the runtime log when startup times out, making missing modules and graph-load
+  failures easier to diagnose.
+- Workbench tabs: conversations can be opened as tabs in the center workspace,
+  and project files can be opened as tabs in the file panel, so research sessions
+  can switch between active threads and artifacts without losing context.
+- Composer triggers: the input box supports `@` for files and artifacts, `#` for
+  sessions, `/` for skills, and `⌘K` for search. `Enter` sends, `Shift+Enter`
+  inserts a newline, and IME composition is respected for Chinese input.
+- Workspace search and previews: file browsing now includes a workspace search
+  API and better handling for SSH-backed resources, generated files, grid/list
+  views, and preview tabs.
+- Unified configuration: the configuration page now separates model, skills,
+  connectors, project directory, remote projects, compute hosts, authorization,
+  appearance, and archived conversations while keeping Chinese and English copy
+  in sync.
+
 ## Feature Highlights
 
 ### Local-First Research Workspace
