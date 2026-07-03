@@ -32,6 +32,7 @@ ui/out/
 ui/tsconfig.tsbuildinfo
 ui/.env*
 dist-app/
+dist-remote/
 desktop/node_modules/
 desktop/release/
 mcp/**/node_modules/

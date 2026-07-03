@@ -338,15 +338,52 @@ jobs:
             --repo "$INTERNAGENTS_RELEASE_REPO" \
             --clobber
 
+  build-remote-backend:
+    name: Build remote backend package
+    needs:
+      - metadata
+      - prepare-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Prepare backend dependency environment
+        run: |
+          python -m venv .remote-package-venv
+          .remote-package-venv/bin/python -m pip install --upgrade pip
+          .remote-package-venv/bin/python -m pip install .
+
+      - name: Build remote backend package
+        env:
+          INTERNAGENTS_PYTHON_BIN: ${{ github.workspace }}/.remote-package-venv/bin/python
+        run: npm --prefix desktop run prepare:remote
+
       - name: Upload backend CLI to release
-        if: matrix.arch == 'arm64'
         env:
           GH_TOKEN: ${{ needs.metadata.outputs.is_test_release == 'true' && secrets.INTERNAGENTS_LOCAL_RELEASE_TOKEN || needs.metadata.outputs.release_repo != github.repository && secrets.INTERNAGENTS_RELEASE_TOKEN || github.token }}
           INTERNAGENTS_RELEASE_REPO: ${{ needs.metadata.outputs.release_repo }}
           INTERNAGENTS_RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
         run: |
           set -euo pipefail
-          backend_asset="dist-app/internagents-template/internagents-backend-cli.tar.gz"
+          backend_asset="dist-remote/internagents-backend-cli.tar.gz"
           if [ ! -f "$backend_asset" ]; then
             echo "::error::Missing backend CLI asset: $backend_asset"
             exit 1

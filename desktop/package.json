@@ -5,7 +5,9 @@
   "description": "Desktop packaging for InternAgents.",
   "main": "electron/main.cjs",
   "scripts": {
-    "prepare:dist": "node scripts/prepare-dist.mjs",
+    "prepare:dist": "node scripts/prepare-dist.mjs --desktop",
+    "prepare:desktop": "node scripts/prepare-dist.mjs --desktop",
+    "prepare:remote": "node scripts/prepare-dist.mjs --remote",
     "sign:adhoc": "node scripts/build-mac.mjs --sign-only",
     "pack": "npm run prepare:dist && node scripts/build-mac.mjs --dir",
     "pack:arm64": "INTERNAGENTS_DESKTOP_ARCH=arm64 npm run pack",

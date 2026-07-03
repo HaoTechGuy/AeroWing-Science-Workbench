@@ -9,11 +9,13 @@ const desktopDir = path.resolve(__dirname, "..");
 const rootDir = path.resolve(desktopDir, "..");
 const uiDir = path.join(rootDir, "ui");
 const desktopTemplateDir = path.join(desktopDir, "templates");
-const distDir = path.join(rootDir, "dist-app");
-const uiStandaloneDir = path.join(distDir, "ui-standalone");
-const templateDir = path.join(distDir, "internagents-template");
-const pythonRuntimeDir = path.join(distDir, "python-runtime");
-const officeToolsDir = path.join(distDir, "office-tools");
+const desktopDistDir = path.join(rootDir, "dist-app");
+const remoteDistDir = path.join(rootDir, "dist-remote");
+let distDir = desktopDistDir;
+let uiStandaloneDir = path.join(distDir, "ui-standalone");
+let templateDir = path.join(distDir, "internagents-template");
+let pythonRuntimeDir = path.join(distDir, "python-runtime");
+let officeToolsDir = path.join(distDir, "office-tools");
 const standaloneDependencyRoots = ["pdf-parse"];
 const backendWheelhouseDirName = "backend-wheelhouse";
 const backendCliArchiveName = "internagents-backend-cli.tar.gz";
@@ -45,6 +47,14 @@ const standaloneCopyLinkOptions = {
   dereference: !canCreatePortableSymlinks,
 };
 
+function configureDistDirectories(nextDistDir, templateDirectoryName) {
+  distDir = nextDistDir;
+  uiStandaloneDir = path.join(distDir, "ui-standalone");
+  templateDir = path.join(distDir, templateDirectoryName);
+  pythonRuntimeDir = path.join(distDir, "python-runtime");
+  officeToolsDir = path.join(distDir, "office-tools");
+}
+
 // Keep this as an explicit runtime allowlist. Development-only docs such as
 // AGENTS.md, README.md, and docs/ stay in Git but out of packaged apps.
 // Bundled imported skills are copied separately from .internagents/imported-skills.
@@ -56,12 +66,16 @@ const runtimeEntries = [
   "ssh_backend.py",
   "dynamic_local_backend.py",
   "kb_sync_middleware.py",
+  "date_middleware.py",
   "goal_middleware.py",
   "goal_state.py",
   "goal_tools.py",
+  "mcp_config.py",
+  "mcp_tools.py",
   "thread_skill_middleware.py",
   "internagents_backend_cli.py",
   "web_search_tools.py",
+  "remote_compute_tools.py",
   "internagent.resources.json",
   "internagent.resources.example.json",
   "langgraph.json",
@@ -577,14 +591,26 @@ function pythonBuildBinary() {
 
 function projectDependencyRequirements(pythonBin) {
   const script = [
-    "import pathlib, subprocess, sys, tomllib",
+    "import pathlib, re, subprocess, sys, tomllib",
     "data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())",
-    "build = data.get('build-system', {}).get('requires', [])",
+    "build = []",
+    "for dep in data.get('build-system', {}).get('requires', []):",
+    "    name = dep.split('>=', 1)[0].split('==', 1)[0].strip().lower().replace('_', '-')",
+    "    if name == 'setuptools':",
+    "        build.append('setuptools==82.0.1')",
+    "    elif name == 'wheel':",
+    "        build.append('wheel==0.47.0')",
+    "    else:",
+    "        build.append(dep)",
     "frozen = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze', '--exclude-editable'], text=True)",
     "deps = ['pip==25.3', *build, *frozen.splitlines()]",
     "for dep in deps:",
     "    dep = dep.strip()",
     "    if dep and ' @ file://' not in dep:",
+    "        match = re.match(r'^([A-Za-z0-9_.-]+)==', dep)",
+    "        name = match.group(1).lower().replace('_', '-') if match else ''",
+    "        if name == 'numpy':",
+    "            dep = 'numpy>=2.0,<2.5'",
     "        print(dep)",
   ].join("\n");
   const result = spawnSync(pythonBin, ["-c", script], {
@@ -699,9 +725,13 @@ async function prepareBackendWheelhouse() {
   }
 }
 
-async function prepareBackendCliArchive() {
-  const archivePath = path.join(templateDir, backendCliArchiveName);
-  const temporaryArchivePath = path.join(distDir, backendCliArchiveName);
+async function prepareBackendCliArchive(options = {}) {
+  const archivePath =
+    options.archivePath || path.join(templateDir, backendCliArchiveName);
+  const temporaryArchivePath = path.join(
+    distDir,
+    `.tmp-${backendCliArchiveName}`
+  );
 
   await fs.rm(archivePath, { force: true });
   await fs.rm(temporaryArchivePath, { force: true });
@@ -710,6 +740,8 @@ async function prepareBackendCliArchive() {
     force: true,
     verbatimSymlinks: false,
   });
+  await fs.rm(temporaryArchivePath, { force: true });
+  return archivePath;
 }
 
 async function copyExecutable(source, destination) {
@@ -1083,6 +1115,7 @@ async function preparePythonRuntime() {
   });
   if (process.platform !== "win32") {
     await rewriteRuntimeSymlinks(path.resolve(pythonSource));
+    await materializeExternalPythonSymlinks();
     await normalizePythonLinks();
     await assertNoExternalRuntimeSymlinks();
   }
@@ -1260,6 +1293,44 @@ async function rewriteRuntimeSymlinks(sourceRoot) {
   });
 }
 
+async function materializeExternalPythonSymlinks() {
+  const binDir = path.join(pythonRuntimeDir, "bin");
+  const bundledRoot = path.resolve(pythonRuntimeDir);
+  await walk(binDir, async (entryPath, entry) => {
+    if (!entry.isSymbolicLink()) {
+      return;
+    }
+
+    const name = path.basename(entryPath);
+    if (!/^python(?:\d+(?:\.\d+)*)?$/.test(name)) {
+      return;
+    }
+
+    const linkTarget = await fs.readlink(entryPath);
+    const absoluteTarget = path.isAbsolute(linkTarget)
+      ? linkTarget
+      : path.resolve(path.dirname(entryPath), linkTarget);
+    const resolvedTarget = await fs.realpath(absoluteTarget).catch(() => "");
+    if (!resolvedTarget || resolvedTarget.startsWith(`${bundledRoot}${path.sep}`)) {
+      return;
+    }
+
+    const targetStat = await fs.stat(resolvedTarget).catch(() => null);
+    if (!targetStat?.isFile()) {
+      return;
+    }
+
+    await fs.rm(entryPath, { force: true });
+    await copyExecutable(resolvedTarget, entryPath);
+    console.log(
+      `Materialized external Python runtime symlink ${path.relative(
+        pythonRuntimeDir,
+        entryPath
+      )}.`
+    );
+  });
+}
+
 async function assertNoExternalRuntimeSymlinks() {
   const bundledRoot = path.resolve(pythonRuntimeDir);
   await walk(pythonRuntimeDir, async (entryPath, entry) => {
@@ -1281,7 +1352,8 @@ async function assertNoExternalRuntimeSymlinks() {
   });
 }
 
-async function main() {
+async function prepareDesktopDist() {
+  configureDistDirectories(desktopDistDir, "internagents-template");
   await fs.rm(distDir, { recursive: true, force: true });
   await fs.mkdir(distDir, { recursive: true });
 
@@ -1295,6 +1367,40 @@ async function main() {
   await pruneWindowsPythonRuntime();
 
   console.log(`Prepared desktop resources at ${distDir}`);
+}
+
+async function prepareRemoteBackendPackage() {
+  configureDistDirectories(remoteDistDir, "package");
+  await fs.rm(distDir, { recursive: true, force: true });
+  await fs.mkdir(distDir, { recursive: true });
+
+  await prepareRuntimeTemplate();
+  await prepareBackendWheelhouse();
+  const archivePath = await prepareBackendCliArchive({
+    archivePath: path.join(distDir, backendCliArchiveName),
+  });
+  await fs.rm(templateDir, { recursive: true, force: true });
+  await fs.rm(path.join(distDir, "backend-wheelhouse-requirements.txt"), {
+    force: true,
+  });
+  await fs.rm(path.join(distDir, "backend-wheelhouse-source-requirements.txt"), {
+    force: true,
+  });
+
+  console.log(`Prepared remote backend package at ${archivePath}`);
+}
+
+async function main() {
+  const mode = process.argv[2] || "--desktop";
+  if (mode === "--desktop") {
+    await prepareDesktopDist();
+    return;
+  }
+  if (mode === "--remote") {
+    await prepareRemoteBackendPackage();
+    return;
+  }
+  throw new Error(`Unknown prepare-dist mode: ${mode}`);
 }
 
 main().catch((error) => {

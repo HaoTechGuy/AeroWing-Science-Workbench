@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ChevronDown,
   CheckCircle2,
   Loader2,
   Plus,
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import { cn } from "@/lib/utils";
 
 interface SshComputeProbe {
@@ -58,6 +60,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export function ComputeSettingsCard() {
+  const { t } = useLanguage();
   const [hosts, setHosts] = useState<SshComputeHost[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,13 +71,46 @@ export function ComputeSettingsCard() {
   const [sshConfigError, setSshConfigError] = useState<string | null>(null);
   const [hostAlias, setHostAlias] = useState("");
   const [hostNotes, setHostNotes] = useState("");
+  const [hostAliasMenuOpen, setHostAliasMenuOpen] = useState(false);
   const [selectedHostId, setSelectedHostId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const hostAliasBlurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedHost = useMemo(
     () => hosts.find((host) => host.id === selectedHostId) || hosts[0],
     [hosts, selectedHostId]
   );
+  const filteredSshConfigHosts = useMemo(() => {
+    const query = hostAlias.trim().toLowerCase();
+    return sshConfigHosts.filter((host) => {
+      if (!query) {
+        return true;
+      }
+      return host.host.toLowerCase().includes(query);
+    });
+  }, [hostAlias, sshConfigHosts]);
+
+  function openHostAliasMenu() {
+    if (hostAliasBlurTimer.current) {
+      clearTimeout(hostAliasBlurTimer.current);
+      hostAliasBlurTimer.current = null;
+    }
+    setHostAliasMenuOpen(true);
+  }
+
+  function closeHostAliasMenuSoon() {
+    if (hostAliasBlurTimer.current) {
+      clearTimeout(hostAliasBlurTimer.current);
+    }
+    hostAliasBlurTimer.current = setTimeout(() => {
+      setHostAliasMenuOpen(false);
+    }, 120);
+  }
+
+  function selectHostAlias(alias: string) {
+    setHostAlias(alias);
+    setHostAliasMenuOpen(false);
+  }
 
   async function refreshHosts() {
     const [configResponse, computeResponse] = await Promise.all([
@@ -93,7 +129,7 @@ export function ComputeSettingsCard() {
     } else {
       const payload = await configResponse.json().catch(() => ({}));
       setSshConfigHosts([]);
-      setSshConfigError(payload.error || "Unable to read ~/.ssh/config.");
+      setSshConfigError(payload.error || t("sshConfigUnreadable"));
     }
 
     const computePayload = await readJsonResponse<{ hosts: SshComputeHost[] }>(
@@ -112,7 +148,7 @@ export function ComputeSettingsCard() {
       await refreshHosts();
     } catch (refreshError) {
       const message =
-        refreshError instanceof Error ? refreshError.message : "Refresh failed.";
+        refreshError instanceof Error ? refreshError.message : t("refreshFailed");
       setError(message);
     } finally {
       setRefreshing(false);
@@ -123,7 +159,7 @@ export function ComputeSettingsCard() {
   async function addHost() {
     const host = hostAlias.trim();
     if (!host) {
-      toast.error("Enter a Host alias from ~/.ssh/config.");
+      toast.error(t("enterHostAliasError"));
       return;
     }
     setAddingHost(true);
@@ -146,10 +182,10 @@ export function ComputeSettingsCard() {
       ]);
       setSelectedHostId(payload.host.id);
       setHostNotes("");
-      toast.success("SSH compute host connected.");
+      toast.success(t("sshComputeHostConnected"));
     } catch (hostError) {
       const message =
-        hostError instanceof Error ? hostError.message : "Host setup failed.";
+        hostError instanceof Error ? hostError.message : t("hostSetupFailed");
       setError(message);
       toast.error(message);
     } finally {
@@ -166,8 +202,7 @@ export function ComputeSettingsCard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">
-          Linux SSH hosts for remote compute approvals. Job submission happens
-          from the conversation permission card, not from Settings.
+          {t("computeHelp")}
         </div>
         <Button
           type="button"
@@ -181,7 +216,7 @@ export function ComputeSettingsCard() {
           ) : (
             <RefreshCcw className="h-4 w-4" />
           )}
-          Refresh
+          {t("refresh")}
         </Button>
       </div>
 
@@ -194,50 +229,94 @@ export function ComputeSettingsCard() {
       <div className="rounded-lg border border-border bg-background p-4">
         <div className="mb-3 flex items-center gap-2">
           <Server className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold">SSH hosts</h3>
+          <h3 className="text-sm font-semibold">{t("sshHostsTitle")}</h3>
         </div>
         <div className="mb-3 space-y-2 text-sm text-muted-foreground">
-          <p>
-            Pick a host alias from your local <code>~/.ssh/config</code>, or
-            type one. The address, user, port, ProxyJump, and key come from SSH;
-            credentials are not copied into this app.
-          </p>
+          <p>{t("sshHostsDescription")}</p>
           {sshConfigError ? (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800 dark:border-[#f5b85b]/35 dark:bg-[#f5b85b]/10 dark:text-[#ffe0aa]">
-              No readable <code>~/.ssh/config</code> was found. Define a{" "}
-              <code>Host &lt;alias&gt;</code> block first, then refresh Compute.
+              {t("sshConfigUnreadable")}
             </div>
           ) : sshConfigHosts.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-3 py-2">
-              No SSH config hosts found yet.
+              {t("sshConfigHostsEmpty")}
             </div>
           ) : null}
         </div>
         <div className="grid gap-3">
           <div className="space-y-2">
-            <Label htmlFor="compute-host-alias">Host alias</Label>
-            <Input
-              id="compute-host-alias"
-              list="compute-ssh-config-hosts"
-              value={hostAlias}
-              autoComplete="off"
-              placeholder="e.g. biowulf, lab-gpu, rd"
-              onChange={(event) => setHostAlias(event.target.value)}
-            />
-            <datalist id="compute-ssh-config-hosts">
-              {sshConfigHosts.map((host) => (
-                <option key={host.host} value={host.host} />
-              ))}
-            </datalist>
+            <Label htmlFor="compute-host-alias">{t("hostAlias")}</Label>
+            <div className="relative">
+              <Input
+                id="compute-host-alias"
+                value={hostAlias}
+                autoComplete="off"
+                placeholder={t("hostAliasPlaceholder")}
+                className="pr-11"
+                role="combobox"
+                aria-expanded={hostAliasMenuOpen}
+                aria-controls="compute-ssh-config-hosts"
+                onBlur={closeHostAliasMenuSoon}
+                onFocus={openHostAliasMenu}
+                onChange={(event) => {
+                  setHostAlias(event.target.value);
+                  setHostAliasMenuOpen(true);
+                }}
+              />
+              <button
+                type="button"
+                aria-label={t("chooseHostAlias")}
+                className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setHostAliasMenuOpen((open) => !open)}
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition",
+                    hostAliasMenuOpen && "rotate-180"
+                  )}
+                />
+              </button>
+              {hostAliasMenuOpen && sshConfigHosts.length > 0 && (
+                <div
+                  id="compute-ssh-config-hosts"
+                  className="absolute z-30 mt-2 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover p-1 text-sm shadow-lg"
+                >
+                  {filteredSshConfigHosts.length > 0 ? (
+                    filteredSshConfigHosts.map((host) => (
+                      <button
+                        key={host.host}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center justify-between gap-3 rounded px-3 py-2 text-left transition hover:bg-accent",
+                          hostAlias === host.host && "bg-accent"
+                        )}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectHostAlias(host.host)}
+                      >
+                        <span className="font-mono">{host.host}</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {host.source}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-muted-foreground">
+                      {t("noMatchingSshHosts")}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <div className="space-y-2 md:col-span-2">
             <Label htmlFor="compute-host-notes">
-              Anything the agent should know? (optional)
+              {t("agentHostNotesLabel")}
             </Label>
             <Textarea
               id="compute-host-notes"
               value={hostNotes}
-              placeholder="How do jobs run here: sbatch, qsub, or bash? Is it OK to install packages? Any partition, account, module, or environment path to use?"
+              placeholder={t("agentHostNotesPlaceholder")}
               onChange={(event) => setHostNotes(event.target.value)}
               className="min-h-24"
             />
@@ -254,18 +333,18 @@ export function ComputeSettingsCard() {
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          Add SSH host
+          {t("addSshHost")}
         </Button>
 
         <div className="mt-4 grid gap-2">
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading compute hosts...
+              {t("loadingComputeHosts")}
             </div>
           ) : hosts.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              No SSH compute hosts yet.
+              {t("noSshComputeHosts")}
             </div>
           ) : (
             hosts.map((host) => (
@@ -297,13 +376,19 @@ export function ComputeSettingsCard() {
                     ) : (
                       <AlertTriangle className="h-3 w-3" />
                     )}
-                    {host.probe?.ok ? "Linux ready" : "Probe failed"}
+                    {host.probe?.ok ? t("linuxReady") : t("probeFailed")}
                   </span>
                 </div>
                 <div className="mt-2 grid gap-1 text-xs text-muted-foreground md:grid-cols-3">
-                  <span>OS: {host.probe?.os || "-"}</span>
-                  <span>Arch: {host.probe?.arch || "-"}</span>
-                  <span>Python: {host.probe?.python || "-"}</span>
+                  <span>
+                    {t("osLabel")}: {host.probe?.os || "-"}
+                  </span>
+                  <span>
+                    {t("archLabel")}: {host.probe?.arch || "-"}
+                  </span>
+                  <span>
+                    {t("pythonLabel")}: {host.probe?.python || "-"}
+                  </span>
                 </div>
                 {host.notes && (
                   <div className="mt-2 text-xs leading-5 text-muted-foreground">

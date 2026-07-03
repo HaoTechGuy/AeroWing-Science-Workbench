@@ -45,6 +45,7 @@ const SSH_CONNECT_TIMEOUT_SECONDS = 8;
 const COMMAND_MAX_BUFFER = 1024 * 1024 * 8;
 const BACKEND_CLI_WHEELHOUSE_DIR = "backend-wheelhouse";
 const BACKEND_CLI_ARCHIVE_NAME = "internagents-backend-cli.tar.gz";
+const BACKEND_CLI_PACKAGE_COMMAND = "npm --prefix desktop run prepare:remote";
 const RUNTIME_CONFIG_NAME = "deepagent.config.json";
 const DEFAULT_RELEASE_REPO = "InternScience/InternAgents";
 const BACKEND_CLI_PACKAGE_ENTRIES = [
@@ -105,6 +106,7 @@ export interface UiResourceConfig {
   id: string;
   label: string;
   assistantId: string;
+  backend?: ResourceRecord["backend"];
   runtimeUrl?: string;
   remoteRuntimePort?: number;
   workspacePath?: string;
@@ -160,6 +162,11 @@ export interface RemoteBackendCliPushResult {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function remoteBashCommand(script: string): string {
+  // Use a non-login shell so remote automation is not broken by interactive profile scripts.
+  return `bash -c ${shellQuote(script)}`;
 }
 
 function pushLog(log: string[], message: string, onLog?: LogSink): void {
@@ -473,7 +480,7 @@ async function runSshCommand(
     "-o",
     `ConnectTimeout=${SSH_CONNECT_TIMEOUT_SECONDS}`,
   ]);
-  return execFileAsync(binary, [...args, `bash -lc ${shellQuote(script)}`], {
+  return execFileAsync(binary, [...args, remoteBashCommand(script)], {
     timeout: timeoutMs,
     maxBuffer: COMMAND_MAX_BUFFER,
     windowsHide: true,
@@ -598,6 +605,7 @@ function uiResourceFromRecord(resource: ResourceRecord): UiResourceConfig {
     id: resource.id,
     label: resource.label || resource.id,
     assistantId: assistantIdForResource(resource.id),
+    backend: resource.backend,
     runtimeUrl: resource.remote_url,
     remoteRuntimePort: resource.remote_runtime_port,
     workspacePath: resource.workspace,
@@ -1294,7 +1302,11 @@ async function resolveBundledBackendWheelhouse(root: string): Promise<string> {
   }
 
   throw new Error(
-    "backend CLI 离线依赖包缺失。请使用 desktop 发布包内置的 backend-wheelhouse，或先运行 desktop 打包流程生成它。"
+    [
+      "backend CLI 离线依赖包缺失，无法继续接入远程项目。",
+      `请先在项目根目录运行: ${BACKEND_CLI_PACKAGE_COMMAND}`,
+      `打包完成后会生成 dist-remote/${BACKEND_CLI_ARCHIVE_NAME}，然后重新接入。`,
+    ].join("\n")
   );
 }
 
@@ -1305,6 +1317,7 @@ async function buildBackendCliPackage(
   const root = getWorkspaceRoot();
   const prebuiltArchiveCandidates = [
     path.join(root, BACKEND_CLI_ARCHIVE_NAME),
+    path.join(root, "dist-remote", BACKEND_CLI_ARCHIVE_NAME),
     path.join(
       root,
       "dist-app",
@@ -1320,7 +1333,7 @@ async function buildBackendCliPackage(
     }
   }
   if (prebuiltArchive) {
-    pushLog(log, "使用 desktop 内置 backend CLI 包。", onLog);
+    pushLog(log, "使用已构建 backend CLI 包。", onLog);
     return {
       artifactPath: prebuiltArchive,
       fingerprint: (await hashFile(prebuiltArchive)).slice(0, 16),
@@ -1397,7 +1410,7 @@ async function streamFileOverSsh(
     const input = createReadStream(localPath);
     const ssh = spawn(
       sshBinary,
-      [...baseSshArgs, `bash -lc ${shellQuote(remoteScript)}`],
+      [...baseSshArgs, remoteBashCommand(remoteScript)],
       {
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
@@ -1433,7 +1446,7 @@ async function streamTextOverSsh(
     const input = Readable.from([content]);
     const ssh = spawn(
       sshBinary,
-      [...baseSshArgs, `bash -lc ${shellQuote(remoteScript)}`],
+      [...baseSshArgs, remoteBashCommand(remoteScript)],
       {
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,

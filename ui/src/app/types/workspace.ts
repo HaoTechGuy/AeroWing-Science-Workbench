@@ -57,6 +57,11 @@ export interface WorkspaceListResponse {
   entries: WorkspaceEntry[];
 }
 
+export interface WorkspaceSearchResponse {
+  query: string;
+  entries: WorkspaceEntry[];
+}
+
 export interface WorkspaceFileResponse {
   name: string;
   path: string;

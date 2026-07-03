@@ -36,6 +36,7 @@ interface WorkspaceViewerProps {
   onCollapse?: () => void;
   onExpand?: () => void;
   onClear?: () => void;
+  onResolvedPath?: (path: string) => void;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -386,6 +387,7 @@ export function WorkspaceViewer({
   onCollapse,
   onExpand,
   onClear,
+  onResolvedPath,
 }: WorkspaceViewerProps) {
   const { t } = useLanguage();
   const [file, setFile] = useState<WorkspaceFileResponse | null>(null);
@@ -409,6 +411,9 @@ export function WorkspaceViewer({
       .then((payload) => {
         if (!isCancelled) {
           setFile(payload);
+          if (payload.path && payload.path !== selectedPath) {
+            onResolvedPath?.(payload.path);
+          }
         }
       })
       .catch((err) => {
@@ -426,7 +431,7 @@ export function WorkspaceViewer({
     return () => {
       isCancelled = true;
     };
-  }, [resourceId, selectedPath, t, workspaceId]);
+  }, [onResolvedPath, resourceId, selectedPath, t, workspaceId]);
 
   const language = useMemo(() => {
     return file?.extension ? LANGUAGE_MAP[file.extension] || "text" : "text";

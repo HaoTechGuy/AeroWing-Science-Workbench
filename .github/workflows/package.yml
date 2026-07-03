@@ -199,14 +199,6 @@ jobs:
           path: desktop/release/InternAgents-*-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
-      - name: Upload backend CLI artifact
-        if: matrix.arch == 'arm64'
-        uses: actions/upload-artifact@v6
-        with:
-          name: internagents-package-backend-cli-${{ needs.metadata.outputs.desktop_version }}
-          path: dist-app/internagents-template/internagents-backend-cli.tar.gz
-          if-no-files-found: error
-
   build-windows:
     name: Build Windows installer (x64)
     needs: metadata
@@ -310,4 +302,45 @@ jobs:
         with:
           name: internagents-package-windows-${{ needs.metadata.outputs.desktop_version }}-x64
           path: desktop/release/InternAgents-*-x64.exe
+          if-no-files-found: error
+
+  build-remote-backend:
+    name: Build remote backend package
+    needs: metadata
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ needs.metadata.outputs.source_repository }}
+          ref: ${{ needs.metadata.outputs.source_ref }}
+          token: ${{ needs.metadata.outputs.source_repository == github.repository && github.token || secrets.INTERNAGENTS_SOURCE_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Prepare backend dependency environment
+        run: |
+          python -m venv .remote-package-venv
+          .remote-package-venv/bin/python -m pip install --upgrade pip
+          .remote-package-venv/bin/python -m pip install .
+
+      - name: Build remote backend package
+        env:
+          INTERNAGENTS_PYTHON_BIN: ${{ github.workspace }}/.remote-package-venv/bin/python
+        run: npm --prefix desktop run prepare:remote
+
+      - name: Upload backend CLI artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: internagents-package-backend-cli-${{ needs.metadata.outputs.desktop_version }}
+          path: dist-remote/internagents-backend-cli.tar.gz
           if-no-files-found: error

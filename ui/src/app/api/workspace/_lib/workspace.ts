@@ -167,6 +167,11 @@ const MIME_TYPES: Record<string, string> = {
 export const MAX_PREVIEW_FILE_SIZE = 100 * 1024 * 1024;
 export const MAX_TEXT_FILE_SIZE = MAX_PREVIEW_FILE_SIZE;
 const MAX_RAW_FILE_SIZE = MAX_PREVIEW_FILE_SIZE;
+const MAX_BASENAME_MATCHES = 8;
+const MAX_BASENAME_SEARCH_DIRECTORIES = 10_000;
+const DEFAULT_WORKSPACE_FILE_SEARCH_LIMIT = 80;
+const MAX_WORKSPACE_FILE_SEARCH_LIMIT = 200;
+const MAX_WORKSPACE_FILE_SEARCH_DIRECTORIES = 10_000;
 const REMOTE_WORKSPACE_TIMEOUT_MS = 30_000;
 const REMOTE_WORKSPACE_MAX_BUFFER = 160 * 1024 * 1024;
 
@@ -697,6 +702,30 @@ function normalizeRelativePath(relativePath = ""): string {
   return cleanPath;
 }
 
+function isBareWorkspaceFilePath(relativePath: string): boolean {
+  const cleanPath = normalizeRelativePath(relativePath);
+  return Boolean(cleanPath && !cleanPath.includes("/"));
+}
+
+function isMissingPathError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "ENOENT") {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /no such file|cannot find|not found/i.test(message);
+}
+
+function formatAmbiguousBasenameError(
+  fileName: string,
+  matches: string[]
+): string {
+  return `Multiple files named ${fileName} were found: ${matches.join(
+    ", "
+  )}. Use the full relative path.`;
+}
+
 export function getFileExtension(filePath: string): string {
   const basename = path.basename(filePath).toLowerCase();
   if (basename.endsWith(".science.json")) {
@@ -741,6 +770,102 @@ export async function resolveWorkspacePath(
     relativePath: toWorkspacePath(rootReal, targetReal),
     resource,
   };
+}
+
+async function findLocalWorkspaceFileByBasename(
+  rootReal: string,
+  fileName: string
+): Promise<string[]> {
+  const matches: string[] = [];
+  let visitedDirectories = 0;
+
+  const walk = async (directory: string): Promise<void> => {
+    visitedDirectories += 1;
+    if (visitedDirectories > MAX_BASENAME_SEARCH_DIRECTORIES) {
+      throw new Error(
+        `Workspace is too large to resolve ${fileName} by filename. Use the full relative path.`
+      );
+    }
+
+    const dirents = await fs.readdir(directory, { withFileTypes: true });
+    for (const dirent of dirents) {
+      if (isIgnoredEntry(dirent.name)) {
+        continue;
+      }
+
+      const absolutePath = path.join(directory, dirent.name);
+      if (dirent.isDirectory()) {
+        await walk(absolutePath);
+        if (matches.length > MAX_BASENAME_MATCHES) {
+          return;
+        }
+        continue;
+      }
+
+      if (dirent.isFile() && dirent.name === fileName) {
+        matches.push(toWorkspacePath(rootReal, absolutePath));
+        if (matches.length > MAX_BASENAME_MATCHES) {
+          return;
+        }
+      }
+    }
+  };
+
+  await walk(rootReal);
+  return matches;
+}
+
+async function resolveLocalWorkspaceFilePathByBasename(
+  relativePath: string,
+  resource: ResourceRecord,
+  workspaceId?: string | null
+): Promise<WorkspaceResolvedPath | null> {
+  if (!isBareWorkspaceFilePath(relativePath)) {
+    return null;
+  }
+
+  const fileName = normalizeRelativePath(relativePath);
+  const root = resolveLocalWorkspaceRoot(resource, workspaceId);
+  const rootReal = await fs.realpath(root);
+  const matches = await findLocalWorkspaceFileByBasename(rootReal, fileName);
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  if (matches.length > 1) {
+    throw new Error(formatAmbiguousBasenameError(fileName, matches));
+  }
+
+  return resolveWorkspacePath(matches[0], resource.id, workspaceId);
+}
+
+async function resolveReadableWorkspaceFilePath(
+  relativePath: string,
+  resourceId?: string | null,
+  workspaceId?: string | null
+): Promise<WorkspaceResolvedPath> {
+  const resource = getWorkspaceResource(resourceId);
+  try {
+    return await resolveWorkspacePath(relativePath, resourceId, workspaceId);
+  } catch (error) {
+    if (
+      (resource.backend || "local_shell") !== "local_shell" ||
+      !isMissingPathError(error)
+    ) {
+      throw error;
+    }
+
+    const resolved = await resolveLocalWorkspaceFilePathByBasename(
+      relativePath,
+      resource,
+      workspaceId
+    );
+    if (!resolved) {
+      throw error;
+    }
+    return resolved;
+  }
 }
 
 function resolveLocalWorkspaceRoot(
@@ -1159,6 +1284,55 @@ def list_dir(root, target):
     return entries
 
 
+def matches_query(query, item):
+    normalized = (query or "").strip().lower()
+    if not normalized:
+        return True
+    return normalized in item["name"].lower() or normalized in item["path"].lower()
+
+
+def search_files(root, target, query, max_results, max_directories):
+    if target.is_file():
+        item = entry_payload(root, target)
+        return [item] if matches_query(query, item) else []
+    if not target.is_dir():
+        raise ValueError("Selected workspace path is not a directory.")
+
+    entries = []
+    visited_directories = 0
+
+    def walk(directory):
+        nonlocal visited_directories
+        if len(entries) >= max_results:
+            return
+        visited_directories += 1
+        if visited_directories > max_directories:
+            raise ValueError("Workspace is too large to search files.")
+        try:
+            children = list(directory.iterdir())
+        except OSError:
+            return
+        children.sort(key=lambda child: (0 if child.is_file() else 1, child.name.lower()))
+        for child in children:
+            if len(entries) >= max_results:
+                return
+            if is_ignored(child.name) or child.is_symlink():
+                continue
+            try:
+                if child.is_file():
+                    item = entry_payload(root, child)
+                    if matches_query(query, item):
+                        entries.append(item)
+                elif child.is_dir():
+                    walk(child)
+            except OSError:
+                continue
+
+    walk(target)
+    entries.sort(key=lambda item: item["path"].lower())
+    return entries[:max_results]
+
+
 def file_data(root, target, rel, max_preview_content, max_raw, raw):
     if not target.is_file():
         raise ValueError("Selected workspace path is not a file.")
@@ -1209,6 +1383,17 @@ def main():
     op = request.get("op")
     if op == "list":
         return {"path": rel, "entries": list_dir(root, target)}
+    if op == "searchFiles":
+        return {
+            "query": request.get("query") or "",
+            "entries": search_files(
+                root,
+                target,
+                request.get("query") or "",
+                int(request.get("maxResults") or 80),
+                int(request.get("maxDirectories") or 10000),
+            ),
+        }
     max_preview_content = int(request.get("previewContentSizeLimit") or request.get("maxPreviewContentSize") or 0)
     if op == "file":
         return file_data(root, target, rel, max_preview_content, int(request.get("maxRawFileSize") or 0), False)
@@ -1230,6 +1415,179 @@ function withPreviewKind(entry: WorkspaceEntry): WorkspaceEntry {
     previewKind:
       entry.kind === "directory" ? undefined : getPreviewKind(entry.path),
   };
+}
+
+function clampWorkspaceSearchLimit(limit?: number): number {
+  if (!Number.isFinite(limit)) {
+    return DEFAULT_WORKSPACE_FILE_SEARCH_LIMIT;
+  }
+
+  return Math.max(
+    1,
+    Math.min(Math.floor(limit || 0), MAX_WORKSPACE_FILE_SEARCH_LIMIT)
+  );
+}
+
+function workspaceFileMatchesQuery(
+  query: string,
+  entry: WorkspaceEntry
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return [entry.name, entry.path].some((value) =>
+    value.toLowerCase().includes(normalizedQuery)
+  );
+}
+
+function compareWorkspaceFileSearchEntries(
+  left: WorkspaceEntry,
+  right: WorkspaceEntry
+): number {
+  return left.path.localeCompare(right.path, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+async function searchLocalWorkspaceFiles(
+  relativePath: string,
+  query: string,
+  maxResults: number,
+  resourceId?: string | null,
+  workspaceId?: string | null
+): Promise<WorkspaceEntry[]> {
+  const resolved = await resolveWorkspacePath(
+    relativePath,
+    resourceId,
+    workspaceId
+  );
+  const rootStats = await fs.stat(resolved.absolutePath);
+  const entries: WorkspaceEntry[] = [];
+  let visitedDirectories = 0;
+
+  const appendFile = async (absolutePath: string) => {
+    const stats = await fs.stat(absolutePath);
+    if (!stats.isFile()) {
+      return;
+    }
+
+    const relativeEntryPath = toWorkspacePath(resolved.root, absolutePath);
+    const entry: WorkspaceEntry = {
+      name: path.basename(absolutePath),
+      path: relativeEntryPath,
+      kind: "file",
+      extension: getFileExtension(absolutePath) || undefined,
+      size: stats.size,
+      modifiedAt: stats.mtime.toISOString(),
+      hasChildren: false,
+      previewKind: getPreviewKind(relativeEntryPath),
+    };
+
+    if (workspaceFileMatchesQuery(query, entry)) {
+      entries.push(entry);
+    }
+  };
+
+  const walk = async (directory: string): Promise<void> => {
+    if (entries.length >= maxResults) {
+      return;
+    }
+
+    visitedDirectories += 1;
+    if (visitedDirectories > MAX_WORKSPACE_FILE_SEARCH_DIRECTORIES) {
+      throw new Error("Workspace is too large to search files.");
+    }
+
+    let dirents;
+    try {
+      dirents = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    const sortedDirents = dirents
+      .filter((dirent) => !isIgnoredEntry(dirent.name))
+      .sort((left, right) => {
+        if (left.isFile() !== right.isFile()) {
+          return left.isFile() ? -1 : 1;
+        }
+        return left.name.localeCompare(right.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
+
+    for (const dirent of sortedDirents) {
+      if (entries.length >= maxResults) {
+        return;
+      }
+
+      const absolutePath = path.join(directory, dirent.name);
+      if (dirent.isFile()) {
+        try {
+          await appendFile(absolutePath);
+        } catch {
+          continue;
+        }
+        continue;
+      }
+
+      if (dirent.isDirectory()) {
+        await walk(absolutePath);
+      }
+    }
+  };
+
+  if (rootStats.isFile()) {
+    await appendFile(resolved.absolutePath);
+  } else if (rootStats.isDirectory()) {
+    await walk(resolved.absolutePath);
+  } else {
+    throw new Error("Selected workspace path is not searchable.");
+  }
+
+  return entries.sort(compareWorkspaceFileSearchEntries).slice(0, maxResults);
+}
+
+export async function searchWorkspaceFiles(
+  query = "",
+  resourceId?: string | null,
+  workspaceId?: string | null,
+  options: {
+    relativePath?: string;
+    maxResults?: number;
+  } = {}
+): Promise<WorkspaceEntry[]> {
+  const resource = getWorkspaceResource(resourceId);
+  const relativePath = options.relativePath || "";
+  const maxResults = clampWorkspaceSearchLimit(options.maxResults);
+
+  if ((resource.backend || "local_shell") === "ssh_shell") {
+    const payload = await runRemoteWorkspacePython<{
+      query: string;
+      entries: WorkspaceEntry[];
+    }>(resource, "searchFiles", relativePath, {
+      query,
+      maxResults,
+      maxDirectories: MAX_WORKSPACE_FILE_SEARCH_DIRECTORIES,
+    });
+    return payload.entries
+      .filter((entry) => entry.kind === "file")
+      .map(withPreviewKind)
+      .sort(compareWorkspaceFileSearchEntries)
+      .slice(0, maxResults);
+  }
+
+  return searchLocalWorkspaceFiles(
+    relativePath,
+    query,
+    maxResults,
+    resourceId,
+    workspaceId
+  );
 }
 
 export async function listWorkspaceEntries(
@@ -1304,7 +1662,7 @@ export async function readWorkspaceFileData(
     );
   }
 
-  const resolved = await resolveWorkspacePath(
+  const resolved = await resolveReadableWorkspaceFilePath(
     relativePath,
     resourceId,
     workspaceId
@@ -1390,7 +1748,7 @@ export async function streamLocalWorkspaceRawFile(
     );
   }
 
-  const resolved = await resolveWorkspacePath(
+  const resolved = await resolveReadableWorkspaceFilePath(
     relativePath,
     resourceId,
     workspaceId
@@ -1441,7 +1799,7 @@ export async function readWorkspaceRawFile(
     };
   }
 
-  const resolved = await resolveWorkspacePath(
+  const resolved = await resolveReadableWorkspaceFilePath(
     relativePath,
     resourceId,
     workspaceId

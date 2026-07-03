@@ -79,8 +79,10 @@ import {
 import { normalizeWorkspacePreviewPath } from "@/app/utils/workspacePathLinks";
 import type { SkillEntry, SkillsConfigResponse } from "@/app/skills/types";
 import { useThreads, type ThreadItem } from "@/app/hooks/useThreads";
-import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
-import type { WorkspaceEntry } from "@/app/types/workspace";
+import type {
+  WorkspaceEntry,
+  WorkspaceSearchResponse,
+} from "@/app/types/workspace";
 import type { CopyKey } from "@/lib/i18n";
 
 interface ChatInterfaceProps {
@@ -104,6 +106,7 @@ const MAX_TEXT_ATTACHMENT_SIZE = 128 * 1024;
 const MAX_PDF_ATTACHMENT_SIZE = 16 * 1024 * 1024;
 const MAX_OFFICE_ATTACHMENT_SIZE = 16 * 1024 * 1024;
 const MAX_MENTION_OPTIONS = 10;
+const MAX_MENTION_WORKSPACE_FILE_RESULTS = 40;
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
 const CHAT_COMPOSER_HASH = "#chat-composer";
@@ -1259,7 +1262,13 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       assistantId: assistant?.assistant_id,
       workspaceId,
     });
-    const workspaceFiles = useWorkspaceFiles(resourceId, workspaceId);
+    const [mentionWorkspaceFiles, setMentionWorkspaceFiles] = useState<
+      WorkspaceEntry[]
+    >([]);
+    const [mentionWorkspaceFilesLoading, setMentionWorkspaceFilesLoading] =
+      useState(false);
+    const [mentionWorkspaceFilesError, setMentionWorkspaceFilesError] =
+      useState<string | null>(null);
 
     const composerBusy = isLoading || isStreamRecovering;
     const submitDisabled = composerBusy || !assistant;
@@ -1337,6 +1346,76 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       [t]
     );
     const mentionQuery = mentionContext?.query ?? "";
+    const mentionWorkspaceFileSearchEnabled =
+      mentionContext?.kind === "artifact" || mentionContext?.kind === "search";
+
+    useEffect(() => {
+      if (!mentionWorkspaceFileSearchEnabled) {
+        setMentionWorkspaceFilesLoading(false);
+        setMentionWorkspaceFilesError(null);
+        return;
+      }
+
+      const controller = new AbortController();
+      const params = new URLSearchParams({
+        query: mentionQuery,
+        limit: String(MAX_MENTION_WORKSPACE_FILE_RESULTS),
+      });
+      if (resourceId) {
+        params.set("resourceId", resourceId);
+      }
+      if (workspaceId) {
+        params.set("workspaceId", workspaceId);
+      }
+
+      setMentionWorkspaceFilesLoading(true);
+      setMentionWorkspaceFilesError(null);
+
+      fetch(`/api/workspace/search?${params.toString()}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          const payload = (await response.json().catch(() => null)) as
+            | (Partial<WorkspaceSearchResponse> & { error?: string })
+            | null;
+
+          if (!response.ok) {
+            throw new Error(payload?.error || t("projectFilesLoadFailed"));
+          }
+
+          setMentionWorkspaceFiles(
+            Array.isArray(payload?.entries) ? payload.entries : []
+          );
+        })
+        .catch((searchError) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+
+          setMentionWorkspaceFiles([]);
+          setMentionWorkspaceFilesError(
+            searchError instanceof Error
+              ? searchError.message
+              : t("projectFilesLoadFailed")
+          );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setMentionWorkspaceFilesLoading(false);
+          }
+        });
+
+      return () => {
+        controller.abort();
+      };
+    }, [
+      mentionQuery,
+      mentionWorkspaceFileSearchEnabled,
+      resourceId,
+      t,
+      workspaceId,
+    ]);
     const sortedMentionSkills = useMemo(
       () =>
         [...mentionSkills].sort((left, right) => {
@@ -1354,13 +1433,18 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
           .slice(0, MAX_MENTION_OPTIONS),
       [mentionQuery, sortedMentionSkills]
     );
-    const rootWorkspaceFiles = useMemo(
+    const sortedMentionWorkspaceFiles = useMemo(
       () =>
-        (workspaceFiles.directories[""] ?? [])
+        mentionWorkspaceFiles
           .filter((entry) => entry.kind === "file")
           .slice()
-          .sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
-      [workspaceFiles.directories]
+          .sort((left, right) =>
+            left.path.localeCompare(right.path, "zh-CN", {
+              numeric: true,
+              sensitivity: "base",
+            })
+          ),
+      [mentionWorkspaceFiles]
     );
     const flattenedMentionThreads = useMemo(
       () =>
@@ -1374,7 +1458,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     );
     const workspaceFileOptions = useMemo<ComposerSuggestionOption[]>(
       () =>
-        rootWorkspaceFiles
+        sortedMentionWorkspaceFiles
           .filter((entry) =>
             textMatchesQuery(mentionQuery, [entry.name, entry.path])
           )
@@ -1394,7 +1478,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
               .join(" · "),
             entry,
           })),
-      [mentionQuery, rootWorkspaceFiles, t]
+      [mentionQuery, sortedMentionWorkspaceFiles, t]
     );
     const artifactOptions = useMemo<ComposerSuggestionOption[]>(
       () =>
@@ -1417,7 +1501,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
     );
     const fileAndArtifactOptions = useMemo(
       () =>
-        [...artifactOptions, ...workspaceFileOptions].slice(
+        [...workspaceFileOptions, ...artifactOptions].slice(
           0,
           MAX_MENTION_OPTIONS
         ),
@@ -1567,24 +1651,26 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         : null;
     const mentionMenuError =
       mentionContext?.kind === "artifact"
-        ? workspaceFiles.error
-        : mentionContext?.kind === "session"
-        ? threadSuggestionsError
-        : mentionContext?.kind === "skill"
-        ? mentionSkillsError
-        : null;
+        ? mentionWorkspaceFilesError
+      : mentionContext?.kind === "session"
+      ? threadSuggestionsError
+      : mentionContext?.kind === "skill"
+      ? mentionSkillsError
+      : mentionContext?.kind === "search"
+      ? mentionWorkspaceFilesError
+      : null;
     const mentionMenuLoading =
       mentionContext?.kind === "artifact"
-        ? workspaceFiles.loadingPaths.has("")
-        : mentionContext?.kind === "session"
-        ? !threadSuggestions.data && !threadSuggestions.error
-        : mentionContext?.kind === "skill"
-        ? mentionSkillsLoading
-        : mentionContext?.kind === "search"
+        ? mentionWorkspaceFilesLoading
+      : mentionContext?.kind === "session"
+      ? !threadSuggestions.data && !threadSuggestions.error
+      : mentionContext?.kind === "skill"
+      ? mentionSkillsLoading
+      : mentionContext?.kind === "search"
         ? mentionSkillsLoading ||
-          workspaceFiles.loadingPaths.has("") ||
+          mentionWorkspaceFilesLoading ||
           (!threadSuggestions.data && !threadSuggestions.error)
-        : false;
+      : false;
     const mentionMenuLoadingText =
       mentionContext?.kind === "artifact"
         ? t("loadingFiles")

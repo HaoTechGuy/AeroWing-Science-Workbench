@@ -13,7 +13,6 @@ import {
   ArrowLeft,
   ChevronRight,
   Columns2,
-  Eye,
   File,
   FileCode2,
   FileJson,
@@ -34,6 +33,7 @@ import {
   SquarePen,
   List,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { useQueryState } from "nuqs";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -70,6 +70,7 @@ import { ThreadList } from "@/app/components/ThreadList";
 import { WorkspaceViewer } from "@/app/components/WorkspaceViewer";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
 import { useLanguage } from "@/app/hooks/useLanguage";
+import { useThreads } from "@/app/hooks/useThreads";
 import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
 import {
   WORKBENCH_RETURN_STORAGE_KEY,
@@ -82,6 +83,18 @@ import { cn } from "@/lib/utils";
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
 const ADD_REMOTE_WORKSPACE_VALUE = "__add_remote_workspace__";
 const NEW_THREAD_MARKER = "__new_thread__";
+
+function formatConversationTabTime(date: Date, language: string): string {
+  try {
+    return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  } catch {
+    return date.toTimeString().slice(0, 5);
+  }
+}
 
 interface BackendCliPushResult {
   resource: ResourceConfig;
@@ -206,6 +219,9 @@ function HomePageInner({
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
   const [chatInstanceKey, setChatInstanceKey] = useState(0);
+  const [openThreadTabIds, setOpenThreadTabIds] = useState<string[]>(() => [
+    threadId ?? NEW_THREAD_MARKER,
+  ]);
   const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
   const [ensuringResourceId, setEnsuringResourceId] = useState<string | null>(
     null
@@ -216,6 +232,29 @@ function HomePageInner({
   const previousObservedThreadIdRef = useRef<string | null>(threadId ?? null);
   const intentionalThreadChangeRef = useRef<string | null>(null);
   const generatedThreadIdRef = useRef<string | null>(null);
+
+  const threadTabs = useThreads({
+    limit: 20,
+    resourceId: activeResource.id,
+    runtimeUrl: activeResource.runtimeUrl,
+    assistantId: activeAssistantId,
+    workspaceId: isActiveLocalResource ? activeWorkspace?.id : undefined,
+  });
+  const mutateOpenThreadTabs = threadTabs.mutate;
+
+  const openThreadItems = useMemo(
+    () => threadTabs.data?.flat() ?? [],
+    [threadTabs.data]
+  );
+  const openThreadMap = useMemo(
+    () => new Map(openThreadItems.map((thread) => [thread.id, thread])),
+    [openThreadItems]
+  );
+  const activeThreadTabId = threadId ?? NEW_THREAD_MARKER;
+  const tabScope = `${activeResource.id}:${activeAssistantId}:${
+    isActiveLocalResource ? activeWorkspace?.id || "workspace" : "resource"
+  }`;
+  const previousTabScopeRef = useRef(tabScope);
 
   const fetchAssistant = useCallback(async () => {
     setAssistant(await remoteAgent.resolveAssistant());
@@ -232,6 +271,7 @@ function HomePageInner({
   const handleThreadSelect = useCallback(
     async (id: string) => {
       if (id === threadId) return;
+      setOpenThreadTabIds((tabs) => (tabs.includes(id) ? tabs : [...tabs, id]));
       intentionalThreadChangeRef.current = id;
       await setThreadId(id);
       resetForegroundChat();
@@ -240,6 +280,9 @@ function HomePageInner({
   );
 
   const handleNewThread = useCallback(async () => {
+    setOpenThreadTabIds((tabs) =>
+      tabs.includes(NEW_THREAD_MARKER) ? tabs : [...tabs, NEW_THREAD_MARKER]
+    );
     intentionalThreadChangeRef.current = NEW_THREAD_MARKER;
     await setThreadId(null);
     resetForegroundChat();
@@ -247,7 +290,88 @@ function HomePageInner({
 
   const handleGeneratedThreadId = useCallback((id: string) => {
     generatedThreadIdRef.current = id;
+    setOpenThreadTabIds((tabs) => {
+      if (tabs.includes(id)) {
+        return tabs.filter((tabId) => tabId !== NEW_THREAD_MARKER);
+      }
+      if (tabs.includes(NEW_THREAD_MARKER)) {
+        return tabs.map((tabId) => (tabId === NEW_THREAD_MARKER ? id : tabId));
+      }
+      return [...tabs, id];
+    });
   }, []);
+
+  const handleThreadTabSelect = useCallback(
+    async (id: string) => {
+      if (id === activeThreadTabId) return;
+      intentionalThreadChangeRef.current = id;
+      await setThreadId(id === NEW_THREAD_MARKER ? null : id);
+      resetForegroundChat();
+    },
+    [activeThreadTabId, resetForegroundChat, setThreadId]
+  );
+
+  const handleThreadTabClose = useCallback(
+    async (id: string) => {
+      const currentTabs = openThreadTabIds.length
+        ? openThreadTabIds
+        : [activeThreadTabId];
+      const closedIndex = currentTabs.indexOf(id);
+      const remainingTabs = currentTabs.filter((tabId) => tabId !== id);
+      const nextTabs = remainingTabs.length ? remainingTabs : [NEW_THREAD_MARKER];
+      setOpenThreadTabIds(nextTabs);
+
+      if (id !== activeThreadTabId) {
+        return;
+      }
+
+      const fallbackTabId =
+        remainingTabs[closedIndex] ??
+        remainingTabs[closedIndex - 1] ??
+        NEW_THREAD_MARKER;
+      intentionalThreadChangeRef.current = fallbackTabId;
+      await setThreadId(
+        fallbackTabId === NEW_THREAD_MARKER ? null : fallbackTabId
+      );
+      resetForegroundChat();
+    },
+    [activeThreadTabId, openThreadTabIds, resetForegroundChat, setThreadId]
+  );
+
+  const openConversationTabs = useMemo(
+    () => {
+      const tabs = openThreadTabIds.map((id) => {
+        const thread = id === NEW_THREAD_MARKER ? null : openThreadMap.get(id);
+        return {
+          id,
+          updatedAt: thread?.updatedAt,
+          status: thread?.status,
+          title:
+            id === NEW_THREAD_MARKER
+              ? t("newThread")
+              : thread?.title || `${t("sessions")} ${id.slice(0, 8)}`,
+        };
+      });
+      const titleCounts = tabs.reduce((counts, tab) => {
+        counts.set(tab.title, (counts.get(tab.title) ?? 0) + 1);
+        return counts;
+      }, new Map<string, number>());
+
+      return tabs.map((tab) => {
+        if (tab.id === NEW_THREAD_MARKER || titleCounts.get(tab.title) === 1) {
+          return tab;
+        }
+        const suffix = tab.updatedAt
+          ? formatConversationTabTime(tab.updatedAt, language)
+          : tab.id.slice(0, 4);
+        return {
+          ...tab,
+          title: `${tab.title} · ${suffix}`,
+        };
+      });
+    },
+    [language, openThreadMap, openThreadTabIds, t]
+  );
 
   useEffect(() => {
     const previousThreadId = previousObservedThreadIdRef.current;
@@ -271,6 +395,19 @@ function HomePageInner({
     resetForegroundChat();
   }, [resetForegroundChat, threadId]);
 
+  useEffect(() => {
+    const nextTabId = threadId ?? NEW_THREAD_MARKER;
+    setOpenThreadTabIds((tabs) =>
+      tabs.includes(nextTabId) ? tabs : [...tabs, nextTabId]
+    );
+  }, [threadId]);
+
+  useEffect(() => {
+    if (previousTabScopeRef.current === tabScope) return;
+    previousTabScopeRef.current = tabScope;
+    setOpenThreadTabIds([threadId ?? NEW_THREAD_MARKER]);
+  }, [tabScope, threadId]);
+
   const handleFileSelect = useCallback(
     async (entry: WorkspaceEntry) => {
       if (entry.kind === "file") {
@@ -281,13 +418,21 @@ function HomePageInner({
     [setSelectedFilePath]
   );
 
+  const handleFilePathSelect = useCallback(
+    async (path: string) => {
+      setInspectorOpen(true);
+      await setSelectedFilePath(path);
+    },
+    [setSelectedFilePath]
+  );
+
   const handleClearSelectedFile = useCallback(async () => {
     await setSelectedFilePath(null);
   }, [setSelectedFilePath]);
 
   const ensureRemoteResource = useCallback(
     async (resourceId: string) => {
-    const toastId = toast.loading(t("remoteRuntimeSyncing"));
+      const toastId = toast.loading(t("remoteRuntimeSyncing"));
       try {
         const response = await fetch("/api/remote-connections/ensure", {
           method: "POST",
@@ -383,8 +528,10 @@ function HomePageInner({
         }
         await setThreadId(null);
         await setSelectedFilePath(null);
+        setOpenThreadTabIds([NEW_THREAD_MARKER]);
         await onResourceChange(resourceId);
         mutateThreads?.();
+        void mutateOpenThreadTabs();
       } catch (error) {
         const message =
           error instanceof Error
@@ -398,6 +545,7 @@ function HomePageInner({
     [
       config.resources,
       ensureRemoteResource,
+      mutateOpenThreadTabs,
       mutateThreads,
       onResourceChange,
       setSelectedFilePath,
@@ -411,15 +559,24 @@ function HomePageInner({
       try {
         await setThreadId(null);
         await setSelectedFilePath(null);
+        setOpenThreadTabIds([NEW_THREAD_MARKER]);
         await onWorkspaceChange(workspaceId);
         mutateThreads?.();
+        void mutateOpenThreadTabs();
       } catch (error) {
         const message =
           error instanceof Error ? error.message : t("projectSwitchFailed");
         toast.error(message);
       }
     },
-    [mutateThreads, onWorkspaceChange, setSelectedFilePath, setThreadId, t]
+    [
+      mutateOpenThreadTabs,
+      mutateThreads,
+      onWorkspaceChange,
+      setSelectedFilePath,
+      setThreadId,
+      t,
+    ]
   );
 
   const handleWorkspacePick = useCallback(async () => {
@@ -427,8 +584,10 @@ function HomePageInner({
       setIsPickingWorkspace(true);
       await setThreadId(null);
       await setSelectedFilePath(null);
+      setOpenThreadTabIds([NEW_THREAD_MARKER]);
       await onWorkspacePick();
       mutateThreads?.();
+      void mutateOpenThreadTabs();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : t("projectPickFailed");
@@ -436,7 +595,14 @@ function HomePageInner({
     } finally {
       setIsPickingWorkspace(false);
     }
-  }, [mutateThreads, onWorkspacePick, setSelectedFilePath, setThreadId, t]);
+  }, [
+    mutateOpenThreadTabs,
+    mutateThreads,
+    onWorkspacePick,
+    setSelectedFilePath,
+    setThreadId,
+    t,
+  ]);
 
   const handleEnvironmentChange = useCallback(
     async (value: string) => {
@@ -464,8 +630,9 @@ function HomePageInner({
 
   const handleRunActivity = useCallback(() => {
     mutateThreads?.();
+    void mutateOpenThreadTabs();
     setWorkspaceRefreshKey((key) => key + 1);
-  }, [mutateThreads]);
+  }, [mutateOpenThreadTabs, mutateThreads]);
 
   const isActiveSshResource =
     activeResource.backend === "ssh_shell" ||
@@ -475,11 +642,14 @@ function HomePageInner({
     async (resource: ResourceConfig, resources: ResourceConfig[]) => {
       await setThreadId(null);
       await setSelectedFilePath(null);
+      setOpenThreadTabIds([NEW_THREAD_MARKER]);
       await onResourcesRefresh(resources);
       await onResourceChange(resource.id);
       mutateThreads?.();
+      void mutateOpenThreadTabs();
     },
     [
+      mutateOpenThreadTabs,
       mutateThreads,
       onResourceChange,
       onResourcesRefresh,
@@ -663,6 +833,14 @@ function HomePageInner({
           className="ocs-workbench-panel"
         >
           <section className="ocs-workspace">
+            <ConversationTabs
+              activeTabId={activeThreadTabId}
+              closeLabel={t("close")}
+              sessionsLabel={t("sessions")}
+              tabs={openConversationTabs}
+              onClose={handleThreadTabClose}
+              onSelect={handleThreadTabSelect}
+            />
             <ChatProvider
               key={`${activeResource.id}:${activeAssistantId}:${
                 activeWorkspace?.id || "workspace"
@@ -732,6 +910,7 @@ function HomePageInner({
                 onClearSelectedFile={handleClearSelectedFile}
                 onClose={() => setInspectorOpen(false)}
                 onFileSelect={handleFileSelect}
+                onFilePathSelect={handleFilePathSelect}
               />
             </ResizablePanel>
           </>
@@ -743,6 +922,81 @@ function HomePageInner({
         onOpenChange={setRemoteDialogOpen}
         onConfigured={handleRemoteConfigured}
       />
+    </div>
+  );
+}
+
+interface ConversationTab {
+  id: string;
+  title: string;
+  status?: string;
+}
+
+interface ConversationTabsProps {
+  activeTabId: string;
+  closeLabel: string;
+  sessionsLabel: string;
+  tabs: ConversationTab[];
+  onClose: (id: string) => Promise<void>;
+  onSelect: (id: string) => Promise<void>;
+}
+
+function ConversationTabs({
+  activeTabId,
+  closeLabel,
+  sessionsLabel,
+  tabs,
+  onClose,
+  onSelect,
+}: ConversationTabsProps) {
+  return (
+    <div
+      className="ocs-conversation-tabs"
+      role="tablist"
+      aria-label={sessionsLabel}
+    >
+      <div className="ocs-conversation-tab-scroll">
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTabId;
+          const isNewThread = tab.id === NEW_THREAD_MARKER;
+
+          return (
+            <div
+              key={tab.id}
+              className={cn("ocs-conversation-tab", {
+                "is-active": isActive,
+              })}
+              data-status={tab.status || (isNewThread ? "new" : "idle")}
+            >
+              <button
+                type="button"
+                className="ocs-conversation-tab-main"
+                title={tab.title}
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => void onSelect(tab.id)}
+              >
+                <span
+                  className="ocs-conversation-tab-dot"
+                  aria-hidden="true"
+                />
+                <span className="ocs-conversation-tab-title">
+                  {tab.title}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="ocs-conversation-tab-close"
+                title={`${closeLabel} ${tab.title}`}
+                aria-label={`${closeLabel} ${tab.title}`}
+                onClick={() => void onClose(tab.id)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -999,6 +1253,7 @@ interface WorkbenchInspectorProps {
   onClearSelectedFile: () => Promise<void>;
   onClose: () => void;
   onFileSelect: (entry: WorkspaceEntry) => void | Promise<void>;
+  onFilePathSelect: (path: string) => void | Promise<void>;
 }
 
 interface InspectorFilesViewProps {
@@ -1374,15 +1629,22 @@ function WorkbenchInspector({
   onClearSelectedFile,
   onClose,
   onFileSelect,
+  onFilePathSelect,
 }: WorkbenchInspectorProps) {
   const { t } = useLanguage();
   const [mode, setMode] = useState<WorkbenchInspectorMode>(
     selectedFilePath ? "preview" : "files"
   );
+  const [openFileTabPaths, setOpenFileTabPaths] = useState<string[]>(() =>
+    selectedFilePath ? [selectedFilePath] : []
+  );
   const previousSelectedFilePathRef = useRef<string | null>(
     selectedFilePath ?? null
   );
-  const selectedName = displayPathName(selectedFilePath, t("filePreview"));
+  const inspectorScope = `${activeResource.id}:${
+    activeWorkspace?.id || workspaceId || "workspace"
+  }`;
+  const previousInspectorScopeRef = useRef(inspectorScope);
 
   useEffect(() => {
     const previousSelectedFilePath = previousSelectedFilePathRef.current;
@@ -1393,6 +1655,9 @@ function WorkbenchInspector({
 
     previousSelectedFilePathRef.current = nextSelectedFilePath;
     if (selectedFilePath) {
+      setOpenFileTabPaths((paths) =>
+        paths.includes(selectedFilePath) ? paths : [...paths, selectedFilePath]
+      );
       setMode("preview");
     } else {
       setMode((currentMode) =>
@@ -1401,21 +1666,125 @@ function WorkbenchInspector({
     }
   }, [selectedFilePath]);
 
+  useEffect(() => {
+    if (previousInspectorScopeRef.current === inspectorScope) return;
+    previousInspectorScopeRef.current = inspectorScope;
+    setOpenFileTabPaths(selectedFilePath ? [selectedFilePath] : []);
+    setMode(selectedFilePath ? "preview" : "files");
+  }, [inspectorScope, selectedFilePath]);
+
+  const handleFileTabSelect = useCallback(
+    async (path: string) => {
+      setMode("preview");
+      await onFilePathSelect(path);
+    },
+    [onFilePathSelect]
+  );
+
+  const handleFileTabClose = useCallback(
+    async (path: string) => {
+      const tabIndex = openFileTabPaths.indexOf(path);
+      const remainingPaths = openFileTabPaths.filter(
+        (tabPath) => tabPath !== path
+      );
+      setOpenFileTabPaths(remainingPaths);
+
+      if (mode !== "preview" || selectedFilePath !== path) {
+        if (selectedFilePath === path) {
+          await onClearSelectedFile();
+        }
+        return;
+      }
+
+      const fallbackPath =
+        remainingPaths[tabIndex] ?? remainingPaths[tabIndex - 1] ?? null;
+      if (fallbackPath) {
+        setMode("preview");
+        await onFilePathSelect(fallbackPath);
+        return;
+      }
+
+      setMode("files");
+      await onClearSelectedFile();
+    },
+    [
+      onClearSelectedFile,
+      onFilePathSelect,
+      mode,
+      openFileTabPaths,
+      selectedFilePath,
+    ]
+  );
+
+  const handleResolvedFilePath = useCallback(
+    (resolvedPath: string) => {
+      if (!selectedFilePath || resolvedPath === selectedFilePath) {
+        return;
+      }
+
+      setOpenFileTabPaths((paths) => {
+        const nextPaths = paths.map((path) =>
+          path === selectedFilePath ? resolvedPath : path
+        );
+        return nextPaths.filter(
+          (path, index) => nextPaths.indexOf(path) === index
+        );
+      });
+      void onFilePathSelect(resolvedPath);
+    },
+    [onFilePathSelect, selectedFilePath]
+  );
+
   return (
     <aside className="ocs-inspector">
-      <header className="ocs-inspector-header">
-        <div>
-          <span className="ocs-eyebrow">
-            {mode === "files" ? t("projectFiles") : t("artifact")}
-          </span>
-          <h3>
-            {mode === "files"
-              ? t("projectFiles")
-              : selectedFilePath
-                ? selectedName
-                : t("noArtifactOpen")}
-          </h3>
+      <header
+        className="ocs-inspector-tabbar"
+        role="tablist"
+        aria-label={t("files")}
+      >
+        <button
+          type="button"
+          className={cn("ocs-inspector-root-tab", mode === "files" && "active")}
+          onClick={() => setMode("files")}
+        >
+          <Files size={15} />
+          <span>{t("files")}</span>
+        </button>
+
+        <div className="ocs-open-file-tabs">
+          {openFileTabPaths.map((path) => {
+            const isActive = mode === "preview" && selectedFilePath === path;
+            const tabName = displayPathName(path, t("filePreview"));
+
+            return (
+              <div
+                key={path}
+                className={cn("ocs-open-file-tab", isActive && "active")}
+              >
+                <button
+                  type="button"
+                  className="ocs-open-file-tab-main"
+                  title={path}
+                  aria-selected={isActive}
+                  onClick={() => void handleFileTabSelect(path)}
+                >
+                  <FileText size={14} />
+                  <span>{tabName}</span>
+                </button>
+                <button
+                  type="button"
+                  className="ocs-open-file-tab-close"
+                  title={`${t("close")} ${tabName}`}
+                  aria-label={`${t("close")} ${tabName}`}
+                  onClick={() => void handleFileTabClose(path)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
+
         <button
           type="button"
           className="ocs-inspector-close"
@@ -1426,26 +1795,6 @@ function WorkbenchInspector({
           <Columns2 className="h-4 w-4" />
         </button>
       </header>
-
-      <div className="ocs-version-bar">
-        <button
-          type="button"
-          className={cn(mode === "files" && "active")}
-          onClick={() => setMode("files")}
-        >
-          <Files size={15} />
-          {t("files")}
-        </button>
-        <button
-          type="button"
-          className={cn(mode === "preview" && "active")}
-          onClick={() => setMode("preview")}
-          disabled={!selectedFilePath}
-        >
-          <Eye size={15} />
-          {t("preview")}
-        </button>
-      </div>
 
       {mode === "files" && (
         <div className="ocs-inspector-content">
@@ -1467,6 +1816,7 @@ function WorkbenchInspector({
             resourceId={activeResource.id}
             workspaceId={workspaceId}
             onClear={() => void onClearSelectedFile()}
+            onResolvedPath={handleResolvedFilePath}
           />
         </div>
       )}

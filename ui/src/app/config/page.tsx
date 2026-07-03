@@ -13,6 +13,7 @@ import {
   Moon,
   Plug,
   Save,
+  Server,
   ServerCog,
   Shield,
   ShieldCheck,
@@ -35,6 +36,7 @@ import { LanguageToggle } from "@/app/components/LanguageToggle";
 import { useLanguage } from "@/app/hooks/useLanguage";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
 import { ComputeSettingsCard } from "@/app/config/components/ComputeSettingsCard";
+import { RemoteProjectsSettingsCard } from "@/app/config/components/RemoteProjectsSettingsCard";
 import { SkillsMarketplace } from "@/app/skills/components/SkillsMarketplace";
 import {
   appReturnHrefFromSearchParams,
@@ -186,6 +188,12 @@ const SETTINGS_SECTIONS: Array<{
     title: "projectDirectory",
     description: "projectDirectoryDescription",
     icon: FolderOpen,
+  },
+  {
+    id: "settings-remote-projects",
+    title: "remoteProjects",
+    description: "remoteProjectsDescription",
+    icon: Server,
   },
   {
     id: "settings-compute",
@@ -1138,17 +1146,38 @@ function ConfigPageContent() {
               </section>
 
               <section
+                id="settings-remote-projects"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
+                    <Server className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">
+                      {t("remoteProjects")}
+                    </h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {t("remoteProjectsDescription")}
+                    </div>
+                  </div>
+                </div>
+
+                <RemoteProjectsSettingsCard />
+              </section>
+
+              <section
                 id="settings-compute"
-                className="scroll-mt-5 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
               >
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
                     <ServerCog className="h-5 w-5" />
                   </div>
                   <div className="min-w-0">
-                    <h2 className="text-base font-semibold">Compute</h2>
+                    <h2 className="text-base font-semibold">{t("compute")}</h2>
                     <div className="mt-1 text-sm text-muted-foreground">
-                      Linux SSH hosts for conversation-approved remote jobs.
+                      {t("computeSectionSubtitle")}
                     </div>
                   </div>
                 </div>

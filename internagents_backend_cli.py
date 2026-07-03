@@ -86,7 +86,25 @@ def _state_env(state_dir: Path) -> dict[str, str]:
     return values
 
 
-def _wait_for_health(url: str, timeout_seconds: int) -> None:
+def _tail_text(path: Path, *, lines: int = 80, max_chars: int = 8000) -> str:
+    if not path.exists():
+        return ""
+    try:
+        content = path.read_text(errors="replace")
+    except OSError:
+        return ""
+    tail = "\n".join(content.splitlines()[-lines:])
+    if len(tail) > max_chars:
+        return tail[-max_chars:]
+    return tail
+
+
+def _wait_for_health(
+    url: str,
+    timeout_seconds: int,
+    *,
+    log_file: Path | None = None,
+) -> None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         try:
@@ -96,7 +114,12 @@ def _wait_for_health(url: str, timeout_seconds: int) -> None:
                     return
         except Exception:
             time.sleep(1)
-    raise RuntimeError(f"runtime health check timed out: {url}/ok")
+    message = f"runtime health check timed out: {url}/ok"
+    if log_file is not None:
+        tail = _tail_text(log_file)
+        if tail:
+            message = f"{message}\n\nRuntime log tail ({log_file}):\n{tail}"
+    raise RuntimeError(message)
 
 
 def _start_runtime(args: argparse.Namespace) -> int:
@@ -131,7 +154,7 @@ def _start_runtime(args: argparse.Namespace) -> int:
             pid = 0
         if pid > 0 and _is_running(pid):
             print(f"runtime already running pid={pid}")
-            _wait_for_health(remote_url, args.health_timeout)
+            _wait_for_health(remote_url, args.health_timeout, log_file=log_file)
             return 0
 
     state_config = state_dir / "deepagent.config.json"
@@ -171,7 +194,7 @@ def _start_runtime(args: argparse.Namespace) -> int:
         )
     pid_file.write_text(f"{process.pid}\n")
     print(f"runtime started pid={process.pid}")
-    _wait_for_health(remote_url, args.health_timeout)
+    _wait_for_health(remote_url, args.health_timeout, log_file=log_file)
     return 0
 
 
