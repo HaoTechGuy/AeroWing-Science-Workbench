@@ -19,15 +19,20 @@ import type { TodoItem, FileItem } from "@/app/types/types";
 import { useChatContext } from "@/providers/ChatProvider";
 import { cn } from "@/lib/utils";
 import { FileViewDialog } from "@/app/components/FileViewDialog";
+import type { CopyKey } from "@/lib/i18n";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
-function todoStatusLabel(status: TodoItem["status"]): string {
+function todoStatusLabel(
+  status: TodoItem["status"],
+  t: (key: CopyKey) => string
+): string {
   switch (status) {
     case "completed":
-      return "已完成";
+      return t("complete");
     case "in_progress":
-      return "进行中";
+      return t("inProgress");
     default:
-      return "待处理";
+      return t("pending");
   }
 }
 
@@ -40,6 +45,7 @@ export function FilesPopover({
   setFiles: (files: Record<string, string>) => Promise<void>;
   editDisabled: boolean;
 }) {
+  const { t } = useLanguage();
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
 
   const handleSaveFile = useCallback(
@@ -54,7 +60,7 @@ export function FilesPopover({
     <>
       {Object.keys(files).length === 0 ? (
         <div className="flex h-full items-center justify-center p-4 text-center">
-          <p className="text-xs text-muted-foreground">No files created yet</p>
+          <p className="text-xs text-muted-foreground">{t("noFilesCreated")}</p>
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(256px,1fr))] gap-2">
@@ -128,6 +134,7 @@ export const TasksFilesSidebar = React.memo<{
   setFiles: (files: Record<string, string>) => Promise<void>;
 }>(({ todos, files, setFiles }) => {
   const { isLoading, interrupt } = useChatContext();
+  const { t } = useLanguage();
   const [tasksOpen, setTasksOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
 
@@ -192,7 +199,7 @@ export const TasksFilesSidebar = React.memo<{
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
           <div className="flex items-center justify-between px-3 pb-1.5 pt-2">
             <span className="text-xs font-semibold tracking-wide text-zinc-600">
-              子任务
+              {t("subtasks")}
             </span>
             <button
               onClick={() => setTasksOpen((v) => !v)}
@@ -211,7 +218,7 @@ export const TasksFilesSidebar = React.memo<{
                 {todos.length === 0 ? (
                   <div className="flex h-full items-center justify-center p-4 text-center">
                     <p className="text-xs text-muted-foreground">
-                      No tasks created yet
+                      {t("noTasksCreated")}
                     </p>
                   </div>
                 ) : (
@@ -219,7 +226,7 @@ export const TasksFilesSidebar = React.memo<{
                     {Object.entries(groupedTodos).map(([status, todos]) => (
                       <div className="mb-4">
                         <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-tertiary">
-                          {todoStatusLabel(status as TodoItem["status"])}
+                          {todoStatusLabel(status as TodoItem["status"], t)}
                         </h3>
                         {todos.map((todo, index) => (
                           <div

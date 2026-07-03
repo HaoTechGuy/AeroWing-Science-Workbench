@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import type { SubAgent } from "@/app/types/types";
 import { getToolDisplayName } from "@/app/utils/toolDisplayNames";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
 interface SubAgentIndicatorProps {
   subAgent: SubAgent;
@@ -16,6 +17,7 @@ interface SubAgentIndicatorProps {
 
 export const SubAgentIndicator = React.memo<SubAgentIndicatorProps>(
   ({ subAgent, onClick, isExpanded = true, muted = false }) => {
+    const { language } = useLanguage();
     return (
       <div
         className={cn(
@@ -41,7 +43,7 @@ export const SubAgentIndicator = React.memo<SubAgentIndicatorProps>(
                   muted && "text-muted-foreground/70"
                 )}
               >
-                {getToolDisplayName(subAgent.subAgentName)}
+                {getToolDisplayName(subAgent.subAgentName, language)}
               </span>
             </div>
             {isExpanded ? (

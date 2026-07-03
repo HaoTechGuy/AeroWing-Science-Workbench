@@ -18,6 +18,7 @@ import {
   extractSubAgentContent,
   extractVisibleStringFromMessageContent,
 } from "@/app/utils/utils";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import { cn } from "@/lib/utils";
 
 interface ChatMessageProps {
@@ -54,6 +55,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
     onOpenAttachment,
     workspaceRoot,
   }) => {
+    const { t } = useLanguage();
     const isUser = message.type === "human";
     const messageContent = extractVisibleStringFromMessageContent(message);
     const imageUrls = useMemo(
@@ -129,9 +131,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
           <div className="mt-4 flex h-7 w-7 shrink-0 items-start justify-center">
             {showAvatar && (
               <div
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-primary/20 bg-primary text-xs font-semibold tracking-wide text-primary-foreground shadow-sm shadow-black/[0.035]"
-                title="InternAgents"
-                aria-label="InternAgents"
+                className="border-primary/20 text-primary-foreground flex h-7 w-7 items-center justify-center rounded-md border bg-primary text-xs font-semibold tracking-wide shadow-sm shadow-black/[0.035]"
+                title="InternAgentS"
+                aria-label="InternAgentS"
               >
                 IA
               </div>
@@ -150,7 +152,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                 className={cn(
                   "mt-4 overflow-hidden break-words text-sm font-normal leading-[150%]",
                   isUser
-                    ? "rounded-lg rounded-br-sm border border-primary/15 px-3 py-2 text-foreground shadow-sm shadow-black/[0.025]"
+                    ? "border-primary/15 rounded-lg rounded-br-sm border px-3 py-2 text-foreground shadow-sm shadow-black/[0.025]"
                     : "text-foreground"
                 )}
                 style={
@@ -190,7 +192,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   className={cn(
                     "flex max-w-56 items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-left text-xs text-muted-foreground shadow-sm shadow-black/[0.025]",
                     attachment.workspacePath &&
-                      "transition-colors hover:border-primary/30 hover:text-foreground"
+                      "hover:border-primary/30 transition-colors hover:text-foreground"
                   )}
                   onClick={() => {
                     if (attachment.workspacePath) {
@@ -200,7 +202,9 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                   disabled={!attachment.workspacePath}
                   title={
                     attachment.workspacePath
-                      ? `打开 ${attachment.workspacePath}`
+                      ? t("openWorkspacePath", {
+                          path: attachment.workspacePath,
+                        })
                       : attachment.name
                   }
                 >
@@ -215,7 +219,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
             hasTerminalToolIssue &&
             showTerminalToolIssueNotice && (
               <div className="mt-4 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-foreground">
-                本次运行已结束，但没有生成最终回答。下面是停止位置：
+                {t("terminalToolIssueNotice")}
               </div>
             )}
           {hasToolCalls && (
@@ -272,7 +276,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                       >
                         <h4
                           className={cn(
-                            "mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70",
+                            "text-primary/70 mb-2 text-xs font-semibold uppercase tracking-wider",
                             showMutedRuntime && "text-muted-foreground/70"
                           )}
                         >
@@ -293,7 +297,7 @@ export const ChatMessage = React.memo<ChatMessageProps>(
                           <>
                             <h4
                               className={cn(
-                                "mb-2 text-xs font-semibold uppercase tracking-wider text-primary/70",
+                                "text-primary/70 mb-2 text-xs font-semibold uppercase tracking-wider",
                                 showMutedRuntime && "text-muted-foreground/70"
                               )}
                             >

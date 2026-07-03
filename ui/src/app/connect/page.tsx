@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import {
   clearConnectionConfig,
   getConfig,
@@ -24,6 +25,7 @@ import {
 
 export default function ConnectPage() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [deploymentUrl, setDeploymentUrl] = useState("");
   const [assistantId, setAssistantId] = useState("");
 
@@ -40,14 +42,14 @@ export default function ConnectPage() {
     const nextAssistantId = assistantId.trim();
 
     if (!nextDeploymentUrl || !nextAssistantId) {
-      toast.error("请填写服务器地址和 Assistant ID");
+      toast.error(t("connectionMissingFields"));
       return;
     }
 
     try {
       new URL(nextDeploymentUrl);
     } catch {
-      toast.error("服务器地址需要是完整 URL");
+      toast.error(t("serverUrlRequired"));
       return;
     }
 
@@ -56,7 +58,7 @@ export default function ConnectPage() {
       assistantId: nextAssistantId,
     });
 
-    toast.success("连接配置已保存");
+    toast.success(t("connectionSaved"));
     router.push(`/?assistantId=${encodeURIComponent(nextAssistantId)}`);
   }
 
@@ -65,7 +67,7 @@ export default function ConnectPage() {
     clearConnectionConfig();
     setDeploymentUrl(config.deploymentUrl);
     setAssistantId(config.assistantId);
-    toast.success("已恢复默认连接配置");
+    toast.success(t("defaultConnectionRestored"));
   }
 
   return (
@@ -80,13 +82,15 @@ export default function ConnectPage() {
           >
             <Link href="/?assistantId=agent">
               <ArrowLeft className="h-4 w-4" />
-              工作台
+              {t("backToWorkbench")}
             </Link>
           </Button>
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold">连接服务器</h1>
+            <h1 className="truncate text-xl font-semibold">
+              {t("connectServer")}
+            </h1>
             <p className="truncate text-xs text-muted-foreground">
-              配置 InternAgents 要连接的本地或远程服务
+              {t("connectServerSubtitle")}
             </p>
           </div>
         </div>
@@ -102,16 +106,18 @@ export default function ConnectPage() {
               <Server className="h-5 w-5 text-[#2F6868]" />
             </div>
             <div>
-              <h2 className="text-base font-semibold">服务器连接</h2>
+              <h2 className="text-base font-semibold">
+                {t("serverConnection")}
+              </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                本机默认连接 LangGraph 开发服务；保存后回到工作台会自动使用新配置。
+                {t("serverConnectionDescription")}
               </p>
             </div>
           </div>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="deployment-url">服务器地址</Label>
+              <Label htmlFor="deployment-url">{t("serverAddress")}</Label>
               <Input
                 id="deployment-url"
                 value={deploymentUrl}
@@ -138,14 +144,14 @@ export default function ConnectPage() {
               onClick={restoreDefault}
             >
               <RotateCcw className="h-4 w-4" />
-              恢复默认
+              {t("restoreDefault")}
             </Button>
             <Button
               type="submit"
               className="bg-[#2F6868] text-white hover:bg-[#2F6868]/90"
             >
               <Save className="h-4 w-4" />
-              保存并返回工作台
+              {t("saveAndReturnWorkbench")}
             </Button>
           </div>
         </form>
@@ -157,13 +163,13 @@ export default function ConnectPage() {
             </div>
             <div className="min-w-0">
               <h2 className="flex items-center gap-2 text-base font-semibold">
-                云端托管
+                {t("cloudHosting")}
                 <span className="rounded-full border border-[#BFD9D4] bg-[#F1F7F5] px-2 py-0.5 text-[11px] font-medium leading-4 text-[#2F6868]">
                   Beta
                 </span>
               </h2>
               <div className="mt-1 text-sm text-muted-foreground">
-                连接云端部署的 InternAgents，让同一个助手可以长期运行、跨设备访问。
+                {t("cloudHostingDescription")}
               </div>
             </div>
           </div>
@@ -171,16 +177,18 @@ export default function ConnectPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border border-border/80 bg-background px-3 py-3">
               <Globe2 className="mb-2 h-4 w-4 text-[#2F6868]" />
-              <div className="text-sm font-medium">部署地址</div>
+              <div className="text-sm font-medium">
+                {t("deploymentAddress")}
+              </div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                将云端 Deployment URL 填入上方服务器地址。
+                {t("deploymentAddressHelp")}
               </div>
             </div>
             <div className="rounded-md border border-border/80 bg-background px-3 py-3">
               <Server className="mb-2 h-4 w-4 text-[#2F6868]" />
               <div className="text-sm font-medium">Assistant ID</div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                使用云端 graph 或 assistant 对应的 ID。
+                {t("assistantIdHelp")}
               </div>
             </div>
           </div>

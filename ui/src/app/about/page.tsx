@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/app/hooks/useLanguage";
 import { workbenchHrefFromSearchParams } from "@/app/utils/navigationContext";
 
 type UpdateState =
@@ -100,9 +101,9 @@ function formatBytes(value: number) {
   return `${size.toFixed(digits)} ${units[unitIndex]}`;
 }
 
-function formatPercent(value: number | undefined) {
+function formatPercent(value: number | undefined, fallbackLabel: string) {
   if (value === undefined) {
-    return "下载中";
+    return fallbackLabel;
   }
 
   const clamped = Math.min(100, Math.max(0, value));
@@ -112,6 +113,7 @@ function formatPercent(value: number | undefined) {
 
 function AboutPageContent() {
   const searchParams = useSearchParams();
+  const { t } = useLanguage();
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusResult | null>(
     null
   );
@@ -149,9 +151,9 @@ function AboutPageContent() {
     const total =
       downloadProgress.totalBytes !== undefined
         ? formatBytes(downloadProgress.totalBytes)
-        : "未知大小";
+        : t("unknownSize");
     return `${downloaded} / ${total}`;
-  }, [downloadProgress]);
+  }, [downloadProgress, t]);
 
   const loadUpdateStatus = useCallback(
     async (options?: { quiet?: boolean }) => {
@@ -168,7 +170,7 @@ function AboutPageContent() {
         };
         if (!response.ok) {
           throw new Error(
-            payload.error || payload.message || "更新状态读取失败"
+            payload.error || payload.message || t("updateStatusReadFailed")
           );
         }
         setUpdateStatus(payload);
@@ -176,7 +178,7 @@ function AboutPageContent() {
         const message =
           statusError instanceof Error
             ? statusError.message
-            : "更新状态读取失败";
+            : t("updateStatusReadFailed");
         if (!options?.quiet) {
           setError(message);
           toast.error(message);
@@ -187,7 +189,7 @@ function AboutPageContent() {
         }
       }
     },
-    []
+    [t]
   );
 
   async function checkForSoftwareUpdate() {
@@ -202,12 +204,16 @@ function AboutPageContent() {
       };
       setUpdateStatus(payload);
       if (!response.ok) {
-        throw new Error(payload.error || payload.message || "检查更新失败");
+        throw new Error(
+          payload.error || payload.message || t("checkUpdateFailed")
+        );
       }
       toast.success(payload.message);
     } catch (checkError) {
       const message =
-        checkError instanceof Error ? checkError.message : "检查更新失败";
+        checkError instanceof Error
+          ? checkError.message
+          : t("checkUpdateFailed");
       setError(message);
       toast.error(message);
     } finally {
@@ -220,12 +226,12 @@ function AboutPageContent() {
     const confirmed = window.confirm(
       [
         latestTag
-          ? `即将从 InternScience/InternAgents 更新到 ${latestTag}。`
-          : "即将从 InternScience/InternAgents 更新到最新 release。",
+          ? t("confirmUpdateToTag", { tag: latestTag })
+          : t("confirmUpdateToLatest"),
         "",
-        "更新会下载最新 DMG，退出当前 App，替换本机 .app 后重新打开。",
+        t("confirmUpdateBody"),
         "",
-        "确认继续？",
+        t("confirmContinue"),
       ].join("\n")
     );
     if (!confirmed) {
@@ -243,7 +249,7 @@ function AboutPageContent() {
       };
       setUpdateStatus(payload);
       if (!response.ok) {
-        throw new Error(payload.error || payload.message || "更新失败");
+        throw new Error(payload.error || payload.message || t("updateFailed"));
       }
       toast.success(payload.message);
       if (payload.state === "applied") {
@@ -251,7 +257,7 @@ function AboutPageContent() {
       }
     } catch (applyError) {
       const message =
-        applyError instanceof Error ? applyError.message : "更新失败";
+        applyError instanceof Error ? applyError.message : t("updateFailed");
       setError(message);
       toast.error(message);
     } finally {
@@ -264,12 +270,12 @@ function AboutPageContent() {
     const confirmed = window.confirm(
       [
         previousLabel
-          ? `即将回滚到 ${previousLabel}。`
-          : "即将回滚到上一版本。",
+          ? t("confirmRollbackToVersion", { version: previousLabel })
+          : t("confirmRollbackPrevious"),
         "",
-        "当前 App 安装器模式不支持自动回滚；如需回滚，请下载上一版 DMG 手动安装。",
+        t("rollbackUnsupportedBody"),
         "",
-        "确认继续？",
+        t("confirmContinue"),
       ].join("\n")
     );
     if (!confirmed) {
@@ -287,7 +293,9 @@ function AboutPageContent() {
       };
       setUpdateStatus(payload);
       if (!response.ok) {
-        throw new Error(payload.error || payload.message || "回滚失败");
+        throw new Error(
+          payload.error || payload.message || t("rollbackFailed")
+        );
       }
       toast.success(payload.message);
       if (payload.state === "rolled-back") {
@@ -295,7 +303,9 @@ function AboutPageContent() {
       }
     } catch (rollbackError) {
       const message =
-        rollbackError instanceof Error ? rollbackError.message : "回滚失败";
+        rollbackError instanceof Error
+          ? rollbackError.message
+          : t("rollbackFailed");
       setError(message);
       toast.error(message);
     } finally {
@@ -331,13 +341,15 @@ function AboutPageContent() {
           >
             <Link href={workbenchHref}>
               <ArrowLeft className="h-4 w-4" />
-              工作台
+              {t("backToWorkbench")}
             </Link>
           </Button>
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold">关于与更新</h1>
+            <h1 className="truncate text-xl font-semibold">
+              {t("aboutAndUpdates")}
+            </h1>
             <div className="truncate text-xs text-muted-foreground">
-              自我介绍和本机更新
+              {t("aboutSubtitle")}
             </div>
           </div>
         </div>
@@ -358,14 +370,11 @@ function AboutPageContent() {
                   <Info className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-base font-semibold">我是 InternAgents</h2>
+                  <h2 className="text-base font-semibold">
+                    {t("aboutIntroTitle")}
+                  </h2>
                   <div className="mt-1 max-w-3xl space-y-2 text-sm leading-6 text-muted-foreground">
-                    <p>
-                      InternAgents
-                      由上海人工智能实验室研发。它不是一个单纯“会聊天”的大模型，而是一个面向科研与技术探索的大模型智能体。它将对话、文件、代码和计算资源组织在同一个工作台中，让
-                      AI
-                      不只是回答问题，而是能够进入真实的研究与开发过程，协助理解材料、拆解任务、调用工具、推进实验，并在关键步骤中保留人的监督、审批和纠偏能力。
-                    </p>
+                    <p>{t("aboutIntroBody")}</p>
                   </div>
                 </div>
               </div>
@@ -380,7 +389,7 @@ function AboutPageContent() {
                   rel="noreferrer"
                 >
                   <BookOpen className="h-4 w-4" />
-                  帮助文档
+                  {t("helpDocs")}
                 </a>
               </Button>
             </div>
@@ -393,9 +402,9 @@ function AboutPageContent() {
                   <GitBranch className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-base font-semibold">更新</h2>
+                  <h2 className="text-base font-semibold">{t("updates")}</h2>
                   <div className="mt-1 text-sm text-muted-foreground">
-                    查看当前版本并从 GitHub Release 获取更新。
+                    {t("updateDescription")}
                   </div>
                 </div>
               </div>
@@ -417,7 +426,7 @@ function AboutPageContent() {
                   ) : (
                     <Download className="h-4 w-4" />
                   )}
-                  一键更新
+                  {t("oneClickUpdate")}
                 </Button>
                 <Button
                   type="button"
@@ -432,7 +441,7 @@ function AboutPageContent() {
                   ) : (
                     <RefreshCw className="h-4 w-4" />
                   )}
-                  检查更新
+                  {t("checkUpdate")}
                 </Button>
                 {updateStatus?.previous && (
                   <Button
@@ -448,7 +457,7 @@ function AboutPageContent() {
                     ) : (
                       <RotateCcw className="h-4 w-4" />
                     )}
-                    回滚上一版本
+                    {t("rollbackPreviousVersion")}
                   </Button>
                 )}
               </div>
@@ -457,8 +466,7 @@ function AboutPageContent() {
             <div className="space-y-4">
               {updateStatus?.current.dirty && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
-                  {updateStatus.current.dirtyReason ||
-                    "当前安装目录有未提交改动，暂不能一键更新。"}
+                  {updateStatus.current.dirtyReason || t("dirtyInstallDefault")}
                 </div>
               )}
               {updateStatus?.blockReason && (
@@ -469,16 +477,20 @@ function AboutPageContent() {
 
               <div className="grid gap-3 text-sm md:grid-cols-3">
                 <div className="min-w-0">
-                  <div className="text-xs text-muted-foreground">当前版本</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("currentVersion")}
+                  </div>
                   <div className="mt-1 truncate font-mono text-sm">
                     {updateStatus?.current.exactTag ||
                       `v${updateStatus?.current.version || "0.0.0"}`}
                   </div>
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs text-muted-foreground">最新版本</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("latestVersion")}
+                  </div>
                   <div className="mt-1 truncate font-mono text-sm">
-                    {updateStatus?.latest?.tagName || "尚未检查"}
+                    {updateStatus?.latest?.tagName || t("notCheckedYet")}
                   </div>
                   {updateStatus?.latest?.publishedAt && (
                     <div className="mt-1 truncate text-xs text-muted-foreground">
@@ -489,14 +501,18 @@ function AboutPageContent() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs text-muted-foreground">更新状态</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("updateStatus")}
+                  </div>
                   <div className="mt-1 truncate text-sm">
-                    {updateStatus?.message || "正在读取更新状态..."}
+                    {updateStatus?.message || t("readingUpdateStatus")}
                   </div>
                   <div className="mt-1 truncate text-xs text-muted-foreground">
                     {updateStatus?.backendRestart?.message ||
                       updateStatus?.latest?.asset?.name ||
-                      (updateStatus ? "GitHub Release DMG" : "等待状态读取")}
+                      (updateStatus
+                        ? t("githubReleaseDmg")
+                        : t("waitingStatus"))}
                   </div>
                 </div>
               </div>
@@ -508,7 +524,7 @@ function AboutPageContent() {
                       {downloadProgress.assetName}
                     </div>
                     <div className="shrink-0 font-mono text-muted-foreground">
-                      {formatPercent(downloadPercent)}
+                      {formatPercent(downloadPercent, t("downloadingFallback"))}
                     </div>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
@@ -536,7 +552,7 @@ function AboutPageContent() {
               {updateStatus?.latest?.notes && (
                 <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
                   <div className="mb-1 text-xs font-medium text-muted-foreground">
-                    Release Notes
+                    {t("releaseNotes")}
                   </div>
                   <div className="line-clamp-3 whitespace-pre-line text-muted-foreground">
                     {updateStatus.latest.notes}

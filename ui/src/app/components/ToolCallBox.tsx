@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { LoadExternalComponent } from "@langchain/langgraph-sdk/react-ui";
 import { ToolApprovalInterrupt } from "@/app/components/ToolApprovalInterrupt";
 import { getToolDisplayName } from "@/app/utils/toolDisplayNames";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
 interface ToolCallBoxProps {
   toolCall: ToolCall;
@@ -43,13 +44,12 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     muted,
     autoExpandDetails,
   }) => {
+    const { language, t } = useLanguage();
     const useMutedStyle = Boolean(isLoading || muted) && !actionRequest;
     const shouldAutoExpandDetails = Boolean(
       uiComponent || actionRequest || autoExpandDetails
     );
-    const [isExpanded, setIsExpanded] = useState(
-      () => shouldAutoExpandDetails
-    );
+    const [isExpanded, setIsExpanded] = useState(() => shouldAutoExpandDetails);
     const [expandedArgs, setExpandedArgs] = useState<Record<string, boolean>>(
       {}
     );
@@ -57,12 +57,12 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     const { displayName, args, result, status } = useMemo(() => {
       const rawName = toolCall.name || "";
       return {
-        displayName: getToolDisplayName(rawName),
+        displayName: getToolDisplayName(rawName, language),
         args: toolCall.args || {},
         result: toolCall.result,
         status: toolCall.status || "completed",
       };
-    }, [toolCall]);
+    }, [language, toolCall]);
 
     useEffect(() => {
       if (shouldAutoExpandDetails) {
@@ -73,17 +73,17 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
     const statusLabel = useMemo(() => {
       switch (status) {
         case "completed":
-          return "已完成";
+          return t("complete");
         case "error":
-          return "未返回结果";
+          return t("missingResult");
         case "pending":
-          return "运行中";
+          return t("running");
         case "interrupted":
-          return "已中断";
+          return t("interrupted");
         default:
-          return "工具调用";
+          return t("toolCall");
       }
-    }, [status]);
+    }, [status, t]);
 
     const statusIcon = useMemo(() => {
       const mutedClassName = useMutedStyle ? "text-muted-foreground/70" : "";
@@ -203,12 +203,7 @@ export const ToolCallBox = React.memo<ToolCallBoxProps>(
         {isExpanded && hasContent && (
           <div className="px-4 pb-4">
             {uiComponent && stream && graphId ? (
-              <div
-                className={cn(
-                  "mt-4",
-                  useMutedStyle && "opacity-90"
-                )}
-              >
+              <div className={cn("mt-4", useMutedStyle && "opacity-90")}>
                 <LoadExternalComponent
                   key={uiComponent.id}
                   stream={stream}

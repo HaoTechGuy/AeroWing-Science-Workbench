@@ -1,11 +1,18 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Group, PerspectiveCamera, WebGLRenderer } from "three";
 import { Maximize2, RotateCcw, Waves } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { WorkspaceFileResponse } from "@/app/types/workspace";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
 type ScienceSceneType =
   | "crystal"
@@ -83,6 +90,12 @@ function getScienceExtension(file: WorkspaceFileResponse) {
   return dotIndex >= 0 ? lowerPath.slice(dotIndex) : "";
 }
 
+class UnsupportedScienceFormatError extends Error {
+  constructor(readonly extension: string) {
+    super("Unsupported science file format");
+  }
+}
+
 function splitDataTokens(line: string) {
   return (
     line
@@ -141,15 +154,9 @@ function parseCifScene(
         header.endsWith(".type_symbol") ||
         header.endsWith(".label")
     );
-    const xIndex = headers.findIndex((header) =>
-      header.includes("fract_x")
-    );
-    const yIndex = headers.findIndex((header) =>
-      header.includes("fract_y")
-    );
-    const zIndex = headers.findIndex((header) =>
-      header.includes("fract_z")
-    );
+    const xIndex = headers.findIndex((header) => header.includes("fract_x"));
+    const yIndex = headers.findIndex((header) => header.includes("fract_y"));
+    const zIndex = headers.findIndex((header) => header.includes("fract_z"));
 
     if (symbolIndex < 0 || xIndex < 0 || yIndex < 0 || zIndex < 0) {
       continue;
@@ -198,7 +205,10 @@ function parseCifScene(
     metrics: [
       metric("format", "CIF"),
       metric("atoms", atoms.length),
-      metric("cell a", Number.isFinite(cellA) ? `${cellA.toFixed(3)} A` : "n/a"),
+      metric(
+        "cell a",
+        Number.isFinite(cellA) ? `${cellA.toFixed(3)} A` : "n/a"
+      ),
     ],
     lattice: {
       cellSize: 1.06,
@@ -274,7 +284,9 @@ function parseJcampScene(content: string): ScienceSceneData {
     x: Number.parseFloat(match[1]),
     y: Number.parseFloat(match[2]),
   }));
-  const values = pairs.filter((pair) => Number.isFinite(pair.x) && Number.isFinite(pair.y));
+  const values = pairs.filter(
+    (pair) => Number.isFinite(pair.x) && Number.isFinite(pair.y)
+  );
   const minX = Math.min(
     ...values.map((pair) => pair.x),
     Number.isFinite(firstX) ? firstX : Infinity,
@@ -293,9 +305,7 @@ function parseJcampScene(content: string): ScienceSceneData {
     return {
       color:
         assignment?.color ||
-        ["#38bdf8", "#2dd4bf", "#a78bfa", "#f59e0b", "#fb7185"][
-          index % 5
-        ],
+        ["#38bdf8", "#2dd4bf", "#a78bfa", "#f59e0b", "#fb7185"][index % 5],
       fragment: assignment?.fragment || `${pair.x} ${xUnits}`,
       height,
       label: assignment?.label || `${Math.round(pair.x)}`,
@@ -371,7 +381,9 @@ function parseVtiVolumeScene(content: string): ScienceSceneData {
   };
 }
 
-function parseScienceScene(file: WorkspaceFileResponse): ScienceSceneData | null {
+function parseScienceScene(
+  file: WorkspaceFileResponse
+): ScienceSceneData | null {
   if (!file.content) return null;
   const extension = getScienceExtension(file);
 
@@ -385,7 +397,7 @@ function parseScienceScene(file: WorkspaceFileResponse): ScienceSceneData | null
   if (extension === ".vtk") return parseVtkFlowScene(file.content);
   if (extension === ".vti") return parseVtiVolumeScene(file.content);
 
-  throw new Error(`暂不支持 ${extension || "这个"} 科学文件格式。`);
+  throw new UnsupportedScienceFormatError(extension);
 }
 
 function isThreeScene(type: ScienceSceneType) {
@@ -400,7 +412,11 @@ function normalizeVector(value: unknown, fallback: [number, number, number]) {
     : fallback;
 }
 
-function createGridLines(THREE: typeof import("three"), repeat: number[], cellSize: number) {
+function createGridLines(
+  THREE: typeof import("three"),
+  repeat: number[],
+  cellSize: number
+) {
   const [rx, ry, rz] = repeat;
   const width = rx * cellSize;
   const height = ry * cellSize;
@@ -459,7 +475,12 @@ function buildCrystalScene(
     ? (data.atoms as CrystalAtom[])
     : [
         { element: "A", color: "#6d5dfc", radius: 0.2, position: [0, 0, 0] },
-        { element: "B", color: "#19b6a3", radius: 0.18, position: [0.5, 0.5, 0.5] },
+        {
+          element: "B",
+          color: "#19b6a3",
+          radius: 0.18,
+          position: [0.5, 0.5, 0.5],
+        },
       ];
 
   root.add(createGridLines(THREE, repeat, cellSize));
@@ -514,7 +535,11 @@ function buildOrbitalScene(
       vector.fromBufferAttribute(position, i);
       const angle = Math.atan2(vector.z, vector.x);
       const polar = Math.acos(
-        THREE.MathUtils.clamp(vector.y / Math.max(vector.length(), 0.0001), -1, 1)
+        THREE.MathUtils.clamp(
+          vector.y / Math.max(vector.length(), 0.0001),
+          -1,
+          1
+        )
       );
       const ripple =
         1 +
@@ -709,7 +734,8 @@ function buildOrbitalScene(
         baseScale[2] * localPulse
       );
     });
-    (halo.material as import("three").ShaderMaterial).uniforms.uTime.value = time;
+    (halo.material as import("three").ShaderMaterial).uniforms.uTime.value =
+      time;
     rings.forEach((ring, index) => {
       ring.rotation.z = time * (0.11 + index * 0.035);
       ring.rotation.x = Math.PI / 2 + Math.sin(time * 0.5 + index) * 0.08;
@@ -736,9 +762,10 @@ function buildFlowScene(
 
   for (let i = 0; i < count; i += 1) {
     const mix = (i % 97) / 96;
-    const color = mix < 0.5
-      ? colorA.clone().lerp(colorC, mix * 2)
-      : colorC.clone().lerp(colorB, (mix - 0.5) * 2);
+    const color =
+      mix < 0.5
+        ? colorA.clone().lerp(colorC, mix * 2)
+        : colorC.clone().lerp(colorB, (mix - 0.5) * 2);
     colors.set([color.r, color.g, color.b], i * 3);
   }
 
@@ -938,7 +965,8 @@ function createMicroscopyTexture(
   for (let i = 0; i < 54; i += 1) {
     const phase = i * 1.618 + index * 0.27;
     const radiusBand = 22 + ((i * 29 + index * 11) % 96);
-    const x = size / 2 + Math.cos(phase) * radiusBand * (0.78 + centerPulse * 0.18);
+    const x =
+      size / 2 + Math.cos(phase) * radiusBand * (0.78 + centerPulse * 0.18);
     const y =
       size / 2 +
       Math.sin(phase * 1.13) *
@@ -968,7 +996,9 @@ function createMicroscopyTexture(
   }
 
   for (let y = 0; y < size; y += 9) {
-    context.fillStyle = `rgba(255, 255, 255, ${0.014 + ((y + index) % 5) * 0.002})`;
+    context.fillStyle = `rgba(255, 255, 255, ${
+      0.014 + ((y + index) % 5) * 0.002
+    })`;
     context.fillRect(0, y + Math.sin(index * 0.2 + y) * 1.4, size, 1);
   }
 
@@ -1002,7 +1032,8 @@ function buildMicroscopyScene(
         color: "#ffffff",
         depthWrite: false,
         map: texture,
-        opacity: 0.12 + Math.sin((i / Math.max(1, slices - 1)) * Math.PI) * 0.08,
+        opacity:
+          0.12 + Math.sin((i / Math.max(1, slices - 1)) * Math.PI) * 0.08,
         side: THREE.DoubleSide,
         transparent: true,
       })
@@ -1044,7 +1075,10 @@ function buildMicroscopyScene(
     "position",
     new THREE.BufferAttribute(pointPositions, 3)
   );
-  pointGeometry.setAttribute("color", new THREE.BufferAttribute(pointColors, 3));
+  pointGeometry.setAttribute(
+    "color",
+    new THREE.BufferAttribute(pointColors, 3)
+  );
   const hotspots = new THREE.Points(
     pointGeometry,
     new THREE.PointsMaterial({
@@ -1116,9 +1150,24 @@ function buildMicroscopyScene(
       "position",
       new THREE.Float32BufferAttribute(
         [
-          -2.05, 0, 0, 2.05, 0, 0,
-          0, -2.05, 0, 0, 2.05, 0,
-          0, 0, -slices * sliceSpacing * 0.52, 0, 0, slices * sliceSpacing * 0.52,
+          -2.05,
+          0,
+          0,
+          2.05,
+          0,
+          0,
+          0,
+          -2.05,
+          0,
+          0,
+          2.05,
+          0,
+          0,
+          0,
+          -slices * sliceSpacing * 0.52,
+          0,
+          0,
+          slices * sliceSpacing * 0.52,
         ],
         3
       )
@@ -1181,7 +1230,10 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
     [peaks]
   );
   const [activePeak, setActivePeak] = useState(0);
-  const activeIndex = Math.min(activePeak, Math.max(visiblePeaks.length - 1, 0));
+  const activeIndex = Math.min(
+    activePeak,
+    Math.max(visiblePeaks.length - 1, 0)
+  );
   const active = visiblePeaks[activeIndex];
   const spectrum = useMemo(() => {
     const signalAt = (sample: number) => {
@@ -1264,11 +1316,9 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
         color: peak.color || "#f8fafc",
         fragmentX,
         fragmentY,
-        linkPath: `M ${x.toFixed(1)} ${(y + 8).toFixed(1)} C ${x.toFixed(
-          1
-        )} ${(SPECTRUM_PLOT.bottom + 22).toFixed(
-          1
-        )} ${fragmentX.toFixed(1)} ${(fragmentY - 54).toFixed(
+        linkPath: `M ${x.toFixed(1)} ${(y + 8).toFixed(1)} C ${x.toFixed(1)} ${(
+          SPECTRUM_PLOT.bottom + 22
+        ).toFixed(1)} ${fragmentX.toFixed(1)} ${(fragmentY - 54).toFixed(
           1
         )} ${fragmentX.toFixed(1)} ${fragmentY.toFixed(1)}`,
         x,
@@ -1302,34 +1352,102 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
               y1="0"
               y2="0"
             >
-              <stop offset="0%" stopColor="#2dd4bf" />
-              <stop offset="55%" stopColor="#a78bfa" />
-              <stop offset="100%" stopColor="#fb7185" />
+              <stop
+                offset="0%"
+                stopColor="#2dd4bf"
+              />
+              <stop
+                offset="55%"
+                stopColor="#a78bfa"
+              />
+              <stop
+                offset="100%"
+                stopColor="#fb7185"
+              />
             </linearGradient>
-            <linearGradient id="spectrum-fill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#2dd4bf" stopOpacity="0.34" />
-              <stop offset="45%" stopColor="#a78bfa" stopOpacity="0.12" />
-              <stop offset="100%" stopColor="#020617" stopOpacity="0" />
+            <linearGradient
+              id="spectrum-fill"
+              x1="0"
+              x2="0"
+              y1="0"
+              y2="1"
+            >
+              <stop
+                offset="0%"
+                stopColor="#2dd4bf"
+                stopOpacity="0.34"
+              />
+              <stop
+                offset="45%"
+                stopColor="#a78bfa"
+                stopOpacity="0.12"
+              />
+              <stop
+                offset="100%"
+                stopColor="#020617"
+                stopOpacity="0"
+              />
             </linearGradient>
-            <linearGradient id="spectrum-scan" x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0%" stopColor="#22d3ee" stopOpacity="0" />
-              <stop offset="45%" stopColor="#e0f2fe" stopOpacity="0.17" />
-              <stop offset="100%" stopColor="#fb7185" stopOpacity="0" />
+            <linearGradient
+              id="spectrum-scan"
+              x1="0"
+              x2="1"
+              y1="0"
+              y2="0"
+            >
+              <stop
+                offset="0%"
+                stopColor="#22d3ee"
+                stopOpacity="0"
+              />
+              <stop
+                offset="45%"
+                stopColor="#e0f2fe"
+                stopOpacity="0.17"
+              />
+              <stop
+                offset="100%"
+                stopColor="#fb7185"
+                stopOpacity="0"
+              />
             </linearGradient>
-            <radialGradient id="spectrum-bg" cx="52%" cy="44%" r="68%">
-              <stop offset="0%" stopColor="#164e63" stopOpacity="0.42" />
-              <stop offset="54%" stopColor="#111827" stopOpacity="0.58" />
-              <stop offset="100%" stopColor="#020617" stopOpacity="1" />
+            <radialGradient
+              id="spectrum-bg"
+              cx="52%"
+              cy="44%"
+              r="68%"
+            >
+              <stop
+                offset="0%"
+                stopColor="#164e63"
+                stopOpacity="0.42"
+              />
+              <stop
+                offset="54%"
+                stopColor="#111827"
+                stopOpacity="0.58"
+              />
+              <stop
+                offset="100%"
+                stopColor="#020617"
+                stopOpacity="1"
+              />
             </radialGradient>
             <filter id="spectrum-glow">
-              <feGaussianBlur stdDeviation="6" result="blur" />
+              <feGaussianBlur
+                stdDeviation="6"
+                result="blur"
+              />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
             <filter id="spectrum-soft-glow">
-              <feGaussianBlur stdDeviation="12" result="blur" />
+              <feGaussianBlur
+                stdDeviation="12"
+                result="blur"
+              />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
@@ -1390,17 +1508,17 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
               y={SPECTRUM_PLOT.top}
               width={Math.min(
                 84,
-                SPECTRUM_PLOT.left +
-                  SPECTRUM_PLOT.width -
-                  activeNode.x +
-                  42
+                SPECTRUM_PLOT.left + SPECTRUM_PLOT.width - activeNode.x + 42
               )}
               height={SPECTRUM_PLOT.height}
               fill="url(#spectrum-scan)"
               opacity="0.82"
             />
           )}
-          <path d={spectrum.areaPath} fill="url(#spectrum-fill)" />
+          <path
+            d={spectrum.areaPath}
+            fill="url(#spectrum-fill)"
+          />
           <path
             d={spectrum.linePath}
             fill="none"
@@ -1510,7 +1628,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
           <p className="truncate text-sm font-semibold">
             {active?.label || "peak"}
           </p>
-          <p className="truncate text-xs text-white/62">
+          <p className="text-white/62 truncate text-xs">
             {active?.fragment || "spectral fragment"}
           </p>
         </div>
@@ -1522,8 +1640,8 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
               className={cn(
                 "h-8 rounded-md border px-2 text-xs transition-colors",
                 index === activeIndex
-                  ? "border-white/45 bg-white/16 text-white"
-                  : "border-white/10 bg-white/5 text-white/62 hover:border-white/25 hover:text-white"
+                  ? "bg-white/16 border-white/45 text-white"
+                  : "text-white/62 border-white/10 bg-white/5 hover:border-white/25 hover:text-white"
               )}
               onClick={() => setActivePeak(index)}
             >
@@ -1538,7 +1656,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
 
 function ScienceOverlay({ data }: { data: ScienceSceneData }) {
   return (
-    <div className="pointer-events-none absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-md border border-white/12 bg-black/30 px-3 py-2 text-white shadow-lg backdrop-blur">
+    <div className="border-white/12 pointer-events-none absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)] rounded-md border bg-black/30 px-3 py-2 text-white shadow-lg backdrop-blur">
       <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-white/65">
         <Waves className="h-3.5 w-3.5" />
         {SCENE_LABELS[data.type]}
@@ -1547,7 +1665,7 @@ function ScienceOverlay({ data }: { data: ScienceSceneData }) {
         {data.title || SCENE_LABELS[data.type]}
       </div>
       {data.subtitle && (
-        <div className="mt-0.5 truncate text-xs text-white/62">
+        <div className="text-white/62 mt-0.5 truncate text-xs">
           {data.subtitle}
         </div>
       )}
@@ -1568,6 +1686,7 @@ function ScienceOverlay({ data }: { data: ScienceSceneData }) {
 }
 
 function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
+  const { t } = useLanguage();
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<WebGLRenderer | null>(null);
   const cameraRef = useRef<PerspectiveCamera | null>(null);
@@ -1625,15 +1744,18 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
     []
   );
 
-  const finishDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId === event.pointerId) {
-      dragRef.current = null;
-      setIsDragging(false);
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
+  const finishDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (dragRef.current?.pointerId === event.pointerId) {
+        dragRef.current = null;
+        setIsDragging(false);
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
       }
-    }
-  }, []);
+    },
+    []
+  );
 
   const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     const camera = cameraRef.current;
@@ -1741,7 +1863,7 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
       setError(
         setupError instanceof Error
           ? setupError.message
-          : "无法渲染科学场景。"
+          : t("scienceRenderFailed")
       );
     });
 
@@ -1753,7 +1875,7 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
       rootRef.current = null;
       dragRef.current = null;
     };
-  }, [data]);
+  }, [data, t]);
 
   return (
     <div
@@ -1775,7 +1897,7 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
       />
       <ScienceOverlay data={data} />
       <div
-        className="absolute right-3 top-3 z-10 flex gap-1 rounded-md border border-white/12 bg-black/30 p-1 shadow-lg backdrop-blur"
+        className="border-white/12 absolute right-3 top-3 z-10 flex gap-1 rounded-md border bg-black/30 p-1 shadow-lg backdrop-blur"
         data-science-controls="true"
       >
         <Button
@@ -1784,8 +1906,8 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
           size="icon"
           className="h-7 w-7 text-white/75 hover:bg-white/10 hover:text-white"
           onClick={resetView}
-          aria-label="重置视角"
-          title="重置视角"
+          aria-label={t("resetView")}
+          title={t("resetView")}
         >
           <RotateCcw className="h-3.5 w-3.5" />
         </Button>
@@ -1803,23 +1925,34 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
 }
 
 export function ScienceSceneViewer({ file }: { file: WorkspaceFileResponse }) {
+  const { t } = useLanguage();
   const { data, error } = useMemo(() => {
     try {
       return { data: parseScienceScene(file), error: null };
     } catch (parseError) {
+      if (parseError instanceof UnsupportedScienceFormatError) {
+        return {
+          data: null,
+          error: t("unsupportedScienceFormat", {
+            extension: parseError.extension || t("thisFile"),
+          }),
+        };
+      }
       return {
         data: null,
         error:
-          parseError instanceof Error ? parseError.message : "无法解析科学场景。",
+          parseError instanceof Error
+            ? parseError.message
+            : t("scienceParseFailed"),
       };
     }
-  }, [file]);
+  }, [file, t]);
 
   if (file.tooLarge) {
     return (
       <div className="flex h-full items-center justify-center bg-muted/30 px-8 text-center">
         <div className="rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-          这个科学场景文件太大，无法在这里直接渲染。
+          {t("scienceTooLarge")}
         </div>
       </div>
     );
@@ -1829,7 +1962,7 @@ export function ScienceSceneViewer({ file }: { file: WorkspaceFileResponse }) {
     return (
       <div className="flex h-full items-center justify-center bg-muted/30 px-8 text-center">
         <div className="rounded-md border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-          {error || "无法读取这个科学场景文件。"}
+          {error || t("scienceReadFailed")}
         </div>
       </div>
     );

@@ -1,5 +1,9 @@
-const IMAGE_INPUT_UNSUPPORTED_CHAT_MESSAGE =
-  "当前模型端点不支持图片输入：模型服务拒绝了 image_url 内容块（只接受 text）。系统会移除图片内容并仅基于文本继续；如需图片理解，请切换支持视觉输入的模型。";
+import type { CopyKey } from "@/lib/i18n";
+
+type Translate = (
+  key: CopyKey,
+  params?: Record<string, string | number>
+) => string;
 
 function normalizeErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -11,12 +15,15 @@ function normalizeErrorMessage(error: unknown): string {
   return JSON.stringify(error);
 }
 
-function specificProviderErrorMessage(message: string): string | null {
+function specificProviderErrorMessage(
+  message: string,
+  t: Translate
+): string | null {
   const normalized = message.replace(/\\"/g, '"').replace(/\\'/g, "'");
   const lowered = normalized.toLowerCase();
 
   if (normalized.includes("当前模型端点不支持图片输入")) {
-    return normalized;
+    return t("imageInputUnsupported");
   }
 
   const mentionsImageUrl = lowered.includes("image_url");
@@ -29,44 +36,41 @@ function specificProviderErrorMessage(message: string): string | null {
     /unsupported image input/i.test(normalized);
 
   if ((mentionsImageUrl && textOnlyVariant) || explicitImageUnsupported) {
-    return IMAGE_INPUT_UNSUPPORTED_CHAT_MESSAGE;
+    return t("imageInputUnsupported");
   }
 
   return null;
 }
 
-export function formatChatError(error: unknown): string | null {
+export function formatChatError(error: unknown, t: Translate): string | null {
   if (!error) {
     return null;
   }
 
   const message = normalizeErrorMessage(error);
-  const specificMessage = specificProviderErrorMessage(message);
+  const specificMessage = specificProviderErrorMessage(message, t);
   if (specificMessage) {
     return specificMessage;
   }
 
   if (isMalformedRemoteRuntimeError(message)) {
-    return (
-      "远程 Agent runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应，" +
-      "请查看 backend 和 runtime 日志获取真实失败原因。"
-    );
+    return t("remoteRuntimeMalformed");
   }
 
-  const remoteRuntimeMessage = extractRemoteRuntimeErrorMessage(message);
+  const remoteRuntimeMessage = extractRemoteRuntimeErrorMessage(message, t);
   if (remoteRuntimeMessage) {
-    return `远程 Agent runtime 执行失败：${remoteRuntimeMessage}`;
+    return t("remoteRuntimeFailed", { message: remoteRuntimeMessage });
   }
 
   if (/ConnectError|connection|connect/i.test(message)) {
-    return "模型服务连接失败，请检查网络或代理后重试。";
+    return t("modelConnectionFailed");
   }
 
   if (/RemoteException/i.test(message)) {
-    return "远程 Agent runtime 执行失败，请查看 backend 和 runtime 日志。";
+    return t("remoteRuntimeCheckLogs");
   }
 
-  return message || "运行失败，请重试。";
+  return message || t("runFailedRetry");
 }
 
 export function isMalformedRemoteRuntimeError(message: string): boolean {
@@ -76,7 +80,10 @@ export function isMalformedRemoteRuntimeError(message: string): boolean {
   );
 }
 
-export function extractRemoteRuntimeErrorMessage(message: string): string | null {
+export function extractRemoteRuntimeErrorMessage(
+  message: string,
+  t: Translate
+): string | null {
   if (!/RemoteException/i.test(message)) {
     return null;
   }
@@ -92,24 +99,21 @@ export function extractRemoteRuntimeErrorMessage(message: string): string | null
   );
   const candidate = normalizedExtracted ?? normalized;
 
-  const specificMessage = specificProviderErrorMessage(candidate);
+  const specificMessage = specificProviderErrorMessage(candidate, t);
   if (specificMessage) {
     return specificMessage;
   }
 
   if (isMalformedRemoteRuntimeError(candidate)) {
-    return (
-      "远端 runtime 已返回错误，但当前 LangGraph SDK 无法解析该错误响应，" +
-      "请查看 backend 和 runtime 日志获取真实失败原因。"
-    );
+    return t("remoteRuntimeMalformedShort");
   }
 
   if (/Insufficient credits/i.test(candidate)) {
-    return "模型服务额度不足，请处理额度后重试。";
+    return t("insufficientCredits");
   }
 
   if (/User not found|Unauthorized|401/i.test(candidate)) {
-    return "模型服务 API Key 无效或未授权，请在配置页更新 API Key。";
+    return t("apiKeyInvalid");
   }
 
   return normalizedExtracted ?? null;

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { LocalWorkspace, WorkspaceEntry } from "@/app/types/workspace";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
 interface WorkspacePanelProps {
   selectedFilePath?: string | null;
@@ -47,6 +48,7 @@ export function WorkspacePanel({
   activeWorkspace,
   onCompactChange,
 }: WorkspacePanelProps) {
+  const { t } = useLanguage();
   const [workspaceCollapsed, setWorkspaceCollapsed] = useState(false);
   const [threadsCollapsed, setThreadsCollapsed] = useState(false);
   const showWorkspace = !workspaceCollapsed;
@@ -89,7 +91,7 @@ export function WorkspacePanel({
         <div className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border bg-card/70 py-2">
           {workspaceCollapsed && (
             <CollapsedPanelButton
-              label="展开项目文件"
+              label={t("expandProjectFiles")}
               onClick={() => setWorkspaceCollapsed(false)}
             >
               <FolderOpen className="h-4 w-4" />
@@ -97,7 +99,7 @@ export function WorkspacePanel({
           )}
           {threadsCollapsed && (
             <CollapsedPanelButton
-              label="展开会话"
+              label={t("expandSessions")}
               onClick={() => setThreadsCollapsed(false)}
             >
               <MessageSquare className="h-4 w-4" />
@@ -139,11 +141,7 @@ export function WorkspacePanel({
         ) : null}
 
         {!showWorkspace && showThreads ? (
-          <div
-            className="relative h-full"
-          >
-            {threadList}
-          </div>
+          <div className="relative h-full">{threadList}</div>
         ) : null}
       </div>
     </div>

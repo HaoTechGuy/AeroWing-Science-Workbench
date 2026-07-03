@@ -7,6 +7,7 @@ import { AlertCircle, Check, X, Pencil, Server, Terminal } from "lucide-react";
 import type { ActionRequest, ReviewConfig } from "@/app/types/types";
 import { cn } from "@/lib/utils";
 import { getToolDisplayName } from "@/app/utils/toolDisplayNames";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
 const REMOTE_COMPUTE_SUBMIT_TOOL = "remote_compute_submit_job";
 
@@ -43,8 +44,9 @@ function remoteComputeSummary(args: Record<string, unknown>) {
     : Array.isArray(args.outputGlobs)
       ? args.outputGlobs
       : undefined;
+  const host = args.host_id ?? args.hostId;
   return {
-    host: String(args.host_id ?? args.hostId ?? "remote host"),
+    host: host === undefined || host === null ? undefined : String(host),
     command: String(args.command || ""),
     outputGlobs,
     timeoutSeconds: args.timeout_seconds ?? args.timeoutSeconds,
@@ -58,11 +60,12 @@ export function ToolApprovalInterrupt({
   onResume,
   isLoading,
 }: ToolApprovalInterruptProps) {
+  const { language, t } = useLanguage();
   const [rejectionMessage, setRejectionMessage] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editedArgs, setEditedArgs] = useState<Record<string, unknown>>({});
   const [showRejectionInput, setShowRejectionInput] = useState(false);
-  const toolDisplayName = getToolDisplayName(actionRequest.name);
+  const toolDisplayName = getToolDisplayName(actionRequest.name, language);
 
   const allowedDecisions = reviewConfigAllowedDecisions(reviewConfig);
   const isRemoteComputeApproval =
@@ -70,11 +73,12 @@ export function ToolApprovalInterrupt({
   const remoteSummary = isRemoteComputeApproval
     ? remoteComputeSummary(actionRequest.args)
     : null;
+  const remoteHost = remoteSummary?.host ?? t("remoteHost");
   const remoteTimeoutLabel = remoteSummary?.timeoutSeconds
-    ? `Timeout: ${String(remoteSummary.timeoutSeconds)}s`
+    ? `${t("approvalTimeout")}: ${String(remoteSummary.timeoutSeconds)}s`
     : "";
   const remoteWaitLabel = remoteSummary?.maxWaitSeconds
-    ? `Wait: ${String(remoteSummary.maxWaitSeconds)}s`
+    ? `${t("approvalWait")}: ${String(remoteSummary.maxWaitSeconds)}s`
     : "";
 
   const handleApprove = () => {
@@ -151,7 +155,7 @@ export function ToolApprovalInterrupt({
   };
 
   return (
-    <div className="w-full rounded-md border border-warning/30 bg-warning/10 p-4 shadow-sm shadow-black/[0.025]">
+    <div className="border-warning/30 bg-warning/10 w-full rounded-md border p-4 shadow-sm shadow-black/[0.025]">
       {/* Header */}
       <div className="mb-3 flex items-center gap-2 text-foreground">
         <AlertCircle
@@ -159,7 +163,7 @@ export function ToolApprovalInterrupt({
           className="text-yellow-600 dark:text-yellow-400"
         />
         <span className="text-xs font-semibold uppercase tracking-wider">
-          Approval Required
+          {t("approvalRequired")}
         </span>
       </div>
 
@@ -169,20 +173,20 @@ export function ToolApprovalInterrupt({
           <div className="mb-3 flex items-center gap-2">
             <Server className="h-4 w-4 text-[#2F6868] dark:text-[hsl(var(--primary))]" />
             <div className="text-sm font-semibold">
-              Run this job on {remoteSummary?.host}?
+              {t("runJobOnHost", { host: remoteHost })}
             </div>
           </div>
           <div className="space-y-2 text-sm">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Terminal className="h-3.5 w-3.5" />
-              Command
+              {t("command")}
             </div>
             <pre className="max-h-44 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs leading-5 text-foreground">
               {remoteSummary?.command}
             </pre>
             {remoteSummary?.outputGlobs && (
               <div className="text-xs text-muted-foreground">
-                Outputs: {remoteSummary.outputGlobs.join(", ")}
+                {t("outputs")}: {remoteSummary.outputGlobs.join(", ")}
               </div>
             )}
             {(remoteTimeoutLabel || remoteWaitLabel) && (
@@ -208,7 +212,7 @@ export function ToolApprovalInterrupt({
       >
         <div className="mb-2">
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Tool
+            {t("tool")}
           </span>
           <p className="mt-1 font-mono text-sm font-medium text-foreground">
             {toolDisplayName}
@@ -218,7 +222,7 @@ export function ToolApprovalInterrupt({
         {isEditing ? (
           <div>
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Edit Arguments
+              {t("editArguments")}
             </span>
             <div className="mt-2 space-y-3">
               {Object.entries(actionRequest.args).map(([key, value]) => (
@@ -250,7 +254,7 @@ export function ToolApprovalInterrupt({
         ) : (
           <div>
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Arguments
+              {t("arguments")}
             </span>
             <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-sm border border-border bg-muted/40 p-2 font-mono text-xs text-foreground">
               {JSON.stringify(actionRequest.args, null, 2)}
@@ -263,12 +267,12 @@ export function ToolApprovalInterrupt({
       {showRejectionInput && !isEditing && (
         <div className="mb-4">
           <label className="mb-2 block text-xs font-medium text-foreground">
-            Rejection Message (optional)
+            {t("rejectionMessageOptional")}
           </label>
           <Textarea
             value={rejectionMessage}
             onChange={(e) => setRejectionMessage(e.target.value)}
-            placeholder="Explain why you're rejecting this action..."
+            placeholder={t("rejectionPlaceholder")}
             className="text-sm"
             rows={2}
             disabled={isLoading}
@@ -286,7 +290,7 @@ export function ToolApprovalInterrupt({
               onClick={cancelEditing}
               disabled={isLoading}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               size="sm"
@@ -295,7 +299,7 @@ export function ToolApprovalInterrupt({
               className="bg-green-600 text-white hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-700"
             >
               <Check size={14} />
-              {isLoading ? "Saving..." : "Save & Approve"}
+              {isLoading ? t("saving") : t("saveAndApprove")}
             </Button>
           </>
         ) : showRejectionInput ? (
@@ -309,7 +313,7 @@ export function ToolApprovalInterrupt({
               }}
               disabled={isLoading}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -317,7 +321,7 @@ export function ToolApprovalInterrupt({
               onClick={handleRejectConfirm}
               disabled={isLoading}
             >
-              {isLoading ? "Rejecting..." : "Confirm Reject"}
+              {isLoading ? t("rejecting") : t("confirmReject")}
             </Button>
           </>
         ) : (
@@ -331,7 +335,7 @@ export function ToolApprovalInterrupt({
                 className="text-destructive hover:bg-destructive/10"
               >
                 <X size={14} />
-                Reject
+                {t("reject")}
               </Button>
             )}
             {allowedDecisions.includes("edit") && (
@@ -342,7 +346,7 @@ export function ToolApprovalInterrupt({
                 disabled={isLoading}
               >
                 <Pencil size={14} />
-                Edit
+                {t("edit")}
               </Button>
             )}
             {allowedDecisions.includes("approve") && (
@@ -357,10 +361,10 @@ export function ToolApprovalInterrupt({
               >
                 <Check size={14} />
                 {isLoading
-                  ? "Approving..."
+                  ? t("approving")
                   : isRemoteComputeApproval
-                    ? "Run job"
-                    : "Approve"}
+                    ? t("runJob")
+                    : t("approve")}
               </Button>
             )}
           </>
@@ -376,6 +380,7 @@ export function BatchToolApprovalInterrupt({
   onResume,
   isLoading,
 }: BatchToolApprovalInterruptProps) {
+  const { language, t } = useLanguage();
   const [showRejectionInput, setShowRejectionInput] = useState(false);
   const [rejectionMessage, setRejectionMessage] = useState("");
   const reviewConfigByName = new Map(
@@ -412,7 +417,7 @@ export function BatchToolApprovalInterrupt({
           className="text-yellow-600 dark:text-yellow-400"
         />
         <span className="text-xs font-semibold uppercase tracking-wider">
-          Approval Required
+          {t("approvalRequired")}
         </span>
       </div>
 
@@ -429,11 +434,11 @@ export function BatchToolApprovalInterrupt({
             >
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="text-sm font-semibold">
-                  {index + 1}. {getToolDisplayName(request.name)}
+                  {index + 1}. {getToolDisplayName(request.name, language)}
                 </div>
                 {isRemoteCompute && (
                   <div className="text-xs text-muted-foreground">
-                    {remoteSummary?.host}
+                    {remoteSummary?.host ?? t("remoteHost")}
                   </div>
                 )}
               </div>
@@ -459,12 +464,12 @@ export function BatchToolApprovalInterrupt({
       {showRejectionInput && (
         <div className="mb-4">
           <label className="mb-2 block text-xs font-medium text-foreground">
-            Rejection Message (optional)
+            {t("rejectionMessageOptional")}
           </label>
           <Textarea
             value={rejectionMessage}
             onChange={(event) => setRejectionMessage(event.target.value)}
-            placeholder="Explain why you're rejecting these actions..."
+            placeholder={t("rejectionBatchPlaceholder")}
             className="text-sm"
             rows={2}
             disabled={isLoading}
@@ -484,7 +489,7 @@ export function BatchToolApprovalInterrupt({
               }}
               disabled={isLoading}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -492,7 +497,7 @@ export function BatchToolApprovalInterrupt({
               onClick={() => submitDecision("reject")}
               disabled={isLoading || !allAllowReject}
             >
-              {isLoading ? "Rejecting..." : "Reject all"}
+              {isLoading ? t("rejecting") : t("rejectAll")}
             </Button>
           </>
         ) : (
@@ -506,7 +511,7 @@ export function BatchToolApprovalInterrupt({
                 className="text-destructive hover:bg-destructive/10"
               >
                 <X size={14} />
-                Reject all
+                {t("rejectAll")}
               </Button>
             )}
             {allAllowApprove && (
@@ -520,7 +525,7 @@ export function BatchToolApprovalInterrupt({
                 )}
               >
                 <Check size={14} />
-                {isLoading ? "Approving..." : "Approve all"}
+                {isLoading ? t("approving") : t("approveAll")}
               </Button>
             )}
           </>

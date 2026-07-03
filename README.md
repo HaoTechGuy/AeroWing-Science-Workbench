@@ -1,4 +1,8 @@
 <div align="center">
+  <p>
+    <img src="./internagentS.png" alt="InternAgentS banner" width="100%">
+  </p>
+
   <h1 align="center">InternAgentS</h1>
   <p align="center">
     <strong>Bringing the Claude Science experience to the open-source community.</strong>
@@ -11,6 +15,7 @@
     <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
     <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs">
     <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-runtime-1f6feb">
+    <img alt="DeepAgents" src="https://img.shields.io/badge/DeepAgents-agent%20runtime-4f46e5">
     <img alt="Status" src="https://img.shields.io/badge/status-active%20development-0f766e">
   </p>
   <p>

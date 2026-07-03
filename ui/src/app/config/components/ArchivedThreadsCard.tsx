@@ -6,12 +6,17 @@ import { Archive, ArchiveRestore, ExternalLink, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useThreads, type ThreadItem } from "@/app/hooks/useThreads";
-import { RemoteAgentProvider, useRemoteAgent } from "@/providers/ClientProvider";
+import {
+  RemoteAgentProvider,
+  useRemoteAgent,
+} from "@/providers/ClientProvider";
 import { getConfig, type StandaloneConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import type { UiLanguage } from "@/lib/i18n";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
-function formatDate(value: Date) {
-  return new Intl.DateTimeFormat("zh-CN", {
+function formatDate(value: Date, language: UiLanguage) {
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : "zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -31,6 +36,7 @@ function archivedDate(thread: ThreadItem) {
 }
 
 function ArchivedThreadsFrame({ children }: { children: ReactNode }) {
+  const { t } = useLanguage();
   return (
     <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
       <div className="mb-4 flex items-start gap-3">
@@ -38,9 +44,9 @@ function ArchivedThreadsFrame({ children }: { children: ReactNode }) {
           <Archive className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <h2 className="text-base font-semibold">已归档对话</h2>
+          <h2 className="text-base font-semibold">{t("archivedThreads")}</h2>
           <div className="mt-1 text-sm text-muted-foreground">
-            归档只会隐藏会话，不会删除历史消息或后台状态。
+            {t("archivedThreadsHelp")}
           </div>
         </div>
       </div>
@@ -50,15 +56,17 @@ function ArchivedThreadsFrame({ children }: { children: ReactNode }) {
 }
 
 function ArchivedThreadsCardContent() {
+  const { language, t } = useLanguage();
   const remoteAgent = useRemoteAgent();
   const threads = useThreads({ archived: true, limit: 8 });
   const [restoringThreadId, setRestoringThreadId] = useState<string | null>(
     null
   );
 
-  const archivedThreads = useMemo(() => threads.data?.flat() ?? [], [
-    threads.data,
-  ]);
+  const archivedThreads = useMemo(
+    () => threads.data?.flat() ?? [],
+    [threads.data]
+  );
   const isEmpty = threads.data?.at(0)?.length === 0;
   const isReachingEnd = isEmpty || (threads.data?.at(-1)?.length ?? 0) < 8;
 
@@ -73,9 +81,11 @@ function ArchivedThreadsCardContent() {
         },
       });
       await threads.mutate();
-      toast.success("会话已恢复");
+      toast.success(t("threadRestored"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "会话恢复失败");
+      toast.error(
+        error instanceof Error ? error.message : t("threadRestoreFailed")
+      );
     } finally {
       setRestoringThreadId(null);
     }
@@ -92,13 +102,13 @@ function ArchivedThreadsCardContent() {
       {!threads.error && threads.isLoading && !threads.data && (
         <div className="flex h-20 items-center justify-center text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          正在读取归档对话...
+          {t("loadingArchivedThreads")}
         </div>
       )}
 
       {!threads.error && !threads.isLoading && isEmpty && (
         <div className="rounded-md bg-muted/50 px-3 py-3 text-sm text-muted-foreground">
-          暂无已归档对话。
+          {t("noArchivedThreads")}
         </div>
       )}
 
@@ -126,7 +136,11 @@ function ArchivedThreadsCardContent() {
                   />
                 </div>
                 <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                  <span>归档于 {formatDate(archivedDate(thread))}</span>
+                  <span>
+                    {t("archivedAt", {
+                      time: formatDate(archivedDate(thread), language),
+                    })}
+                  </span>
                   {thread.description && (
                     <span className="min-w-0 flex-1 truncate">
                       {thread.description}
@@ -140,7 +154,7 @@ function ArchivedThreadsCardContent() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 shrink-0 text-muted-foreground hover:text-[#2F6868] dark:hover:text-[hsl(var(--primary))]"
-                aria-label={`打开会话 ${thread.title}`}
+                aria-label={t("openThread", { title: thread.title })}
               >
                 <Link href={`/?assistantId=agent&threadId=${thread.id}`}>
                   <ExternalLink className="h-4 w-4" />
@@ -160,7 +174,7 @@ function ArchivedThreadsCardContent() {
                 ) : (
                   <ArchiveRestore className="h-3.5 w-3.5" />
                 )}
-                恢复
+                {t("restore")}
               </Button>
             </div>
           ))}
@@ -174,7 +188,7 @@ function ArchivedThreadsCardContent() {
               disabled={threads.isLoading}
               className="w-full"
             >
-              {threads.isLoading ? "正在加载..." : "加载更多"}
+              {threads.isLoading ? t("loading") : t("loadMore")}
             </Button>
           )}
         </div>
@@ -184,6 +198,7 @@ function ArchivedThreadsCardContent() {
 }
 
 export function ArchivedThreadsCard() {
+  const { t } = useLanguage();
   const [config, setConfig] = useState<StandaloneConfig | null>(null);
 
   useEffect(() => {
@@ -195,7 +210,7 @@ export function ArchivedThreadsCard() {
       <ArchivedThreadsFrame>
         <div className="flex h-20 items-center justify-center text-sm text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          正在连接会话服务...
+          {t("connectingThreadService")}
         </div>
       </ArchivedThreadsFrame>
     );

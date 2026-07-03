@@ -33,6 +33,21 @@ const startupSplashDismissScript = `
 })();
 `;
 
+const startupSplashLanguageScript = `
+(() => {
+  try {
+    const language = localStorage.getItem("internagents.ui.language") === "en" ? "en" : "zh";
+    const text = language === "en" ? "Starting InternAgentS..." : "InternAgentS 正在启动中...";
+    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+    const target = document.querySelector("[data-internagents-startup-text]");
+    if (target) {
+      target.textContent = text;
+    }
+  } catch {
+  }
+})();
+`;
+
 export const metadata = {
   title: "InternAgentS",
   description: "Local InternAgentS UI",
@@ -60,8 +75,11 @@ export default function RootLayout({
           aria-live="polite"
         >
           <span className="internagents-startup-splash__spinner" />
-          <span>InternAgentS正在启动中...</span>
+          <span data-internagents-startup-text>InternAgentS 正在启动中...</span>
         </div>
+        <script
+          dangerouslySetInnerHTML={{ __html: startupSplashLanguageScript }}
+        />
         <script src="/api/runtime/desktop-config" />
         <NuqsAdapter>
           <div className="min-h-[calc(100vh-var(--app-footer-height))]">

@@ -14,6 +14,7 @@ import {
   splitTextByWorkspacePaths,
   type WorkspacePathTarget,
 } from "@/app/utils/workspacePathLinks";
+import { useLanguage } from "@/app/hooks/useLanguage";
 
 interface MarkdownContentProps {
   content: string;
@@ -31,19 +32,20 @@ function WorkspacePathButton({
   onOpenWorkspacePath: (path: string) => void;
   children?: React.ReactNode;
 }) {
+  const { t } = useLanguage();
   return (
     <button
       type="button"
-      className="mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border border-primary/35 bg-primary/10 px-1.5 py-0.5 align-baseline font-mono text-[0.9em] font-medium text-primary shadow-sm shadow-black/[0.025] transition-colors hover:border-primary/60 hover:bg-primary/15 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      title={`打开 ${target.previewPath}`}
+      className="border-primary/35 bg-primary/10 hover:border-primary/60 hover:bg-primary/15 mx-0.5 inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline font-mono text-[0.9em] font-medium text-primary shadow-sm shadow-black/[0.025] transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={t("openWorkspacePath", { path: target.previewPath })}
       onClick={() => onOpenWorkspacePath(target.previewPath)}
     >
       <FileText className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 break-all">
         {children || target.displayPath}
       </span>
-      <span className="ml-0.5 shrink-0 rounded-sm bg-primary/15 px-1 py-px font-sans text-[0.7rem] font-semibold leading-none">
-        打开
+      <span className="bg-primary/15 ml-0.5 shrink-0 rounded-sm px-1 py-px font-sans text-[0.7rem] font-semibold leading-none">
+        {t("open")}
       </span>
     </button>
   );

@@ -81,6 +81,7 @@ import type { SkillEntry, SkillsConfigResponse } from "@/app/skills/types";
 import { useThreads, type ThreadItem } from "@/app/hooks/useThreads";
 import { useWorkspaceFiles } from "@/app/hooks/useWorkspaceFiles";
 import type { WorkspaceEntry } from "@/app/types/workspace";
+import type { CopyKey } from "@/lib/i18n";
 
 interface ChatInterfaceProps {
   assistant: Assistant | null;
@@ -611,7 +612,8 @@ function readAsDataUrl(file: File): Promise<string> {
 
 async function uploadBinaryAttachment(
   file: File,
-  context: AttachmentUploadContext
+  context: AttachmentUploadContext,
+  copy: AttachmentCopy
 ): Promise<Partial<ChatAttachment>> {
   const form = new FormData();
   form.set("file", file);
@@ -629,19 +631,22 @@ async function uploadBinaryAttachment(
     method: "POST",
     body: form,
   });
-  const payload = (await parsePdfUploadResponse(response)) as {
+  const payload = (await parsePdfUploadResponse(response, copy)) as {
     attachment?: Partial<ChatAttachment>;
     error?: string;
   };
   if (!response.ok || !payload.attachment) {
-    throw new Error(payload.error || `附件上传失败（${response.status}）`);
+    throw new Error(
+      payload.error || `${copy.uploadFailed} (${response.status})`
+    );
   }
   return payload.attachment;
 }
 
 async function uploadWorkspaceOfficeAttachment(
   payload: WorkspaceFileDragPayload,
-  context: AttachmentUploadContext
+  context: AttachmentUploadContext,
+  copy: AttachmentCopy
 ): Promise<Partial<ChatAttachment>> {
   const form = new FormData();
   form.set("workspacePath", payload.path);
@@ -661,19 +666,22 @@ async function uploadWorkspaceOfficeAttachment(
     method: "POST",
     body: form,
   });
-  const responsePayload = (await parsePdfUploadResponse(response)) as {
+  const responsePayload = (await parsePdfUploadResponse(response, copy)) as {
     attachment?: Partial<ChatAttachment>;
     error?: string;
   };
   if (!response.ok || !responsePayload.attachment) {
     throw new Error(
-      responsePayload.error || `项目附件处理失败（${response.status}）`
+      responsePayload.error || `${copy.uploadFailed} (${response.status})`
     );
   }
   return responsePayload.attachment;
 }
 
-async function parsePdfUploadResponse(response: Response): Promise<unknown> {
+async function parsePdfUploadResponse(
+  response: Response,
+  copy: AttachmentCopy
+): Promise<unknown> {
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
     try {
@@ -685,7 +693,7 @@ async function parsePdfUploadResponse(response: Response): Promise<unknown> {
 
   const text = (await response.text().catch(() => "")).trim();
   return {
-    error: text && text !== "Internal Server Error" ? text : "附件上传失败",
+    error: text && text !== "Internal Server Error" ? text : copy.uploadFailed,
   };
 }
 
@@ -769,7 +777,7 @@ async function prepareAttachment(
     }
 
     try {
-      const uploaded = await uploadBinaryAttachment(file, context);
+      const uploaded = await uploadBinaryAttachment(file, context, copy);
       return {
         ...baseAttachment,
         ...uploaded,
@@ -794,7 +802,7 @@ async function prepareAttachment(
     }
 
     try {
-      const uploaded = await uploadBinaryAttachment(file, context);
+      const uploaded = await uploadBinaryAttachment(file, context, copy);
       return {
         ...baseAttachment,
         ...uploaded,
@@ -875,7 +883,8 @@ function isWorkspaceOfficeAttachment(
 
 async function workspaceDragPayloadToFile(
   payload: WorkspaceFileDragPayload,
-  context: AttachmentUploadContext
+  context: AttachmentUploadContext,
+  readFailedMessage: string
 ): Promise<File> {
   const params = new URLSearchParams({ path: payload.path });
   const effectiveResourceId = payload.resourceId || context.resourceId;
@@ -894,7 +903,7 @@ async function workspaceDragPayloadToFile(
     const errorPayload = (await response.json().catch(() => ({}))) as {
       error?: string;
     };
-    throw new Error(errorPayload.error || "无法读取项目文件。");
+    throw new Error(errorPayload.error || readFailedMessage);
   }
 
   const blob = await response.blob();
@@ -958,19 +967,19 @@ function isToolCancellationResult(result: string): boolean {
 }
 
 function settledPendingToolCallStatus(
-  runStatus: string
+  runStatus: string,
+  t: (key: CopyKey) => string
 ): Pick<ToolCall, "status" | "result"> {
   if (runStatus === "stopped" || runStatus === "interrupted") {
     return {
       status: "interrupted",
-      result: "工具调用已被中断，没有返回结果。",
+      result: t("toolInterruptedNoResult"),
     };
   }
 
   return {
     status: "error",
-    result:
-      "工具调用结束时没有返回结果。可能是工具服务超时、被取消，或 runtime 没有收到结果。",
+    result: t("toolEndedNoResult"),
   };
 }
 
@@ -1286,7 +1295,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       },
       [threadSkills, t, updateThreadSkills]
     );
-    const errorMessage = formatChatError(error);
+    const errorMessage = formatChatError(error, t);
     const attachmentHint = t("supportedAttachmentHint");
     const attachmentCopy = useMemo<AttachmentCopy>(
       () => ({
@@ -1398,7 +1407,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
             type: "artifact",
             key: `artifact:${path}`,
             label: path.split("/").pop() || path,
-            description: [t("sessionArtifact"), path].filter(Boolean).join(" · "),
+            description: [t("sessionArtifact"), path]
+              .filter(Boolean)
+              .join(" · "),
             path,
             content,
           })),
@@ -1843,7 +1854,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         toast.success(t("titleUpdated"));
       } catch (titleError) {
         toast.error(
-          titleError instanceof Error ? titleError.message : t("titleUpdateFailed")
+          titleError instanceof Error
+            ? titleError.message
+            : t("titleUpdateFailed")
         );
       } finally {
         setIsSavingTitle(false);
@@ -2059,11 +2072,16 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                 kind: "file",
                 ...(await uploadWorkspaceOfficeAttachment(
                   payload,
-                  attachmentContext
+                  attachmentContext,
+                  attachmentCopy
                 )),
               } satisfies ChatAttachment)
             : await prepareAttachment(
-                await workspaceDragPayloadToFile(payload, attachmentContext),
+                await workspaceDragPayloadToFile(
+                  payload,
+                  attachmentContext,
+                  t("unableToReadProjectFile")
+                ),
                 attachmentContext,
                 attachmentCopy
               );
@@ -2600,7 +2618,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         );
 
       if (shouldFinalizePendingToolCalls) {
-        const settledStatus = settledPendingToolCallStatus(runStatus);
+        const settledStatus = settledPendingToolCallStatus(runStatus, t);
         processedArray.forEach((data, index) => {
           const hasLaterAssistantAnswer = processedArray
             .slice(index + 1)
@@ -2636,6 +2654,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
       interruptedToolNames,
       isLoading,
       runStatus,
+      t,
     ]);
 
     const showRuntimeDetails = isLoading || Boolean(interrupt);
@@ -3201,8 +3220,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       aria-expanded={showIntermediateResults}
                     >
                       <span>
-                        {t("intermediateSteps")} ·{" "}
-                        {intermediateMessages.length} {t("steps")}
+                        {t("intermediateSteps")} · {intermediateMessages.length}{" "}
+                        {t("steps")}
                       </span>
                       {showIntermediateResults ? (
                         <ChevronUp className="h-4 w-4 shrink-0" />
@@ -3813,7 +3832,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                       <div
                         className={cn(
                           "scrollbar-subtle overflow-y-auto p-1",
-                          mentionMenuIsCommandPalette ? "max-h-[60vh]" : "max-h-56"
+                          mentionMenuIsCommandPalette
+                            ? "max-h-[60vh]"
+                            : "max-h-56"
                         )}
                         role="listbox"
                       >
@@ -3821,7 +3842,8 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                           const sectionStartIndex = mentionSections
                             .slice(0, sectionIndex)
                             .reduce(
-                              (count, current) => count + current.options.length,
+                              (count, current) =>
+                                count + current.options.length,
                               0
                             );
                           return (
@@ -4094,7 +4116,9 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         disabled={isLoading}
                         aria-label={t("mentionSkills")}
                       >
-                        <span className="font-mono text-base leading-none">/</span>
+                        <span className="font-mono text-base leading-none">
+                          /
+                        </span>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent
@@ -4151,9 +4175,7 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
                         : "outline"
                     }
                     onClick={isLoading ? stopStream : handleSubmit}
-                    disabled={
-                      !isLoading && (submitDisabled || !canSendMessage)
-                    }
+                    disabled={!isLoading && (submitDisabled || !canSendMessage)}
                     className="ocs-composer-send h-9 rounded-lg px-3 shadow-none"
                   >
                     {isLoading ? (
