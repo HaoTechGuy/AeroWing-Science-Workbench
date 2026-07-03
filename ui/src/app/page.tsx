@@ -58,6 +58,7 @@ import {
   SelectSeparator,
   SelectTrigger,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -1316,6 +1317,12 @@ function matchesInspectorFilter(entry: WorkspaceEntry, filter: string): boolean 
   return entry.path.toLowerCase().includes(filter);
 }
 
+function isWorkspacePathMissingError(error: string | null): boolean {
+  return Boolean(
+    error && /ENOENT|no such file|cannot find|not found|realpath/i.test(error)
+  );
+}
+
 function InspectorFilesView({
   selectedFilePath,
   resourceId,
@@ -1526,7 +1533,30 @@ function InspectorFilesView({
         </div>
       )}
 
-      {error && <div className="ocs-inspector-file-error">{error}</div>}
+      {error && (
+        <div className="ocs-inspector-file-error">
+          {isWorkspacePathMissingError(error) ? (
+            <div className="space-y-2">
+              <p>{t("workspacePathMissing")}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("workspacePathMissingAction")}
+              </p>
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+              >
+                <Link href="/projects">
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  {t("backToProjects")}
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            error
+          )}
+        </div>
+      )}
 
       {isLoadingFiles ? (
         <div className="ocs-inspector-empty">

@@ -7,11 +7,24 @@ import {
   ArrowRight,
   FolderOpen,
   Loader2,
+  Pencil,
   Plus,
+  RefreshCw,
   Settings,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { LocalWorkspace } from "@/app/types/workspace";
 import {
   pageHrefWithAppReturn,
@@ -25,9 +38,12 @@ interface WorkspacesPayload {
   cancelled?: boolean;
   defaultWorkspaceId?: string;
   workspaceId?: string;
+  workspacePath?: string;
   workspaces?: LocalWorkspace[];
   error?: string;
 }
+
+type WorkspaceUpdateAction = "save" | "refresh" | "choose";
 
 interface RuntimeConfigStatus {
   desktopMode?: boolean;
@@ -72,6 +88,12 @@ function ProjectsPageContent() {
   const [loading, setLoading] = useState(true);
   const [checkingInitialConfig, setCheckingInitialConfig] = useState(true);
   const [picking, setPicking] = useState(false);
+  const [removingWorkspaceId, setRemovingWorkspaceId] = useState("");
+  const [editingWorkspace, setEditingWorkspace] =
+    useState<LocalWorkspace | null>(null);
+  const [editName, setEditName] = useState("");
+  const [updatingWorkspaceAction, setUpdatingWorkspaceAction] =
+    useState<WorkspaceUpdateAction | null>(null);
 
   const localResource = config.resources.find(
     (resource) => resource.id === "local"
@@ -151,6 +173,85 @@ function ProjectsPageContent() {
       setPicking(false);
     }
   }, [router, t, workbenchHref]);
+
+  const removeWorkspace = useCallback(
+    async (workspace: LocalWorkspace) => {
+      const confirmed = window.confirm(
+        t("removeProjectConfirm", { name: workspace.label })
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      setRemovingWorkspaceId(workspace.id);
+      try {
+        const response = await fetch(
+          `/api/workspaces?id=${encodeURIComponent(workspace.id)}`,
+          { method: "DELETE" }
+        );
+        const payload = (await response.json()) as WorkspacesPayload;
+        if (!response.ok) {
+          throw new Error(payload.error || t("removeProjectFailed"));
+        }
+        setWorkspaces(payload.workspaces || []);
+        setDefaultWorkspaceId(payload.defaultWorkspaceId || "");
+        toast.success(t("removeProjectSuccess"));
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : t("removeProjectFailed");
+        toast.error(message);
+      } finally {
+        setRemovingWorkspaceId("");
+      }
+    },
+    [t]
+  );
+
+  const openWorkspaceEditor = useCallback((workspace: LocalWorkspace) => {
+    setEditingWorkspace(workspace);
+    setEditName(workspace.label);
+  }, []);
+
+  const updateWorkspace = useCallback(
+    async (
+      workspace: LocalWorkspace,
+      body: Record<string, string | boolean | undefined>,
+      action: WorkspaceUpdateAction
+    ) => {
+      setUpdatingWorkspaceAction(action);
+      try {
+        const response = await fetch("/api/workspaces", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workspaceId: workspace.id,
+            ...body,
+          }),
+        });
+        const payload = (await response.json()) as WorkspacesPayload;
+        if (!response.ok) {
+          throw new Error(payload.error || t("projectUpdateFailed"));
+        }
+        if (payload.cancelled) {
+          return;
+        }
+
+        const nextWorkspaces = payload.workspaces || [];
+        setWorkspaces(nextWorkspaces);
+        setDefaultWorkspaceId(payload.defaultWorkspaceId || "");
+        setEditingWorkspace(null);
+        setEditName("");
+        toast.success(t("projectUpdated"));
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : t("projectUpdateFailed");
+        toast.error(message);
+      } finally {
+        setUpdatingWorkspaceAction(null);
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -241,40 +342,75 @@ function ProjectsPageContent() {
               {workspaces.map((workspace) => {
                 const active = workspace.id === defaultWorkspaceId;
                 return (
-                  <Link
+                  <article
                     key={workspace.id}
-                    href={workbenchHref(workspace.id)}
                     className={cn(
-                      "group grid gap-3 rounded-lg border border-border bg-card px-4 py-4 shadow-sm transition hover:border-primary/35 hover:bg-accent/45 sm:grid-cols-[minmax(0,1fr)_auto]",
+                      "group flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-4 shadow-sm transition hover:border-primary/35 hover:bg-accent/45",
                       active && "border-primary/35"
                     )}
                   >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-base font-semibold">
-                          {workspace.label}
-                        </h3>
-                        {active && (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                            {t("current")}
-                          </span>
-                        )}
-                        {workspace.isRemote && (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                            {t("remote")}
-                          </span>
-                        )}
+                    <Link
+                      href={workbenchHref(workspace.id)}
+                      className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate text-base font-semibold">
+                            {workspace.label}
+                          </h3>
+                          {active && (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                              {t("current")}
+                            </span>
+                          )}
+                          {workspace.isRemote && (
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                              {t("remote")}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-2 truncate text-sm text-muted-foreground">
+                          {compactPath(workspace.resolvedPath || workspace.path)}
+                        </p>
                       </div>
-                      <p className="mt-2 truncate text-sm text-muted-foreground">
-                        {compactPath(workspace.resolvedPath || workspace.path)}
-                      </p>
+                      <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                        <span>
+                          {workspace.isRemote ? t("remote") : t("local")}
+                        </span>
+                        <span>{t("ready")}</span>
+                        <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                      </div>
+                    </Link>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                        title={t("editProject")}
+                        aria-label={t("editProject")}
+                        onClick={() => openWorkspaceEditor(workspace)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title={t("removeProject")}
+                        aria-label={t("removeProject")}
+                        onClick={() => void removeWorkspace(workspace)}
+                        disabled={removingWorkspaceId === workspace.id}
+                      >
+                        {removingWorkspaceId === workspace.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <X className="h-4 w-4" />
+                        )}
+                      </Button>
                     </div>
-                    <div className="flex items-center gap-6 text-sm text-muted-foreground">
-                      <span>{workspace.isRemote ? t("remote") : t("local")}</span>
-                      <span>{t("ready")}</span>
-                      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-                    </div>
-                  </Link>
+                  </article>
                 );
               })}
             </div>
@@ -304,6 +440,117 @@ function ProjectsPageContent() {
           )}
         </section>
       </section>
+      <Dialog
+        open={Boolean(editingWorkspace)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingWorkspace(null);
+            setEditName("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("editProject")}</DialogTitle>
+            <DialogDescription>
+              {t("editProjectDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          {editingWorkspace && (
+            <form
+              className="space-y-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void updateWorkspace(
+                  editingWorkspace,
+                  { label: editName },
+                  "save"
+                );
+              }}
+            >
+              <div className="space-y-2">
+                <Label htmlFor="project-name">{t("projectName")}</Label>
+                <Input
+                  id="project-name"
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                  disabled={Boolean(updatingWorkspaceAction)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("projectPath")}</Label>
+                <div className="rounded-md border border-border bg-muted/35 px-3 py-2 text-sm text-muted-foreground">
+                  {compactPath(
+                    editingWorkspace.resolvedPath || editingWorkspace.path
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    void updateWorkspace(
+                      editingWorkspace,
+                      { refreshLabel: true },
+                      "refresh"
+                    )
+                  }
+                  disabled={Boolean(updatingWorkspaceAction)}
+                >
+                  {updatingWorkspaceAction === "refresh" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {t("refreshProjectName")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    void updateWorkspace(
+                      editingWorkspace,
+                      { chooseFolder: true, refreshLabel: true },
+                      "choose"
+                    )
+                  }
+                  disabled={Boolean(updatingWorkspaceAction)}
+                >
+                  {updatingWorkspaceAction === "choose" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderOpen className="h-4 w-4" />
+                  )}
+                  {t("reselectProjectFolder")}
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingWorkspace(null);
+                    setEditName("");
+                  }}
+                  disabled={Boolean(updatingWorkspaceAction)}
+                >
+                  {t("cancel")}
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={Boolean(updatingWorkspaceAction)}
+                >
+                  {updatingWorkspaceAction === "save" && (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  )}
+                  {t("saveProject")}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

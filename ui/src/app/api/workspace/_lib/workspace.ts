@@ -527,8 +527,16 @@ export async function listLocalWorkspaces(): Promise<{
 }> {
   const config = readResourcesConfig();
   const resource = getWorkspaceResource("local");
-  const current = await resolveWorkspacePath("", "local");
-  const records = normalizeWorkspaceRecords(config, current.root);
+  let currentRoot = "";
+  try {
+    currentRoot = (await resolveWorkspacePath("", "local")).root;
+  } catch {
+    currentRoot = (await workspaceHistoryPath(resource.workspace)) || "";
+  }
+  const records = normalizeWorkspaceRecords(
+    config,
+    Array.isArray(config.workspaces) ? [] : currentRoot
+  );
   const resolved = await Promise.all(
     records.map(async (workspace) => {
       try {
@@ -544,7 +552,6 @@ export async function listLocalWorkspaces(): Promise<{
       }
     })
   );
-  const currentWorkspaceId = workspaceIdForPath(current.root);
   const configuredDefaultId =
     typeof config.default_workspace === "string"
       ? config.default_workspace.trim()
@@ -554,12 +561,164 @@ export async function listLocalWorkspaces(): Promise<{
       id ? resolved.some((workspace) => workspace.id === id) : false
     ) ||
     resolved.find((workspace) => workspace.path === resource.workspace)?.id ||
-    resolved.find((workspace) => workspace.resolvedPath === current.root)?.id ||
-    currentWorkspaceId;
+    resolved.find((workspace) => workspace.resolvedPath === currentRoot)?.id ||
+    resolved[0]?.id ||
+    "";
 
   return {
     defaultWorkspaceId,
     workspaces: resolved,
+  };
+}
+
+export async function removeLocalWorkspace(
+  workspaceId: string
+): Promise<{
+  defaultWorkspaceId: string;
+  workspaces: ResolvedWorkspaceRecord[];
+}> {
+  const targetWorkspaceId = workspaceId.trim();
+  if (!targetWorkspaceId) {
+    throw new Error("项目 ID 不能为空。");
+  }
+
+  const { configPath, config } = await getWritableResourcesConfig();
+  const workspaces = normalizeWorkspaceRecords(config);
+  const removedWorkspace = workspaces.find(
+    (workspace) => workspace.id === targetWorkspaceId
+  );
+  const remainingWorkspaces = workspaces.filter(
+    (workspace) => workspace.id !== targetWorkspaceId
+  );
+
+  config.workspaces = remainingWorkspaces;
+
+  if (config.default_workspace === targetWorkspaceId) {
+    if (remainingWorkspaces[0]) {
+      config.default_workspace = remainingWorkspaces[0].id;
+    } else {
+      delete config.default_workspace;
+    }
+  }
+
+  const localResource = config.resources?.find(
+    (resource) => resource.id === "local"
+  );
+  const removedPath = await workspaceHistoryPath(removedWorkspace?.path);
+  const currentResourcePath = await workspaceHistoryPath(localResource?.workspace);
+  const currentResourceWorkspaceId = currentResourcePath
+    ? workspaceIdForPath(currentResourcePath)
+    : "";
+
+  if (
+    localResource &&
+    removedWorkspace &&
+    (currentResourceWorkspaceId === targetWorkspaceId ||
+      (removedPath && currentResourcePath === removedPath))
+  ) {
+    const nextWorkspace = remainingWorkspaces[0];
+    if (nextWorkspace) {
+      localResource.workspace = nextWorkspace.path;
+    } else {
+      localResource.workspace = defaultLocalWorkspacePath();
+    }
+  }
+
+  await writeResourcesConfigAtPath(configPath, config);
+  return await listLocalWorkspaces();
+}
+
+export async function updateLocalWorkspaceRecord(
+  workspaceId: string,
+  options: {
+    label?: string;
+    workspacePath?: string;
+    refreshLabel?: boolean;
+  }
+): Promise<{
+  defaultWorkspaceId: string;
+  workspaceId: string;
+  workspacePath: string;
+  workspaces: ResolvedWorkspaceRecord[];
+}> {
+  const targetWorkspaceId = workspaceId.trim();
+  if (!targetWorkspaceId) {
+    throw new Error("项目 ID 不能为空。");
+  }
+
+  const { configPath, config } = await getWritableResourcesConfig();
+  const workspaces = normalizeWorkspaceRecords(config);
+  const existing = workspaces.find(
+    (workspace) => workspace.id === targetWorkspaceId
+  );
+  if (!existing) {
+    throw new Error("项目不存在。");
+  }
+
+  const nextWorkspacePath = options.workspacePath
+    ? await normalizeWorkspacePath(options.workspacePath)
+    : existing.path;
+  const nextWorkspaceId = options.workspacePath
+    ? workspaceIdForPath(nextWorkspacePath)
+    : targetWorkspaceId;
+  const nextLabel =
+    options.refreshLabel || options.label === undefined
+      ? workspaceLabelForPath(nextWorkspacePath)
+      : options.label.trim() || workspaceLabelForPath(nextWorkspacePath);
+  const nextWorkspace = {
+    id: nextWorkspaceId,
+    label: nextLabel,
+    path: nextWorkspacePath,
+  };
+
+  let inserted = false;
+  const nextWorkspaces: WorkspaceRecord[] = [];
+  for (const workspace of workspaces) {
+    if (workspace.id === targetWorkspaceId) {
+      if (!inserted) {
+        nextWorkspaces.push(nextWorkspace);
+        inserted = true;
+      }
+      continue;
+    }
+    if (workspace.id === nextWorkspaceId) {
+      continue;
+    }
+    nextWorkspaces.push(workspace);
+  }
+  if (!inserted) {
+    nextWorkspaces.unshift(nextWorkspace);
+  }
+
+  config.workspaces = nextWorkspaces;
+
+  if (config.default_workspace === targetWorkspaceId) {
+    config.default_workspace = nextWorkspaceId;
+  }
+
+  const localResource = config.resources?.find(
+    (resource) => resource.id === "local"
+  );
+  const currentResourcePath = await workspaceHistoryPath(localResource?.workspace);
+  const existingPath = await workspaceHistoryPath(existing.path);
+  const currentResourceWorkspaceId = currentResourcePath
+    ? workspaceIdForPath(currentResourcePath)
+    : "";
+
+  if (
+    localResource &&
+    (currentResourceWorkspaceId === targetWorkspaceId ||
+      (existingPath && currentResourcePath === existingPath))
+  ) {
+    localResource.workspace = nextWorkspacePath;
+  }
+
+  await writeResourcesConfigAtPath(configPath, config);
+  const localWorkspaces = await listLocalWorkspaces();
+  return {
+    ...localWorkspaces,
+    workspaceId: nextWorkspaceId,
+    workspacePath: nextWorkspacePath,
   };
 }
 
