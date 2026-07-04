@@ -514,6 +514,7 @@ const html = `<!doctype html>
 await rm(outDir, { recursive: true, force: true });
 await mkdir(pagesShowcaseDir, { recursive: true });
 await cp(showcaseAssetsDir, pagesShowcaseDir, { recursive: true });
+await writeFile(path.join(outDir, ".nojekyll"), "");
 await writeFile(path.join(outDir, "index.html"), html);
 await mkdir(path.join(outDir, "showcase"), { recursive: true });
 await writeFile(path.join(outDir, "showcase", "index.html"), html);
