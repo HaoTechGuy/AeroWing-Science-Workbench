@@ -350,7 +350,7 @@ function HeroScene() {
                 )}
               </div>
               <div className="mt-8 space-y-2">
-                <div className="h-1.5 rounded-full bg-[#a855f7]/70" />
+                <div className="ocs-flow-line h-1.5 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7,#2dd4bf,#a855f7,#f5b85b)] bg-[length:220%_100%]" />
                 <div className="h-1.5 w-2/3 rounded-full bg-white/18" />
                 <div className="h-1.5 w-4/5 rounded-full bg-white/14" />
               </div>
@@ -436,22 +436,27 @@ export default function ShowcasePage() {
     <main className="min-h-screen bg-[#f6f3fb] text-[#1e1233]">
       <style>{`
         @keyframes ocsSweep {
-          0% { transform: translateX(-18%) rotate(-10deg); opacity: 0.2; }
-          48% { opacity: 0.82; }
-          100% { transform: translateX(18%) rotate(-10deg); opacity: 0.28; }
+          0% { transform: translateX(-34%) rotate(-10deg); opacity: 0.18; }
+          45% { opacity: 0.9; }
+          100% { transform: translateX(34%) rotate(-10deg); opacity: 0.3; }
         }
         @keyframes ocsFloat {
           0%, 100% { transform: translateY(0) rotate(-3deg); }
-          50% { transform: translateY(-14px) rotate(-2deg); }
+          50% { transform: translateY(-24px) rotate(-1.4deg); }
         }
         @keyframes ocsPanelPulse {
           0%, 100% { box-shadow: 0 0 0 rgba(245,184,91,0); }
           50% { box-shadow: 0 0 42px rgba(245,184,91,0.16); }
         }
-        .ocs-energy { animation: ocsSweep 8s ease-in-out infinite alternate; }
-        .ocs-energy-delay { animation-delay: -3s; }
-        .ocs-stage { animation: ocsFloat 7s ease-in-out infinite; }
+        @keyframes ocsFlow {
+          0% { background-position: 0% 50%; }
+          100% { background-position: 220% 50%; }
+        }
+        .ocs-energy { animation: ocsSweep 5.8s ease-in-out infinite alternate; }
+        .ocs-energy-delay { animation-delay: -2.2s; }
+        .ocs-stage { animation: ocsFloat 5.4s ease-in-out infinite; }
         .ocs-pulse-panel { animation: ocsPanelPulse 3.8s ease-in-out infinite; }
+        .ocs-flow-line { animation: ocsFlow 2.4s linear infinite; }
         .ocs-media::after {
           content: "";
           position: absolute;
@@ -466,7 +471,8 @@ export default function ShowcasePage() {
         @media (prefers-reduced-motion: reduce) {
           .ocs-energy,
           .ocs-stage,
-          .ocs-pulse-panel {
+          .ocs-pulse-panel,
+          .ocs-flow-line {
             animation: none;
           }
         }

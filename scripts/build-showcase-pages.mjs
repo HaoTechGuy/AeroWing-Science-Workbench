@@ -174,6 +174,7 @@ const html = `<!doctype html>
         height: 110px;
         transform: rotate(-10deg);
         background: linear-gradient(90deg, transparent, rgba(245,184,91,0.18), rgba(168,85,247,0.42), transparent);
+        animation: heroSweep 5.8s ease-in-out infinite alternate;
       }
       .hero-panel {
         position: absolute;
@@ -186,6 +187,7 @@ const html = `<!doctype html>
         border-radius: 8px;
         background: rgba(255,255,255,0.08);
         box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+        animation: heroFloat 5.4s ease-in-out infinite;
       }
       .hero-panel-bar { height: 44px; border-bottom: 1px solid rgba(255,255,255,0.14); display: flex; align-items: center; gap: 8px; padding: 0 18px; }
       .dot { width: 10px; height: 10px; border-radius: 50%; }
@@ -194,6 +196,7 @@ const html = `<!doctype html>
       .hero-panel-grid > div:last-child { border-right: 0; }
       .panel-pill { height: 42px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.08); margin-bottom: 14px; }
       .panel-card { border: 1px solid rgba(255,255,255,0.45); border-radius: 7px; min-height: 92px; margin-bottom: 18px; padding: 20px; color: rgba(255,255,255,0.86); }
+      .panel-flow { height: 7px; margin-top: 18px; border-radius: 999px; background: linear-gradient(90deg,#f5b85b,#a855f7,#2dd4bf,#a855f7,#f5b85b); background-size: 220% 100%; animation: heroFlow 2.4s linear infinite; }
       .artifact { background: white; color: #1e1233; }
       .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
       .swatches span { height: 72px; border-radius: 6px; }
@@ -378,6 +381,26 @@ const html = `<!doctype html>
       }
       .footer-row { display: flex; justify-content: space-between; align-items: center; gap: 32px; }
       .footer-cta h2 { color: white; }
+      @keyframes heroSweep {
+        0% { transform: translateX(-34%) rotate(-10deg); opacity: 0.18; }
+        45% { opacity: 0.9; }
+        100% { transform: translateX(34%) rotate(-10deg); opacity: 0.3; }
+      }
+      @keyframes heroFloat {
+        0%, 100% { transform: translateY(0) rotate(-3deg); }
+        50% { transform: translateY(-24px) rotate(-1.4deg); }
+      }
+      @keyframes heroFlow {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 220% 50%; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .hero::after,
+        .hero-panel,
+        .panel-flow {
+          animation: none;
+        }
+      }
       @media (max-width: 900px) {
         .section-inner { width: min(100% - 32px, 1280px); }
         .hero-panel { display: none; }
@@ -403,7 +426,7 @@ const html = `<!doctype html>
           <div class="hero-panel-bar"><span class="dot" style="background:#f5b85b"></span><span class="dot" style="background:#a855f7"></span><span class="dot" style="background:#2dd4bf"></span></div>
           <div class="hero-panel-grid">
             <div><div class="panel-pill"></div><div class="panel-pill"></div><div class="panel-pill"></div></div>
-            <div><div class="panel-card">已生成计划</div><div class="panel-card artifact">产物就绪<div class="swatches"><span style="background:#d8b4fe"></span><span style="background:#f5b85b"></span><span style="background:#2dd4bf"></span></div></div><div class="panel-card">工具审批</div></div>
+            <div><div class="panel-card">已生成计划<div class="panel-flow"></div></div><div class="panel-card artifact">产物就绪<div class="swatches"><span style="background:#d8b4fe"></span><span style="background:#f5b85b"></span><span style="background:#2dd4bf"></span></div></div><div class="panel-card">工具审批<div class="panel-flow"></div></div></div>
             <div><div class="panel-card">预览</div></div>
           </div>
         </div>
