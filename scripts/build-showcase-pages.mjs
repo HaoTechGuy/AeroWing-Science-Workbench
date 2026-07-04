@@ -408,7 +408,7 @@ const html = `<!doctype html>
           </div>
         </div>
         <div class="section-inner hero-content">
-          <p class="eyebrow">上海人工智能实验室研发</p>
+          <p class="eyebrow">上海人工智能实验室智能体系统中心研发</p>
           <h1>InternAgentS</h1>
           <h2>把科研项目变成会行动的智能体工作台。</h2>
           <p class="hero-copy">把 Claude Science 式科研体验带给开源社区。</p>
@@ -474,7 +474,7 @@ const html = `<!doctype html>
       <section class="footer-cta">
         <div class="section-inner footer-row">
           <div>
-            <p class="eyebrow">上海人工智能实验室研发</p>
+            <p class="eyebrow">上海人工智能实验室智能体系统中心研发</p>
             <h2 class="section-title">InternAgentS：面向开源社区的科研智能体工作台。</h2>
           </div>
           <a class="button button-primary" href="${githubUrl}">在 GitHub 上 Star →</a>

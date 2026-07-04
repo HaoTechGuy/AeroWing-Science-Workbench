@@ -478,7 +478,7 @@ export default function ShowcasePage() {
           <div className="max-w-5xl pb-16 pt-24 sm:pt-28 lg:pt-32">
             <div className="mb-6 inline-flex items-center gap-2 text-base font-black tracking-normal text-[#f5b85b] sm:text-lg">
               <Sparkles className="h-5 w-5 text-[#f5b85b]" />
-              上海人工智能实验室研发
+              上海人工智能实验室智能体系统中心研发
             </div>
             <h1 className="max-w-full text-5xl font-black leading-none tracking-normal !text-white sm:text-7xl lg:text-[7rem] xl:text-[8rem]">
               InternAgentS
@@ -627,7 +627,7 @@ export default function ShowcasePage() {
         <div className="relative mx-auto flex max-w-7xl flex-col justify-between gap-8 lg:flex-row lg:items-center">
           <div>
             <p className="text-sm font-black uppercase tracking-normal text-[#f5b85b]">
-              上海人工智能实验室研发
+              上海人工智能实验室智能体系统中心研发
             </p>
             <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal !text-white sm:text-5xl">
               InternAgentS：面向开源社区的科研智能体工作台。
