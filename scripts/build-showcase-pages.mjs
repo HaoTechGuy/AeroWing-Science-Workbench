@@ -26,13 +26,33 @@ const demos = [
   ["y-mixer-model.gif", "Y 型微流控混合器建模", "从建模请求到速度场、浓度场和对比图，串起一次仿真分析。"],
 ];
 
-const screenshots = [
-  ["workspace-preview-cn.jpeg", "中文工作台总览", "large"],
-  ["workbench-tour.png", "三栏工作区"],
-  ["file-preview.png", "科研文件预览"],
-  ["config.png", "模型与授权设置"],
-  ["connect.png", "连接与运行状态"],
-  ["remote-compute-card.png", "远程计算审批"],
+const capabilities = [
+  {
+    media: "science-data-formats.mov",
+    title: "丰富科学数据格式",
+    copy: "支持分子结构、图像、谱图、表格、报告和计算产物等多种科研数据格式预览。",
+    type: "video",
+  },
+  {
+    media: "compute-resources.png",
+    title: "计算资源",
+    copy: "从本机 SSH 配置选择 Linux 主机，把远程计算资源接入会话审批流。",
+  },
+  {
+    media: "approval-mode.png",
+    title: "授权模式",
+    copy: "按项目风险选择自动授权、写入需审批或全部需审批。",
+  },
+  {
+    media: "skills-library.png",
+    title: "技能系统",
+    copy: "管理内置技能和科学技能库，也可以添加本地技能或从 GitHub 导入。",
+  },
+  {
+    media: "connectors.png",
+    title: "连接器",
+    copy: "集中配置 MCP server 和 SCP Hub Key，让科学技能调用外部工具。",
+  },
 ];
 
 function renderFeatureCards() {
@@ -63,20 +83,32 @@ function renderDemos() {
     .join("");
 }
 
-function renderScreenshots() {
-  return screenshots
+function renderCapabilityMedia(item) {
+  if (item.type === "video") {
+    return `<video src="${asset(item.media)}" autoplay muted loop playsinline preload="metadata"></video>`;
+  }
+  return `<img src="${asset(item.media)}" alt="${item.title}" loading="lazy" />`;
+}
+
+function renderCapabilityStack() {
+  return capabilities
     .map(
-      ([image, title, size]) => `
-        <article class="shot ${size === "large" ? "shot-large" : ""}">
-          <img src="${asset(image)}" alt="${title}" loading="lazy" />
-          <div class="shot-label">
-            <span>截图</span>
-            <h3>${title}</h3>
-          </div>
-        </article>`
+      (item, index) => `
+        <button
+          class="capability-tab ${index === 0 ? "is-active" : ""}"
+          type="button"
+          data-capability-index="${index}"
+          aria-pressed="${index === 0 ? "true" : "false"}"
+        >
+          <span>${String(index + 1).padStart(2, "0")}</span>
+          <strong>${item.title}</strong>
+          <small>${item.copy}</small>
+        </button>`
     )
     .join("");
 }
+
+const firstCapability = capabilities[0];
 
 const html = `<!doctype html>
 <html lang="zh-CN">
@@ -172,6 +204,7 @@ const html = `<!doctype html>
         padding: 132px 0 120px;
       }
       .eyebrow { margin: 0 0 22px; color: var(--gold); font-size: 14px; font-weight: 900; }
+      .hero .eyebrow { font-size: 18px; }
       h1 { margin: 0; font-size: clamp(4.4rem, 10vw, 8rem); line-height: 1; letter-spacing: 0; color: white; }
       .hero h2 { max-width: 780px; margin: 20px 0 0; color: white; font-size: clamp(2rem, 4vw, 3.7rem); line-height: 1.08; }
       .hero-copy { max-width: 680px; margin: 24px 0 0; color: rgba(255,255,255,0.82); font-size: 20px; line-height: 1.65; }
@@ -244,14 +277,99 @@ const html = `<!doctype html>
       }
       .demo-copy h3 { margin: 0; font-size: clamp(1.3rem, 3vw, 2rem); }
       .demo-copy p { margin: 10px 0 0; color: rgba(255,255,255,0.75); line-height: 1.6; }
-      .shots-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 34px; }
-      .shot { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: white; min-height: 260px; }
-      .shot-large { grid-column: span 2; grid-row: span 2; }
-      .shot img { width: 100%; height: 100%; min-height: inherit; object-fit: cover; object-position: left top; opacity: 0.78; }
-      .shot::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.82)); }
-      .shot-label { position: absolute; z-index: 1; inset: 18px; display: flex; flex-direction: column; justify-content: space-between; }
-      .shot-label span { width: fit-content; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,0.86); color: var(--purple-600); padding: 8px 12px; font-size: 13px; font-weight: 900; }
-      .shot-label h3 { margin: 0; font-size: 24px; }
+      .capability-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 20px;
+        margin-top: 34px;
+      }
+      .capability-card {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+        box-shadow: 0 24px 60px rgba(109,40,217,0.12);
+      }
+      .capability-media {
+        position: relative;
+        overflow: hidden;
+        aspect-ratio: 16 / 10;
+        border-bottom: 1px solid #ede8f4;
+        background: white;
+      }
+      .capability-media img,
+      .capability-media video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .capability-copy { padding: 28px; }
+      .capability-copy .section-label { margin-bottom: 14px; }
+      .capability-copy h3 { margin: 0; font-size: 32px; line-height: 1.15; }
+      .capability-copy p { max-width: 780px; margin: 16px 0 0; color: var(--muted); line-height: 1.75; }
+      .format-tags { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 24px; }
+      .format-tags span {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--paper);
+        padding: 10px 14px;
+        font-weight: 800;
+      }
+      .capability-tabs {
+        display: flex;
+        flex-direction: column;
+        padding-top: 28px;
+      }
+      .capability-tab {
+        position: relative;
+        width: 100%;
+        margin: 0;
+        margin-top: -10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+        padding: 18px;
+        text-align: left;
+        color: var(--ink);
+        box-shadow: 0 4px 18px rgba(76,29,149,0.05);
+        cursor: pointer;
+      }
+      .capability-tab:first-child { margin-top: 0; }
+      .capability-tab::after {
+        content: "";
+        position: absolute;
+        right: 18px;
+        top: 22px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--line);
+      }
+      .capability-tab span {
+        display: block;
+        color: var(--purple-600);
+        font-size: 13px;
+        font-weight: 900;
+      }
+      .capability-tab strong {
+        display: block;
+        margin-top: 14px;
+        font-size: 21px;
+      }
+      .capability-tab small {
+        display: none;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+      .capability-tab.is-active {
+        z-index: 2;
+        border-color: var(--purple-600);
+        box-shadow: 0 22px 45px rgba(109,40,217,0.16);
+      }
+      .capability-tab.is-active::after { background: var(--purple-600); }
+      .capability-tab.is-active small { display: block; }
       .footer-cta {
         position: relative;
         overflow: hidden;
@@ -264,8 +382,10 @@ const html = `<!doctype html>
         .section-inner { width: min(100% - 32px, 1280px); }
         .hero-panel { display: none; }
         .hero-content { padding-top: 86px; }
-        .feature-grid, .shots-grid { grid-template-columns: 1fr; }
-        .shot-large { grid-column: auto; grid-row: auto; }
+        .feature-grid { grid-template-columns: 1fr; }
+        .capability-layout { grid-template-columns: 1fr; }
+        .capability-tabs { padding-top: 0; }
+        .format-tags { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .footer-row { align-items: flex-start; flex-direction: column; }
       }
       @media (max-width: 620px) {
@@ -328,22 +448,66 @@ const html = `<!doctype html>
 
       <section>
         <div class="section-inner">
-          <p class="section-label">截图墙</p>
-          <h2 class="section-title">让工作过程一眼可见。</h2>
-          <div class="shots-grid">${renderScreenshots()}</div>
+          <p class="section-label">功能实景</p>
+          <h2 class="section-title">科研需要的工具，都在 InternAgentS 里。</h2>
+          <p class="section-copy">看数据、连工具、调计算、管权限、复用技能，都放在同一个工作台里。</p>
+          <div class="capability-layout">
+            <article class="capability-card">
+              <div class="capability-media" id="capability-media">${renderCapabilityMedia(firstCapability)}</div>
+              <div class="capability-copy">
+                <p class="section-label" id="capability-label">科学数据预览</p>
+                <h3 id="capability-title">${firstCapability.title}</h3>
+                <p id="capability-copy">${firstCapability.copy}</p>
+                <div class="format-tags" id="capability-tags">
+                  <span>分子结构</span>
+                  <span>谱图图片</span>
+                  <span>表格数据</span>
+                  <span>分析报告</span>
+                </div>
+              </div>
+            </article>
+            <div class="capability-tabs">${renderCapabilityStack()}</div>
+          </div>
         </div>
       </section>
 
       <section class="footer-cta">
         <div class="section-inner footer-row">
           <div>
-            <p class="eyebrow">开源 | MIT 许可证</p>
+            <p class="eyebrow">上海人工智能实验室研发</p>
             <h2 class="section-title">InternAgentS：面向开源社区的科研智能体工作台。</h2>
           </div>
           <a class="button button-primary" href="${githubUrl}">在 GitHub 上 Star →</a>
         </div>
       </section>
     </main>
+    <script>
+      const capabilities = ${JSON.stringify(capabilities)};
+      const basePath = ${JSON.stringify(basePath)};
+      const asset = (name) => basePath + "/showcase/" + name;
+      const media = document.getElementById("capability-media");
+      const label = document.getElementById("capability-label");
+      const title = document.getElementById("capability-title");
+      const copy = document.getElementById("capability-copy");
+      const tags = document.getElementById("capability-tags");
+      document.querySelectorAll("[data-capability-index]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const index = Number(button.dataset.capabilityIndex || 0);
+          const item = capabilities[index];
+          document.querySelectorAll("[data-capability-index]").forEach((node) => {
+            node.classList.toggle("is-active", node === button);
+            node.setAttribute("aria-pressed", node === button ? "true" : "false");
+          });
+          media.innerHTML = item.type === "video"
+            ? '<video src="' + asset(item.media) + '" autoplay muted loop playsinline preload="metadata"></video>'
+            : '<img src="' + asset(item.media) + '" alt="' + item.title + '" loading="lazy" />';
+          label.textContent = item.type === "video" ? "科学数据预览" : "功能实景";
+          title.textContent = item.title;
+          copy.textContent = item.copy;
+          tags.hidden = item.type !== "video";
+        });
+      });
+    </script>
   </body>
 </html>`;
 

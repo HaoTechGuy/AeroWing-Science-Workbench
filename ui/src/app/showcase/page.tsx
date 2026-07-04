@@ -476,8 +476,8 @@ export default function ShowcasePage() {
         <HeroScene />
         <div className="relative mx-auto min-h-[760px] max-w-7xl px-6 py-6 sm:px-8 lg:min-h-[88vh] lg:px-10">
           <div className="max-w-5xl pb-16 pt-24 sm:pt-28 lg:pt-32">
-            <div className="mb-6 inline-flex items-center gap-2 text-sm font-black tracking-normal text-[#f5b85b]">
-              <Sparkles className="h-4 w-4 text-[#f5b85b]" />
+            <div className="mb-6 inline-flex items-center gap-2 text-base font-black tracking-normal text-[#f5b85b] sm:text-lg">
+              <Sparkles className="h-5 w-5 text-[#f5b85b]" />
               上海人工智能实验室研发
             </div>
             <h1 className="max-w-full text-5xl font-black leading-none tracking-normal !text-white sm:text-7xl lg:text-[7rem] xl:text-[8rem]">
@@ -605,7 +605,7 @@ export default function ShowcasePage() {
                 功能实景
               </p>
               <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal">
-                科研需要的工具，都在工作台里。
+                科研需要的工具，都在 InternAgentS 里。
               </h2>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-[#706b78]">
                 看数据、连工具、调计算、管权限、复用技能，都放在同一个工作台里。
@@ -627,7 +627,7 @@ export default function ShowcasePage() {
         <div className="relative mx-auto flex max-w-7xl flex-col justify-between gap-8 lg:flex-row lg:items-center">
           <div>
             <p className="text-sm font-black uppercase tracking-normal text-[#f5b85b]">
-              开源 | MIT 许可证
+              上海人工智能实验室研发
             </p>
             <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal !text-white sm:text-5xl">
               InternAgentS：面向开源社区的科研智能体工作台。
