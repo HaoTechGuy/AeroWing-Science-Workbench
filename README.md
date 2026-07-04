@@ -79,6 +79,10 @@ scientific work.
 
 ![Caffeine computational chemistry study](./docs/assets/readme/caffeine-computational-chemistry.gif)
 
+### Construct simplified 2D/3D models of a Y-shaped microfluidic mixer
+
+![Construct simplified 2D/3D models of a Y-shaped microfluidic mixer](./docs/assets/readme/y-shaped-microfluidic-mixer.gif)
+
 ## Feature Overview
 
 InternAgentS brings chat, project sessions, file browsing, and local runtime
