@@ -359,15 +359,159 @@ def parse_file(path: Path) -> dict[str, Any]:
     return model
 
 
+
+def base_mesh_payload(path: Path, backend: str) -> dict[str, Any]:
+    return {
+        "metadata": {
+            "schema": "AeroWingMesh",
+            "parser": "cad-cae-parser",
+            "parser_version": VERSION,
+            "parser_backend": backend,
+            "file_name": path.name,
+            "extension": path.suffix.lower(),
+        },
+        "vertices": [],
+        "faces": [],
+        "lines": [],
+        "element_types": {},
+        "checks": [],
+    }
+
+
+def parse_bdf_mesh(path: Path) -> dict[str, Any]:
+    from pyNastran.bdf.bdf import BDF
+
+    payload = base_mesh_payload(path, "pyNastran")
+    bdf = BDF(debug=False, log=None, mode="msc")
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        bdf.read_bdf(str(path), xref=False, validate=False, punch=False)
+
+    node_ids = sorted(bdf.nodes.keys())
+    node_index = {node_id: index for index, node_id in enumerate(node_ids)}
+    for node_id in node_ids:
+        node = bdf.nodes[node_id]
+        xyz = getattr(node, "xyz", [0.0, 0.0, 0.0])
+        payload["vertices"].append([float(xyz[0]), float(xyz[1]), float(xyz[2])])
+
+    element_types: Counter[str] = Counter()
+    unsupported: Counter[str] = Counter()
+    for elem in bdf.elements.values():
+        elem_type = str(getattr(elem, "type", elem.__class__.__name__))
+        element_types[elem_type] += 1
+        ids = [node_index[nid] for nid in getattr(elem, "node_ids", []) if nid in node_index]
+        if elem_type in {"CTRIA3", "CTRIAR"} and len(ids) >= 3:
+            payload["faces"].append(ids[:3])
+        elif elem_type in {"CQUAD4", "CQUADR"} and len(ids) >= 4:
+            payload["faces"].append(ids[:4])
+        elif elem_type in {"CBAR", "CBEAM", "CROD", "CONROD"} and len(ids) >= 2:
+            payload["lines"].append(ids[:2])
+        else:
+            unsupported[elem_type] += 1
+    payload["element_types"] = dict(element_types)
+    if unsupported:
+        payload["checks"].append({"severity": "low", "message": f"Unsupported element shapes skipped in 3D preview: {dict(unsupported)}"})
+    return payload
+
+
+def parse_stl_mesh(path: Path) -> dict[str, Any]:
+    payload = base_mesh_payload(path, "lightweight")
+    data = path.read_bytes()
+    vertices: list[list[float]] = []
+    faces: list[list[int]] = []
+    head = data[:256].decode("latin-1", errors="ignore").lower()
+    if head.lstrip().startswith("solid") and b"facet normal" in data[:1024 * 1024]:
+        text = data.decode("latin-1", errors="ignore")
+        for match in re.finditer(r"vertex\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)", text):
+            vertices.append([float(match.group(1)), float(match.group(2)), float(match.group(3))])
+        faces = [[i, i + 1, i + 2] for i in range(0, len(vertices) - 2, 3)]
+    elif len(data) >= 84:
+        count = int.from_bytes(data[80:84], "little")
+        offset = 84
+        for _ in range(count):
+            if offset + 50 > len(data):
+                break
+            base = len(vertices)
+            offset += 12
+            for _vertex in range(3):
+                import struct
+                x, y, z = struct.unpack_from("<fff", data, offset)
+                vertices.append([float(x), float(y), float(z)])
+                offset += 12
+            faces.append([base, base + 1, base + 2])
+            offset += 2
+    payload["vertices"] = vertices
+    payload["faces"] = faces
+    payload["element_types"] = {"TRIA3": len(faces)}
+    return payload
+
+
+def parse_vtk_mesh(path: Path) -> dict[str, Any]:
+    payload = base_mesh_payload(path, "lightweight")
+    text = read_text(path)
+    tokens = text.replace("\r", "\n").split()
+    upper = [token.upper() for token in tokens]
+    vertices: list[list[float]] = []
+    faces: list[list[int]] = []
+    lines: list[list[int]] = []
+    try:
+        points_i = upper.index("POINTS")
+        point_count = int(tokens[points_i + 1])
+        cursor = points_i + 3
+        for i in range(point_count):
+            vertices.append([float(tokens[cursor + i * 3]), float(tokens[cursor + i * 3 + 1]), float(tokens[cursor + i * 3 + 2])])
+        cells_i = upper.index("CELLS")
+        cell_count = int(tokens[cells_i + 1])
+        cursor = cells_i + 3
+        cell_sizes: Counter[str] = Counter()
+        for _ in range(cell_count):
+            n = int(tokens[cursor])
+            ids = [int(tokens[cursor + j + 1]) for j in range(n)]
+            cursor += n + 1
+            if n == 2:
+                lines.append(ids)
+                cell_sizes["LINE2"] += 1
+            elif n in {3, 4}:
+                faces.append(ids)
+                cell_sizes["TRIA3" if n == 3 else "QUAD4"] += 1
+            else:
+                cell_sizes[f"POLY{n}"] += 1
+        payload["element_types"] = dict(cell_sizes)
+    except Exception as exc:
+        payload["checks"].append({"severity": "medium", "message": f"Could not parse legacy ASCII VTK mesh: {exc}"})
+    payload["vertices"] = vertices
+    payload["faces"] = faces
+    payload["lines"] = lines
+    return payload
+
+
+def parse_mesh_file(path: Path) -> dict[str, Any]:
+    suffix = path.suffix.lower()
+    if suffix in {".bdf", ".dat", ".nas"}:
+        try:
+            return parse_bdf_mesh(path)
+        except Exception as exc:
+            payload = base_mesh_payload(path, "pyNastran-failed")
+            payload["checks"].append({"severity": "medium", "message": f"BDF mesh export failed: {exc}"})
+            return payload
+    if suffix == ".stl":
+        return parse_stl_mesh(path)
+    if suffix == ".vtk":
+        return parse_vtk_mesh(path)
+    payload = base_mesh_payload(path, "unsupported")
+    payload["checks"].append({"severity": "medium", "message": f"3D mesh preview is not implemented for '{suffix}' yet."})
+    return payload
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize CAD/CAE files into AeroWingModel JSON.")
     parser.add_argument("file", type=Path, help="CAD/CAE file path")
     parser.add_argument("--json", dest="json_path", type=Path, help="Optional JSON output path")
+    parser.add_argument("--mesh-json", action="store_true", help="Export renderable mesh JSON instead of model summary")
     args = parser.parse_args()
 
     if not args.file.exists():
         raise SystemExit(f"File not found: {args.file}")
-    model = parse_file(args.file)
+    model = parse_mesh_file(args.file) if args.mesh_json else parse_file(args.file)
     payload = json.dumps(model, ensure_ascii=False, indent=2)
     if args.json_path:
         args.json_path.parent.mkdir(parents=True, exist_ok=True)

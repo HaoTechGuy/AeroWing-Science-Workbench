@@ -1,0 +1,22 @@
+*Heading
+AeroWing CAE Preview INP Sample
+*Node
+1, 0., 0., 0.
+2, 1., 0., 0.
+3, 1., 1., 0.
+4, 0., 1., 0.
+*Element, type=S4R
+1, 1, 2, 3, 4
+*Nset, nset=ROOT
+1, 4
+*Elset, elset=PANEL
+1
+*Material, name=AL7075
+*Elastic
+7.17e10, 0.33
+*Step
+*Boundary
+ROOT, 1, 6
+*Cload
+3, 3, -100.
+*End Step

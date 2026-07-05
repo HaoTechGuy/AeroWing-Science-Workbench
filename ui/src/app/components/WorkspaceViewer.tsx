@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Box,
@@ -131,6 +131,19 @@ interface CaeSummaryResponse {
   };
 }
 
+interface CaeMeshPayload {
+  metadata?: Record<string, unknown>;
+  vertices?: number[][];
+  faces?: number[][];
+  lines?: number[][];
+  element_types?: Record<string, number>;
+  checks?: Array<{ severity?: string; message?: string }>;
+}
+
+interface CaeMeshResponse {
+  mesh: CaeMeshPayload;
+}
+
 async function fetchCaeSummary(
   path: string,
   resourceId?: string,
@@ -148,6 +161,28 @@ async function fetchCaeSummary(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || "Unable to generate CAE summary.");
+  }
+
+  return response.json();
+}
+
+async function fetchCaeMesh(
+  path: string,
+  resourceId?: string,
+  workspaceId?: string
+): Promise<CaeMeshResponse> {
+  const params = new URLSearchParams({ path });
+  if (resourceId) {
+    params.set("resourceId", resourceId);
+  }
+  if (workspaceId) {
+    params.set("workspaceId", workspaceId);
+  }
+  const response = await fetch(`/api/workspace/cae-mesh?${params.toString()}`);
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "Unable to generate CAE mesh.");
   }
 
   return response.json();
@@ -466,6 +501,293 @@ function SummaryCard({
   );
 }
 
+function CaeMeshViewer({
+  file,
+  resourceId,
+  workspaceId,
+}: {
+  file: WorkspaceFileResponse;
+  resourceId?: string;
+  workspaceId?: string;
+}) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<import("three").Group | null>(null);
+  const cameraRef = useRef<import("three").PerspectiveCamera | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(
+    null
+  );
+  const [mesh, setMesh] = useState<CaeMeshPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+    setIsLoading(true);
+    setError(null);
+    setMesh(null);
+    fetchCaeMesh(file.path, resourceId, workspaceId)
+      .then((payload) => {
+        if (!isCancelled) setMesh(payload.mesh);
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          setError(err instanceof Error ? err.message : "Unable to generate CAE mesh.");
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) setIsLoading(false);
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [file.path, resourceId, workspaceId]);
+
+  const resetView = useCallback(() => {
+    const root = rootRef.current;
+    const camera = cameraRef.current;
+    if (!root || !camera) return;
+    root.rotation.set(-0.42, 0.58, 0);
+    camera.position.set(0, 0.15, 4.6);
+  }, []);
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount || !mesh) return;
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+
+    async function setup() {
+      const THREE = await import("three");
+      const activeMount = mountRef.current;
+      if (!activeMount || disposed) return;
+
+      const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(activeMount.clientWidth || 1, activeMount.clientHeight || 1);
+      activeMount.replaceChildren(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        42,
+        (activeMount.clientWidth || 1) / (activeMount.clientHeight || 1),
+        0.01,
+        10000
+      );
+      cameraRef.current = camera;
+      camera.position.set(0, 0.15, 4.6);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 1.1));
+      const key = new THREE.DirectionalLight(0xdaf4ff, 2.2);
+      key.position.set(3, 4, 5);
+      scene.add(key);
+      const fill = new THREE.DirectionalLight(0x0ea5e9, 1.1);
+      fill.position.set(-3, -2, 3);
+      scene.add(fill);
+
+      const root = new THREE.Group();
+      root.rotation.set(-0.42, 0.58, 0);
+      rootRef.current = root;
+      scene.add(root);
+
+      const vertices = mesh.vertices || [];
+      const faces = mesh.faces || [];
+      const lines = mesh.lines || [];
+      const facePositions: number[] = [];
+      const edgePositions: number[] = [];
+      const addEdge = (a: number, b: number) => {
+        const va = vertices[a];
+        const vb = vertices[b];
+        if (!va || !vb) return;
+        edgePositions.push(va[0], va[1], va[2], vb[0], vb[1], vb[2]);
+      };
+      const addTri = (a: number, b: number, c: number) => {
+        const va = vertices[a];
+        const vb = vertices[b];
+        const vc = vertices[c];
+        if (!va || !vb || !vc) return;
+        facePositions.push(
+          va[0], va[1], va[2],
+          vb[0], vb[1], vb[2],
+          vc[0], vc[1], vc[2]
+        );
+      };
+
+      faces.forEach((face) => {
+        if (face.length >= 3) {
+          addTri(face[0], face[1], face[2]);
+          addEdge(face[0], face[1]);
+          addEdge(face[1], face[2]);
+          addEdge(face[2], face[0]);
+        }
+        if (face.length >= 4) {
+          addTri(face[0], face[2], face[3]);
+          addEdge(face[2], face[3]);
+          addEdge(face[3], face[0]);
+        }
+      });
+      lines.forEach((line) => line.length >= 2 && addEdge(line[0], line[1]));
+
+      if (facePositions.length) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(facePositions, 3));
+        geometry.computeVertexNormals();
+        root.add(
+          new THREE.Mesh(
+            geometry,
+            new THREE.MeshStandardMaterial({
+              color: 0x38bdf8,
+              metalness: 0.08,
+              opacity: 0.72,
+              roughness: 0.45,
+              side: THREE.DoubleSide,
+              transparent: true,
+            })
+          )
+        );
+      }
+      if (edgePositions.length) {
+        const edgeGeometry = new THREE.BufferGeometry();
+        edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
+        root.add(
+          new THREE.LineSegments(
+            edgeGeometry,
+            new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.72 })
+          )
+        );
+      }
+      if (!facePositions.length && vertices.length) {
+        const pointGeometry = new THREE.BufferGeometry();
+        pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices.flat(), 3));
+        root.add(new THREE.Points(pointGeometry, new THREE.PointsMaterial({ color: 0x0284c7, size: 0.035 })));
+      }
+
+      const box = new THREE.Box3().setFromObject(root);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+      root.position.sub(center);
+      const scale = 2.4 / Math.max(size.x, size.y, size.z, 0.001);
+      root.scale.setScalar(scale);
+
+      const grid = new THREE.GridHelper(3.2, 12, 0x7dd3fc, 0xdbeafe);
+      grid.position.y = -1.25;
+      scene.add(grid);
+
+      const observer = new ResizeObserver(() => {
+        if (!mountRef.current) return;
+        const width = mountRef.current.clientWidth || 1;
+        const height = mountRef.current.clientHeight || 1;
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      });
+      observer.observe(activeMount);
+
+      const animate = () => {
+        if (disposed) return;
+        if (!dragRef.current) root.rotation.y += 0.002;
+        renderer.render(scene, camera);
+        frameRef.current = requestAnimationFrame(animate);
+      };
+      frameRef.current = requestAnimationFrame(animate);
+
+      cleanup = () => {
+        observer.disconnect();
+        if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+        renderer.dispose();
+        activeMount.replaceChildren();
+      };
+    }
+
+    void setup().catch((err) => {
+      setError(err instanceof Error ? err.message : "3D viewer failed.");
+    });
+    return () => {
+      disposed = true;
+      cleanup?.();
+      rootRef.current = null;
+      cameraRef.current = null;
+      dragRef.current = null;
+    };
+  }, [mesh]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !rootRef.current) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    setIsDragging(true);
+  }, []);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    const root = rootRef.current;
+    if (!drag || !root || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    root.rotation.y += dx * 0.008;
+    root.rotation.x += dy * 0.008;
+  }, []);
+
+  const finishDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+      setIsDragging(false);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    }
+  }, []);
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const camera = cameraRef.current;
+    if (!camera) return;
+    event.preventDefault();
+    camera.position.z = Math.max(1.2, Math.min(12, camera.position.z + event.deltaY * 0.006));
+  }, []);
+
+  return (
+    <div
+      className={`relative h-[42vh] min-h-[260px] overflow-hidden rounded-xl border border-sky-200 bg-[radial-gradient(circle_at_15%_10%,rgba(56,189,248,0.2),transparent_30%),linear-gradient(145deg,#eff6ff,#f8fbff)] ${
+        isDragging ? "cursor-grabbing" : "cursor-grab"
+      }`}
+      onPointerDownCapture={handlePointerDown}
+      onPointerMoveCapture={handlePointerMove}
+      onPointerUpCapture={finishDrag}
+      onPointerCancelCapture={finishDrag}
+      onWheel={handleWheel}
+    >
+      <div ref={mountRef} className="absolute inset-0" />
+      <div className="absolute left-3 top-3 rounded-md border border-sky-200 bg-white/85 px-3 py-2 text-xs text-sky-950 shadow-sm backdrop-blur">
+        <span className="font-semibold">3D CAE Viewer</span>
+        <span className="ml-2 text-muted-foreground">
+          {(mesh?.vertices?.length || 0).toLocaleString()} nodes / {(mesh?.faces?.length || 0).toLocaleString()} faces
+        </span>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="absolute right-3 top-3 h-8 w-8 bg-white/85 text-sky-800 hover:bg-white"
+        onClick={resetView}
+      >
+        <RefreshCw className="h-4 w-4" />
+      </Button>
+      {(isLoading || error || mesh?.checks?.length) && (
+        <div className="absolute bottom-3 left-3 right-3 rounded-md border border-sky-200 bg-white/90 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
+          {isLoading
+            ? "正在生成 3D 网格..."
+            : error || mesh?.checks?.[0]?.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CaeSummaryPreview({
   file,
   resourceId,
@@ -526,6 +848,12 @@ function CaeSummaryPreview({
   return (
     <ScrollArea className="h-full bg-sky-50/30">
       <div className="space-y-4 p-5">
+        <CaeMeshViewer
+          file={file}
+          resourceId={resourceId}
+          workspaceId={workspaceId}
+        />
+
         <div className="rounded-xl border border-sky-200 bg-gradient-to-br from-sky-600 to-blue-700 p-4 text-white shadow-sm shadow-sky-900/10">
           <div className="flex items-center justify-between gap-3">
             <div>
