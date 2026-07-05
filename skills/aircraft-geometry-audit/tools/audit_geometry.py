@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 TRIMESH_EXTENSIONS = {".stl", ".obj", ".ply", ".glb", ".gltf"}
 MESHIO_EXTENSIONS = {".vtk", ".vtu", ".vtp", ".inp", ".stl", ".obj", ".ply"}
 
@@ -67,9 +67,33 @@ def bbox_metrics(points: np.ndarray) -> dict[str, Any]:
         "height_z": rounded(extents[2]),
         "diagonal": rounded(diag),
         "centroid_bbox": [rounded(x) for x in ((mins + maxs) / 2.0)],
+        "bounding_box": {"min": [rounded(x) for x in mins], "max": [rounded(x) for x in maxs]},
         "slenderness_ratio": rounded(slenderness, 3),
     }
 
+
+
+
+def edge_topology_counts(faces: np.ndarray) -> dict[str, int | None]:
+    """Count boundary and non-manifold edges for triangular surface meshes."""
+    if len(faces) == 0:
+        return {"edges": 0, "boundary_edges": 0, "non_manifold_edges": 0}
+    triangles = np.asarray(faces[:, :3], dtype=np.int64)
+    edges = np.concatenate(
+        [
+            triangles[:, [0, 1]],
+            triangles[:, [1, 2]],
+            triangles[:, [2, 0]],
+        ],
+        axis=0,
+    )
+    edges.sort(axis=1)
+    _unique, counts = np.unique(edges, axis=0, return_counts=True)
+    return {
+        "edges": int(len(counts)),
+        "boundary_edges": int(np.count_nonzero(counts == 1)),
+        "non_manifold_edges": int(np.count_nonzero(counts > 2)),
+    }
 
 def triangle_degenerate_count(vertices: np.ndarray, faces: np.ndarray) -> int:
     if len(vertices) == 0 or len(faces) == 0:
@@ -88,17 +112,24 @@ def readiness(payload: dict[str, Any]) -> None:
     points = int(mesh.get("points") or 0)
     watertight = quality.get("watertight")
     degenerate = int(quality.get("degenerate_faces") or 0)
+    non_manifold = int(quality.get("non_manifold_edges") or 0)
+    boundary_edges = int(quality.get("boundary_edges") or 0)
+    topology_clean = non_manifold == 0 and boundary_edges == 0
 
     payload["readiness"] = {
         "visualization": points > 0 and (triangles > 0 or bool(mesh.get("cell_types"))),
-        "cfd_surface_prep": bool(watertight) and degenerate == 0,
-        "fem_reference_geometry": points > 0,
-        "printing_or_volume": bool(watertight) and bool(payload["dimensions"].get("diagonal")),
+        "cfd_surface_prep": bool(watertight) and degenerate == 0 and topology_clean,
+        "fem_reference_geometry": points > 0 and degenerate == 0,
+        "printing_or_volume": bool(watertight) and topology_clean and bool(payload["dimensions"].get("diagonal")),
     }
     if watertight is False:
         checks.append({"severity": "high", "message": "Mesh is not watertight; volume, CFD volume meshing, and 3D printing may fail."})
     if degenerate:
         checks.append({"severity": "medium", "message": f"Detected {degenerate:,} degenerate triangular faces; repair before solver use."})
+    if non_manifold:
+        checks.append({"severity": "high", "message": f"Detected {non_manifold:,} non-manifold edges; repair topology before CFD/FEM meshing."})
+    if boundary_edges:
+        checks.append({"severity": "medium", "message": f"Detected {boundary_edges:,} boundary/open edges; model is likely not closed."})
     if points > 500_000 or triangles > 500_000:
         checks.append({"severity": "medium", "message": "Large mesh detected; use cached previews, decimation, or server-side jobs for interactive workflows."})
     if payload["metadata"]["extension"] == ".stl":
@@ -123,6 +154,10 @@ def audit_with_trimesh(path: Path) -> dict[str, Any]:
         "triangles": int(len(faces)),
         "cell_types": {"triangle": int(len(faces))} if len(faces) else {},
     }
+    topology_mesh = mesh.copy()
+    topology_mesh.merge_vertices()
+    topology_faces = np.asarray(topology_mesh.faces, dtype=np.int64) if getattr(topology_mesh, "faces", None) is not None else faces
+    topology = edge_topology_counts(topology_faces)
     payload["quality"] = {
         "watertight": bool(getattr(mesh, "is_watertight", False)),
         "winding_consistent": bool(getattr(mesh, "is_winding_consistent", False)),
@@ -130,6 +165,7 @@ def audit_with_trimesh(path: Path) -> dict[str, Any]:
         "surface_area": rounded(getattr(mesh, "area", None)),
         "volume": rounded(getattr(mesh, "volume", None)) if getattr(mesh, "is_watertight", False) else None,
         "degenerate_faces": triangle_degenerate_count(vertices, faces) if len(faces) else 0,
+        **topology,
     }
     readiness(payload)
     return payload
@@ -156,11 +192,13 @@ def audit_with_meshio(path: Path) -> dict[str, Any]:
         "point_data": sorted(mesh.point_data.keys()),
         "cell_data": sorted(mesh.cell_data.keys()),
     }
+    topology = edge_topology_counts(triangles) if triangles is not None else {"edges": None, "boundary_edges": None, "non_manifold_edges": None}
     payload["quality"] = {
         "watertight": None,
         "surface_area": None,
         "volume": None,
         "degenerate_faces": triangle_degenerate_count(points, triangles) if triangles is not None else 0,
+        **topology,
     }
     readiness(payload)
     return payload
@@ -194,7 +232,7 @@ def to_markdown(payload: dict[str, Any]) -> str:
     mesh = payload.get("mesh", {})
     quality = payload.get("quality", {})
     lines += ["", "## Dimensions", ""]
-    for key in ["length_x", "span_y", "height_z", "diagonal", "slenderness_ratio"]:
+    for key in ["length_x", "span_y", "height_z", "diagonal", "slenderness_ratio", "min", "max"]:
         lines.append(f"- {key}: {dims.get(key, '-')}")
     lines += ["", "## Mesh", ""]
     for key, value in mesh.items():

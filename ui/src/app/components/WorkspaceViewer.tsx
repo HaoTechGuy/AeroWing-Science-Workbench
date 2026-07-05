@@ -969,6 +969,8 @@ function GeometryAuditPanel({
             ["Triangles", audit.mesh?.triangles || audit.mesh?.surface_faces],
             ["Cell Types", audit.mesh?.cell_types],
             ["Degenerate", audit.quality?.degenerate_faces],
+            ["Non-manifold", audit.quality?.non_manifold_edges],
+            ["Open Edges", audit.quality?.boundary_edges],
           ]}
         />
         <SummaryCard

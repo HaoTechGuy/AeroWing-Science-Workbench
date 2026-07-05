@@ -10,7 +10,7 @@ Use this skill to evaluate geometry/mesh readiness before aviation structure, CF
 ## Workflow
 
 1. Identify the file type and intended downstream use: visualization, CFD surface prep, FEM shell/solid meshing, or 3D printing.
-2. Run `scripts/audit_geometry.py <file>` for deterministic metrics. Add `--markdown` when a report is needed.
+2. Run `tools/audit_geometry.py <file>` for deterministic metrics. Add `--markdown` when a report is needed.
 3. Interpret the JSON/Markdown using engineering context:
    - Large bounding-box ratios can indicate wing/fuselage scale or unit issues.
    - Non-watertight STL/OBJ/PLY meshes are risky for volume, CFD volume meshing, and 3D printing.
@@ -23,8 +23,10 @@ Use this skill to evaluate geometry/mesh readiness before aviation structure, CF
 `audit_geometry.py` supports STL/OBJ/PLY through `trimesh` and common VTK/VTU/INP/STL mesh containers through `meshio` fallback. It emits:
 
 - bounding box dimensions and centroid
+- length, wing span, height, and full envelope box
 - surface area and volume when available
-- watertight/manifold style checks when supported
+- watertight, boundary edge, and non-manifold edge checks when supported
 - point/cell/triangle counts
 - degenerate face count when triangular faces are available
 - readiness flags for visualization, CFD, FEM, and 3D printing
+- Markdown report output with `--markdown`

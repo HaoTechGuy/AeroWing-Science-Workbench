@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
 
     const rawFile = await readWorkspaceRawFile(requestedPath, resourceId, workspaceId);
     const appRoot = resolveAppRoot();
-    const auditPath = path.join(appRoot, "skills", "aircraft-geometry-audit", "scripts", "audit_geometry.py");
+    const auditPath = path.join(appRoot, "skills", "aircraft-geometry-audit", "tools", "audit_geometry.py");
     if (!existsSync(auditPath)) {
       throw new Error("Aircraft geometry audit script was not found in this workbench.");
     }
