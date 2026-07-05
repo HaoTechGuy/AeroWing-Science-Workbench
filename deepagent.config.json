@@ -17,7 +17,8 @@
     "selected": [
       "skills/skill-creator",
       "skills/aero-structure-analysis",
-      "skills/cad-cae-parser"
+      "skills/cad-cae-parser",
+      "skills/aircraft-geometry-audit"
     ],
     "label": "InternAgentS"
   },

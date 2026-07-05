@@ -8,6 +8,9 @@ lxml
 markitdown[pptx]
 openpyxl
 pandas
+meshio
+trimesh
+numpy
 pyNastran
 python-dotenv
 socksio

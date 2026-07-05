@@ -1,0 +1,4 @@
+interface:
+  display_name: "Aircraft Geometry Audit"
+  short_description: "Audit STL/mesh geometry readiness for aviation analysis."
+  default_prompt: "Audit this aircraft geometry or mesh for dimensions, mesh quality, watertightness, and CFD/FEM readiness."

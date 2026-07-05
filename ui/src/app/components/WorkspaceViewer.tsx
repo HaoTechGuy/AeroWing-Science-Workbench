@@ -145,6 +145,20 @@ interface CaeMeshResponse {
   mesh: CaeMeshPayload;
 }
 
+interface GeometryAuditPayload {
+  metadata?: Record<string, unknown>;
+  dimensions?: Record<string, unknown>;
+  mesh?: Record<string, unknown>;
+  quality?: Record<string, unknown>;
+  readiness?: Record<string, unknown>;
+  checks?: Array<{ severity?: string; message?: string }>;
+}
+
+interface GeometryAuditResponse {
+  cacheHit?: boolean;
+  audit: GeometryAuditPayload;
+}
+
 async function fetchCaeSummary(
   path: string,
   resourceId?: string,
@@ -162,6 +176,29 @@ async function fetchCaeSummary(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || "Unable to generate CAE summary.");
+  }
+
+  return response.json();
+}
+
+
+async function fetchGeometryAudit(
+  path: string,
+  resourceId?: string,
+  workspaceId?: string
+): Promise<GeometryAuditResponse> {
+  const params = new URLSearchParams({ path });
+  if (resourceId) {
+    params.set("resourceId", resourceId);
+  }
+  if (workspaceId) {
+    params.set("workspaceId", workspaceId);
+  }
+  const response = await fetch(`/api/workspace/geometry-audit?${params.toString()}`);
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "Unable to generate geometry audit.");
   }
 
   return response.json();
@@ -823,6 +860,145 @@ function CaeMeshViewer({
   );
 }
 
+
+function GeometryAuditPanel({
+  file,
+  resourceId,
+  workspaceId,
+}: {
+  file: WorkspaceFileResponse;
+  resourceId?: string;
+  workspaceId?: string;
+}) {
+  const [payload, setPayload] = useState<GeometryAuditResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+    setIsLoading(true);
+    setError(null);
+    setPayload(null);
+
+    fetchGeometryAudit(file.path, resourceId, workspaceId)
+      .then((audit) => {
+        if (!isCancelled) setPayload(audit);
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          setError(err instanceof Error ? err.message : "\u65e0\u6cd5\u751f\u6210\u51e0\u4f55\u5ba1\u67e5\u3002");
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) setIsLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [file.path, resourceId, workspaceId]);
+
+  if (isLoading) {
+    return (
+      <section className="rounded-lg border border-sky-100 bg-white p-4 text-sm text-muted-foreground shadow-sm shadow-sky-950/[0.04]">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+          {"\u6b63\u5728\u751f\u6210\u51e0\u4f55\u5ba1\u67e5\uff1b\u5927\u6a21\u578b\u7b2c\u4e8c\u6b21\u6253\u5f00\u4f1a\u4f7f\u7528\u7f13\u5b58..."}
+        </div>
+      </section>
+    );
+  }
+
+  if (error || !payload?.audit) {
+    return (
+      <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        {error || "\u65e0\u6cd5\u751f\u6210\u51e0\u4f55\u5ba1\u67e5\u3002"}
+      </section>
+    );
+  }
+
+  const audit = payload.audit;
+  const readiness = audit.readiness || {};
+  const checks = audit.checks || [];
+  const readinessItems = Object.entries(readiness);
+
+  return (
+    <section className="space-y-3 rounded-lg border border-sky-100 bg-white p-4 shadow-sm shadow-sky-950/[0.04]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.24em] text-sky-600">Geometry Audit</p>
+          <h3 className="mt-1 text-sm font-semibold text-sky-950">{"\u822a\u7a7a\u51e0\u4f55\u5ba1\u67e5"}</h3>
+        </div>
+        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
+          {payload.cacheHit ? "\u7f13\u5b58" : formatSummaryValue(audit.metadata?.backend)}
+        </span>
+      </div>
+
+      {readinessItems.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {readinessItems.map(([key, value]) => (
+            <span
+              key={key}
+              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                value ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+              }`}
+            >
+              {key}: {value ? "OK" : "Review"}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <SummaryCard
+          icon={<Box className="h-4 w-4" />}
+          title="Dimensions"
+          items={[
+            ["Length X", audit.dimensions?.length_x],
+            ["Span Y", audit.dimensions?.span_y],
+            ["Height Z", audit.dimensions?.height_z],
+            ["Diagonal", audit.dimensions?.diagonal],
+            ["Slender", audit.dimensions?.slenderness_ratio],
+          ]}
+        />
+        <SummaryCard
+          icon={<Database className="h-4 w-4" />}
+          title="Mesh Quality"
+          items={[
+            ["Points", audit.mesh?.points],
+            ["Triangles", audit.mesh?.triangles || audit.mesh?.surface_faces],
+            ["Cell Types", audit.mesh?.cell_types],
+            ["Degenerate", audit.quality?.degenerate_faces],
+          ]}
+        />
+        <SummaryCard
+          icon={<RefreshCw className="h-4 w-4" />}
+          title="Physical"
+          items={[
+            ["Watertight", audit.quality?.watertight],
+            ["Area", audit.quality?.surface_area],
+            ["Volume", audit.quality?.volume],
+            ["Euler", audit.quality?.euler_number],
+          ]}
+        />
+      </div>
+
+      {checks.length > 0 && (
+        <div className="space-y-2">
+          {checks.map((check, index) => (
+            <div key={`${check.message}-${index}`} className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <span className="mr-2 rounded-full bg-amber-200 px-2 py-0.5 font-semibold uppercase">
+                {check.severity || "info"}
+              </span>
+              {check.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CaeSummaryPreview({
   file,
   resourceId,
@@ -888,6 +1064,12 @@ function CaeSummaryPreview({
     <ScrollArea className="h-full bg-sky-50/30">
       <div className="space-y-4 p-5">
         <CaeMeshViewer
+          file={file}
+          resourceId={resourceId}
+          workspaceId={workspaceId}
+        />
+
+        <GeometryAuditPanel
           file={file}
           resourceId={resourceId}
           workspaceId={workspaceId}
