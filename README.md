@@ -3,7 +3,7 @@
     <img src="./docs/assets/readme/internagents-banner.png" alt="InternAgentS banner" width="100%">
   </p>
 
-  <h1 align="center">InternAgentS: Bringing the Claude Science experience to the open-source world.</h1>
+  <h1 align="center">AeroWing Science Workbench: Aviation Structure AI Engineering Workbench.</h1>
   <p align="center">
     Built on DeepAgents and LangGraph to extend research agent runtimes across project context, files, skills, remote resources, and human approvals.
   </p>
@@ -31,7 +31,7 @@
   </p>
 </div>
 
-InternAgentS is a local-first research workspace built on DeepAgents/LangGraph,
+AeroWing Science Workbench is a local-first aviation structure engineering workspace built on DeepAgents/LangGraph,
 with project runtimes, skills, remote resources, and approval flows designed for
 scientific work.
 

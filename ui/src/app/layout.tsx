@@ -53,7 +53,7 @@ const startupSplashLanguageScript = `
 
 export const metadata = {
   title: "空中之翼",
-  description: "AeroWing local aviation engineering workbench",
+  description: "AeroWing Science Workbench: aviation structure engineering AI workbench",
 };
 
 export default function RootLayout({

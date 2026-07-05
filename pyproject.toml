@@ -1,7 +1,7 @@
 [project]
-name = "local-deepagent-ui-demo"
+name = "aerowing-science-workbench"
 version = "0.1.0"
-description = "Local DeepAgent graph for use with the official Deep Agents UI."
+description = "AeroWing Science Workbench: an aviation structure engineering AI workbench."
 requires-python = ">=3.11,<4.0"
 dependencies = [
     "deepagents>=0.5.7",
