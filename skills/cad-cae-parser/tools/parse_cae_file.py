@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Lightweight CAD/CAE summary parser for AeroWing.
+"""CAD/CAE summary parser for AeroWing.
 
-This intentionally avoids heavy CAD/CAE dependencies so the minimal product build
-can run anywhere. Optional future adapters can wrap pyNastran, meshio, VTK, or OCP.
+BDF/OP2 use pyNastran when available so the summary is built from the real
+finite-element model/result objects. Text scanners remain as fallbacks and for
+formats that do not need a heavyweight reader in the minimal workbench.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
-import os
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 BDF_NODE_CARDS = {"GRID", "GRID*"}
 BDF_ELEMENT_PREFIXES = ("CQUAD", "CTRIA", "CBAR", "CBEAM", "CROD", "CTETRA", "CHEXA", "CPENTA", "RBE", "CONM")
 BDF_PROPERTY_PREFIXES = ("PSHELL", "PCOMP", "PBAR", "PBEAM", "PROD", "PSOLID", "PBUSH")
@@ -34,13 +36,14 @@ def read_text(path: Path, limit_bytes: int = 32 * 1024 * 1024) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def base_summary(path: Path) -> dict[str, Any]:
+def base_summary(path: Path, backend: str = "lightweight") -> dict[str, Any]:
     stat = path.stat()
     return {
         "metadata": {
             "schema": "AeroWingModel",
             "parser": "cad-cae-parser",
             "parser_version": VERSION,
+            "parser_backend": backend,
             "file_name": path.name,
             "extension": path.suffix.lower(),
             "size_bytes": stat.st_size,
@@ -54,6 +57,141 @@ def base_summary(path: Path) -> dict[str, Any]:
     }
 
 
+def append_fallback_check(model: dict[str, Any], reason: str) -> None:
+    model["metadata"]["parser_backend"] = "lightweight-fallback"
+    model["checks"].append({"severity": "low", "message": f"pyNastran unavailable or could not read this file: {reason}"})
+
+
+def type_counter(values: Iterable[Any]) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for value in values:
+        card_type = getattr(value, "type", None) or value.__class__.__name__
+        counts[str(card_type)] += 1
+    return counts
+
+
+def count_nested_cards(container: Any) -> tuple[int, dict[str, int]]:
+    if not container:
+        return 0, {}
+    flattened: list[Any] = []
+    if isinstance(container, dict):
+        values = container.values()
+    else:
+        values = container
+    for value in values:
+        if isinstance(value, (list, tuple, set)):
+            flattened.extend(value)
+        else:
+            flattened.append(value)
+    return len(flattened), dict(type_counter(flattened))
+
+
+def parse_bdf_with_pynastran(path: Path) -> dict[str, Any]:
+    from pyNastran.bdf.bdf import BDF
+
+    model = base_summary(path, "pyNastran")
+    bdf = BDF(debug=False, log=None, mode="msc")
+    # pyNastran logs to stdout on some warnings; keep API responses JSON-only.
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        bdf.read_bdf(str(path), xref=False, validate=False, punch=False)
+
+    element_types = type_counter(bdf.elements.values())
+    property_types = type_counter(bdf.properties.values())
+    material_cards = {
+        **{f"materials.{k}": v for k, v in type_counter(bdf.materials.values()).items()},
+        **{f"thermal_materials.{k}": v for k, v in type_counter(getattr(bdf, "thermal_materials", {}).values()).items()},
+        **{f"creep_materials.{k}": v for k, v in type_counter(getattr(bdf, "creep_materials", {}).values()).items()},
+    }
+    load_count, load_cards = count_nested_cards(getattr(bdf, "loads", {}))
+    dload_count, dload_cards = count_nested_cards(getattr(bdf, "dloads", {}))
+    spc_count, spc_cards = count_nested_cards(getattr(bdf, "spcs", {}))
+    mpc_count, mpc_cards = count_nested_cards(getattr(bdf, "mpcs", {}))
+
+    model["mesh"].update(
+        {
+            "nodes": len(bdf.nodes),
+            "elements": len(bdf.elements),
+            "element_types": dict(element_types),
+            "properties": dict(property_types),
+            "properties_count": len(bdf.properties),
+            "coords": len(getattr(bdf, "coords", {})),
+            "rigid_elements": len(getattr(bdf, "rigid_elements", {})),
+            "masses": len(getattr(bdf, "masses", {})),
+            "aero_panels": len(getattr(bdf, "caeros", {})),
+        }
+    )
+    model["materials"] = {"cards": material_cards, "count": sum(material_cards.values())}
+    model["loads"] = {
+        "load_cards": load_cards,
+        "dload_cards": dload_cards,
+        "constraint_cards": {**{f"SPC.{k}": v for k, v in spc_cards.items()}, **{f"MPC.{k}": v for k, v in mpc_cards.items()}},
+        "load_count": load_count + dload_count,
+        "constraint_count": spc_count + mpc_count,
+        "subcases": len(getattr(getattr(bdf, "case_control_deck", None), "subcases", {}) or {}),
+    }
+    model["geometry"] = {
+        "coordinate_systems": len(getattr(bdf, "coords", {})),
+        "aero_surfaces": len(getattr(bdf, "caeros", {})),
+        "splines": len(getattr(bdf, "splines", {})),
+    }
+
+    if model["mesh"]["elements"] and not model["materials"]["count"]:
+        model["checks"].append({"severity": "high", "message": "Elements found but pyNastran did not read any material cards."})
+    if model["mesh"]["elements"] and not model["mesh"]["properties_count"]:
+        model["checks"].append({"severity": "medium", "message": "Elements found but pyNastran did not read any property cards."})
+    if not model["loads"]["constraint_count"]:
+        model["checks"].append({"severity": "medium", "message": "No SPC/MPC constraints were read; verify boundary conditions."})
+    return model
+
+
+def summarize_result_bucket(bucket: Any) -> dict[str, Any]:
+    if not bucket:
+        return {"count": 0, "subcases": []}
+    subcases = sorted([str(key) for key in bucket.keys()]) if isinstance(bucket, dict) else []
+    return {"count": len(bucket), "subcases": subcases[:20], "truncated": len(subcases) > 20}
+
+
+def parse_op2(path: Path) -> dict[str, Any]:
+    try:
+        from pyNastran.op2.op2 import OP2
+
+        op2 = OP2(debug=False, log=None)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            op2.read_op2(str(path), build_dataframe=False, skip_undefined_matrices=True)
+        model = base_summary(path, "pyNastran")
+        grid_points = getattr(op2, "grid_point_weight", None)
+        result_attrs = {
+            "displacements": "displacements",
+            "velocities": "velocities",
+            "accelerations": "accelerations",
+            "eigenvectors": "eigenvectors",
+            "spc_forces": "spc_forces",
+            "mpc_forces": "mpc_forces",
+            "grid_point_forces": "grid_point_forces",
+            "cquad4_stress": "cquad4_stress",
+            "ctria3_stress": "ctria3_stress",
+            "cbar_force": "cbar_force",
+            "cbeam_force": "cbeam_force",
+            "rod_stress": "rod_stress",
+            "solid_stress": "solid_stress",
+        }
+        results = {label: summarize_result_bucket(getattr(op2, attr, {})) for label, attr in result_attrs.items() if getattr(op2, attr, {})}
+        model["results"] = {
+            "result_tables": results,
+            "table_count": len(results),
+            "matrices": sorted(list(getattr(op2, "matrices", {}).keys()))[:20],
+            "grid_point_weight": bool(grid_points),
+        }
+        model["mesh"] = {"nodes": None, "elements": None, "element_types": {}}
+        if not results:
+            model["checks"].append({"severity": "medium", "message": "OP2 read succeeded, but no common structural result tables were found."})
+        return model
+    except Exception as exc:  # pragma: no cover - depends on optional binary reader
+        model = parse_text_result(path)
+        append_fallback_check(model, str(exc))
+        return model
+
+
 def first_bdf_field(line: str) -> str:
     stripped = line.strip()
     if not stripped or stripped.startswith(("$", "#")):
@@ -63,8 +201,8 @@ def first_bdf_field(line: str) -> str:
     return stripped.split(None, 1)[0].strip().upper()
 
 
-def parse_bdf(path: Path) -> dict[str, Any]:
-    model = base_summary(path)
+def parse_bdf_lightweight(path: Path) -> dict[str, Any]:
+    model = base_summary(path, "lightweight")
     text = read_text(path)
     cards: Counter[str] = Counter()
     for line in text.splitlines():
@@ -78,21 +216,9 @@ def parse_bdf(path: Path) -> dict[str, Any]:
     load_cards = {k: v for k, v in cards.items() if k.startswith(BDF_LOAD_PREFIXES)}
     constraint_cards = {k: v for k, v in cards.items() if k.startswith(BDF_CONSTRAINT_PREFIXES)}
 
-    model["mesh"].update(
-        {
-            "nodes": sum(cards[c] for c in BDF_NODE_CARDS),
-            "elements": sum(element_cards.values()),
-            "element_types": element_cards,
-            "properties": property_cards,
-        }
-    )
+    model["mesh"].update({"nodes": sum(cards[c] for c in BDF_NODE_CARDS), "elements": sum(element_cards.values()), "element_types": element_cards, "properties": property_cards})
     model["materials"] = {"cards": material_cards, "count": sum(material_cards.values())}
-    model["loads"] = {
-        "load_cards": load_cards,
-        "constraint_cards": constraint_cards,
-        "load_count": sum(load_cards.values()),
-        "constraint_count": sum(constraint_cards.values()),
-    }
+    model["loads"] = {"load_cards": load_cards, "constraint_cards": constraint_cards, "load_count": sum(load_cards.values()), "constraint_count": sum(constraint_cards.values())}
     if model["mesh"]["elements"] and not model["materials"]["count"]:
         model["checks"].append({"severity": "high", "message": "Element cards found but no MAT* material cards were detected."})
     if model["mesh"]["elements"] and not property_cards:
@@ -102,8 +228,17 @@ def parse_bdf(path: Path) -> dict[str, Any]:
     return model
 
 
+def parse_bdf(path: Path) -> dict[str, Any]:
+    try:
+        return parse_bdf_with_pynastran(path)
+    except Exception as exc:
+        model = parse_bdf_lightweight(path)
+        append_fallback_check(model, str(exc))
+        return model
+
+
 def parse_inp(path: Path) -> dict[str, Any]:
-    model = base_summary(path)
+    model = base_summary(path, "lightweight")
     text = read_text(path)
     section = None
     counts: defaultdict[str, int] = defaultdict(int)
@@ -132,7 +267,6 @@ def parse_inp(path: Path) -> dict[str, Any]:
             counts["node_rows"] += 1
         elif section == "*ELEMENT":
             counts["element_rows"] += 1
-            # Attribute element rows to the most recent type when possible.
             if element_types:
                 last_type = next(reversed(element_types))
                 element_types[last_type] += 1
@@ -149,7 +283,7 @@ def parse_inp(path: Path) -> dict[str, Any]:
 
 
 def parse_stl(path: Path) -> dict[str, Any]:
-    model = base_summary(path)
+    model = base_summary(path, "lightweight")
     data = path.read_bytes()
     head = data[:256].decode("latin-1", errors="ignore").lower()
     if head.lstrip().startswith("solid") and b"facet normal" in data[:1024 * 1024]:
@@ -168,13 +302,10 @@ def parse_stl(path: Path) -> dict[str, Any]:
 
 
 def parse_vtk(path: Path) -> dict[str, Any]:
-    model = base_summary(path)
+    model = base_summary(path, "lightweight")
     text = read_text(path)
     upper = text.upper()
-    points = None
-    cells = None
-    point_data = None
-    cell_data = None
+    points = cells = point_data = cell_data = None
     match = re.search(r"\bPOINTS\s+(\d+)", upper)
     if match:
         points = int(match.group(1))
@@ -199,16 +330,10 @@ def parse_vtk(path: Path) -> dict[str, Any]:
 
 
 def parse_text_result(path: Path) -> dict[str, Any]:
-    model = base_summary(path)
+    model = base_summary(path, "lightweight")
     text = read_text(path)
     upper = text.upper()
-    markers = {
-        "displacement": upper.count("DISPLACEMENT"),
-        "stress": upper.count("STRESS"),
-        "strain": upper.count("STRAIN"),
-        "eigenvalue": upper.count("EIGENVALUE"),
-        "grid_point": upper.count("GRID POINT"),
-    }
+    markers = {"displacement": upper.count("DISPLACEMENT"), "stress": upper.count("STRESS"), "strain": upper.count("STRAIN"), "eigenvalue": upper.count("EIGENVALUE"), "grid_point": upper.count("GRID POINT")}
     model["results"] = {"markers": {k: v for k, v in markers.items() if v}}
     if not model["results"]["markers"]:
         model["checks"].append({"severity": "low", "message": "No common structural result markers detected in the text file."})
@@ -219,6 +344,8 @@ def parse_file(path: Path) -> dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix in {".bdf", ".dat", ".nas"}:
         return parse_bdf(path)
+    if suffix == ".op2":
+        return parse_op2(path)
     if suffix == ".inp":
         return parse_inp(path)
     if suffix == ".stl":
@@ -227,7 +354,7 @@ def parse_file(path: Path) -> dict[str, Any]:
         return parse_vtk(path)
     if suffix in {".f06", ".pch", ".csv", ".txt"}:
         return parse_text_result(path)
-    model = base_summary(path)
+    model = base_summary(path, "unsupported")
     model["checks"].append({"severity": "medium", "message": f"Unsupported extension '{suffix}'. Add an adapter or export to STEP/STL/BDF/INP/VTK."})
     return model
 

@@ -15,7 +15,8 @@
     ],
     "active_path": ".internagents/active-skills",
     "selected": [
-      "skills/skill-creator"
+      "skills/skill-creator",
+      "skills/aero-structure-analysis"
     ],
     "label": "InternAgentS"
   },

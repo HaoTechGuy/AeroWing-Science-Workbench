@@ -2,11 +2,15 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
+  Box,
+  Database,
   ExternalLink,
   Loader2,
   PanelRight,
   PanelRightClose,
   PanelRightOpen,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -64,6 +68,7 @@ const LANGUAGE_MAP: Record<string, string> = {
 const PREVIEW_KIND_LABELS: Record<WorkspaceFileResponse["previewKind"], string> =
   {
     binary: "Binary",
+    cae: "CAE",
     docx: "Docx",
     image: "Image",
     markdown: "Markdown",
@@ -109,6 +114,40 @@ async function fetchWorkspaceFile(
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     throw new Error(payload?.error || "Unable to load file.");
+  }
+
+  return response.json();
+}
+
+interface CaeSummaryResponse {
+  summary: {
+    metadata?: Record<string, unknown>;
+    geometry?: Record<string, unknown>;
+    mesh?: Record<string, unknown>;
+    materials?: Record<string, unknown>;
+    loads?: Record<string, unknown>;
+    results?: Record<string, unknown>;
+    checks?: Array<{ severity?: string; message?: string }>;
+  };
+}
+
+async function fetchCaeSummary(
+  path: string,
+  resourceId?: string,
+  workspaceId?: string
+): Promise<CaeSummaryResponse> {
+  const params = new URLSearchParams({ path });
+  if (resourceId) {
+    params.set("resourceId", resourceId);
+  }
+  if (workspaceId) {
+    params.set("workspaceId", workspaceId);
+  }
+  const response = await fetch(`/api/workspace/cae-summary?${params.toString()}`);
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "Unable to generate CAE summary.");
   }
 
   return response.json();
@@ -379,6 +418,194 @@ function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
   );
 }
 
+function formatSummaryValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number") return value.toLocaleString();
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "-";
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return entries.length
+      ? entries.map(([key, item]) => `${key}: ${formatSummaryValue(item)}`).join(", ")
+      : "-";
+  }
+  return String(value);
+}
+
+function SummaryCard({
+  icon,
+  title,
+  items,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  items: Array<[string, unknown]>;
+}) {
+  const visibleItems = items.filter(([, value]) => value !== undefined);
+  if (!visibleItems.length) return null;
+
+  return (
+    <section className="rounded-lg border border-sky-100 bg-white p-4 shadow-sm shadow-sky-950/[0.04]">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-sky-950">
+        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-sky-50 text-sky-700">
+          {icon}
+        </span>
+        {title}
+      </div>
+      <dl className="grid gap-2 text-xs">
+        {visibleItems.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 break-words font-medium text-foreground">
+              {formatSummaryValue(value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function CaeSummaryPreview({
+  file,
+  resourceId,
+  workspaceId,
+}: {
+  file: WorkspaceFileResponse;
+  resourceId?: string;
+  workspaceId?: string;
+}) {
+  const [payload, setPayload] = useState<CaeSummaryResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+    setIsLoading(true);
+    setError(null);
+    setPayload(null);
+
+    fetchCaeSummary(file.path, resourceId, workspaceId)
+      .then((summary) => {
+        if (!isCancelled) setPayload(summary);
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          setError(err instanceof Error ? err.message : "Unable to generate CAE summary.");
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) setIsLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [file.path, resourceId, workspaceId]);
+
+  const summary = payload?.summary;
+  const checks = summary?.checks || [];
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center gap-2 bg-sky-50/40 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
+        正在生成 CAE 摘要...
+      </div>
+    );
+  }
+
+  if (error || !summary) {
+    return (
+      <div className="m-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        {error || "Unable to generate CAE summary."}
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-full bg-sky-50/30">
+      <div className="space-y-4 p-5">
+        <div className="rounded-xl border border-sky-200 bg-gradient-to-br from-sky-600 to-blue-700 p-4 text-white shadow-sm shadow-sky-900/10">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-100">CAE Summary</p>
+              <h3 className="mt-1 text-lg font-semibold">CAE 摘要</h3>
+            </div>
+            <span className="rounded-full bg-white/15 px-3 py-1 text-xs">
+              {formatSummaryValue(summary.metadata?.parser_backend)}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid gap-3">
+          <SummaryCard
+            icon={<Box className="h-4 w-4" />}
+            title="Mesh"
+            items={[
+              ["Nodes", summary.mesh?.nodes],
+              ["Elements", summary.mesh?.elements],
+              ["Types", summary.mesh?.element_types],
+              ["Properties", summary.mesh?.properties],
+              ["Coords", summary.mesh?.coords],
+            ]}
+          />
+          <SummaryCard
+            icon={<Database className="h-4 w-4" />}
+            title="Materials / Loads"
+            items={[
+              ["Materials", summary.materials?.count],
+              ["Cards", summary.materials?.cards],
+              ["Loads", summary.loads?.load_count],
+              ["Constraints", summary.loads?.constraint_count],
+              ["Subcases", summary.loads?.subcases],
+            ]}
+          />
+          <SummaryCard
+            icon={<RefreshCw className="h-4 w-4" />}
+            title="Results / Geometry"
+            items={[
+              ["Tables", summary.results?.table_count],
+              ["Results", summary.results?.result_tables || summary.results?.markers],
+              ["Point data", summary.results?.point_data_count],
+              ["Cell data", summary.results?.cell_data_count],
+              ["Geometry", summary.geometry],
+            ]}
+          />
+        </div>
+
+        {checks.length > 0 && (
+          <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-900">
+              <AlertTriangle className="h-4 w-4" />
+              Checks
+            </div>
+            <div className="space-y-2">
+              {checks.map((check, index) => (
+                <div key={`${check.message}-${index}`} className="rounded-md bg-white/70 px-3 py-2 text-xs text-amber-900">
+                  <span className="mr-2 rounded-full bg-amber-200 px-2 py-0.5 font-semibold uppercase">
+                    {check.severity || "info"}
+                  </span>
+                  {check.message}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <details className="rounded-lg border border-border bg-card p-4 text-xs">
+          <summary className="cursor-pointer font-semibold text-muted-foreground">
+            Raw JSON
+          </summary>
+          <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3">
+            {JSON.stringify(summary, null, 2)}
+          </pre>
+        </details>
+      </div>
+    </ScrollArea>
+  );
+}
+
 export function WorkspaceViewer({
   selectedPath,
   resourceId,
@@ -597,6 +824,14 @@ export function WorkspaceViewer({
           <ScienceSceneViewer file={file} />
         )}
 
+        {!isLoading && !error && file?.previewKind === "cae" && (
+          <CaeSummaryPreview
+            file={file}
+            resourceId={resourceId}
+            workspaceId={workspaceId}
+          />
+        )}
+
         {!isLoading && !error && file?.previewKind === "text" && (
           <div className="h-full overflow-auto">
             <div className="min-w-0 p-4">
@@ -656,6 +891,7 @@ export function WorkspaceViewer({
           file &&
           ![
             "image",
+            "cae",
             "markdown",
             "molecule",
             "pdf",

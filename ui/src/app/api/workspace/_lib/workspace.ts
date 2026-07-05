@@ -38,14 +38,7 @@ const DEFAULT_IGNORED_NAMES = new Set([
 
 const TEXT_EXTENSIONS = new Set([
   ".css",
-  ".bdf",
   ".csv",
-  ".dat",
-  ".f06",
-  ".inp",
-  ".k",
-  ".nas",
-  ".pch",
   "caddyfile",
   "dockerfile",
   ".env.example",
@@ -93,6 +86,17 @@ const SCIENCE_EXTENSIONS = new Set([
   ".cube",
   ".jdx",
   ".science.json",
+]);
+
+const CAE_EXTENSIONS = new Set([
+  ".bdf",
+  ".dat",
+  ".f06",
+  ".inp",
+  ".k",
+  ".nas",
+  ".op2",
+  ".pch",
   ".stl",
   ".vti",
   ".vtk",
@@ -145,6 +149,7 @@ const MIME_TYPES: Record<string, string> = {
   ".k": "text/plain; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".nas": "text/plain; charset=utf-8",
+  ".op2": "application/octet-stream",
   ".mdx": "text/markdown; charset=utf-8",
   ".cif": "chemical/x-cif; charset=utf-8",
   ".cube": "chemical/x-cube; charset=utf-8",
@@ -1112,6 +1117,10 @@ export function getPreviewKind(filePath: string): WorkspacePreviewKind {
 
   if (MARKDOWN_EXTENSIONS.has(extension)) {
     return "markdown";
+  }
+
+  if (CAE_EXTENSIONS.has(extension)) {
+    return "cae";
   }
 
   if (SCIENCE_EXTENSIONS.has(extension)) {

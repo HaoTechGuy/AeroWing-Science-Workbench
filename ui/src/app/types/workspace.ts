@@ -1,6 +1,7 @@
 export type WorkspaceEntryKind = "directory" | "file";
 
 export type WorkspacePreviewKind =
+  | "cae"
   | "docx"
   | "image"
   | "markdown"

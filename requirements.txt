@@ -8,5 +8,6 @@ lxml
 markitdown[pptx]
 openpyxl
 pandas
+pyNastran
 python-dotenv
 socksio
