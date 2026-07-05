@@ -487,13 +487,13 @@ export default function ShowcasePage() {
               上海人工智能实验室智能体系统中心研发
             </div>
             <h1 className="max-w-full text-5xl font-black leading-none tracking-normal !text-white sm:text-7xl lg:text-[7rem] xl:text-[8rem]">
-              InternAgentS
+              空中之翼
             </h1>
             <p className="mt-5 max-w-3xl text-3xl font-black leading-tight text-white sm:text-5xl">
               把科研项目变成会行动的智能体工作台。
             </p>
             <p className="mt-6 max-w-2xl text-xl leading-8 text-white/82">
-              把 Claude Science 式科研体验带给开源社区。
+              面向航空结构研发的 AI 工程工作台。
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <a
@@ -526,7 +526,7 @@ export default function ShowcasePage() {
                 不止是聊天入口，而是科研项目工作台。
               </h2>
               <p className="mt-4 max-w-3xl text-sm leading-6 text-[#706b78]">
-                InternAgentS 基于 DeepAgents 和 LangGraph，围绕科研项目重组
+                空中之翼 基于 DeepAgents 和 LangGraph，围绕科研项目重组
                 runtime、workspace、skills、tools 和授权流程。
               </p>
             </div>
@@ -611,7 +611,7 @@ export default function ShowcasePage() {
                 功能实景
               </p>
               <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal">
-                科研需要的工具，都在 InternAgentS 里。
+                科研需要的工具，都在 空中之翼 里。
               </h2>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-[#706b78]">
                 看数据、连工具、调计算、管权限、复用技能，都放在同一个工作台里。
@@ -636,7 +636,7 @@ export default function ShowcasePage() {
               上海人工智能实验室智能体系统中心研发
             </p>
             <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal !text-white sm:text-5xl">
-              InternAgentS：面向开源社区的科研智能体工作台。
+              空中之翼：面向航空结构研发的智能体工作台。
             </h2>
           </div>
           <a

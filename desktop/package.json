@@ -1,8 +1,8 @@
 {
-  "name": "internagents-desktop",
+  "name": "aerowing-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Desktop packaging for InternAgentS.",
+  "description": "Desktop packaging for 空中之翼 AeroWing.",
   "main": "electron/main.cjs",
   "scripts": {
     "prepare:dist": "node scripts/prepare-dist.mjs --desktop",
@@ -21,8 +21,8 @@
     "build:win:all": "npm run prepare:dist && node scripts/build-win.mjs --nsis --zip"
   },
   "build": {
-    "appId": "com.internagents.desktop",
-    "productName": "InternAgentS",
+    "appId": "com.aerowing.desktop",
+    "productName": "空中之翼",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "mac": {
       "category": "public.app-category.developer-tools",

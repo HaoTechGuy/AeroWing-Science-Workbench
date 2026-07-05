@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(__dirname, "..");
 const releaseDir = path.join(desktopDir, "release");
-const productName = "InternAgentS";
+const productName = "空中之翼";
 
 function normalizeArch(rawArch) {
   const arch = (rawArch || "").trim().toLowerCase();

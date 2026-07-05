@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(__dirname, "..");
 const releaseDir = path.join(desktopDir, "release");
-const productName = "InternAgentS";
+const productName = "空中之翼";
 const dmgBuildAttempts = Number.parseInt(process.env.INTERNAGENTS_DMG_BUILD_ATTEMPTS || "3", 10);
 const dmgRetryDelayMs = Number.parseInt(process.env.INTERNAGENTS_DMG_RETRY_DELAY_MS || "15000", 10);
 

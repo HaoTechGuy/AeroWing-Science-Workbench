@@ -40,7 +40,7 @@ const startupSplashLanguageScript = `
     const storedLanguage = localStorage.getItem("internagents.ui.language");
     const inferredLanguage = navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
     const language = storedLanguage === "zh" || storedLanguage === "en" ? storedLanguage : inferredLanguage;
-    const text = language === "en" ? "Starting InternAgentS..." : "InternAgentS \\u6b63\\u5728\\u542f\\u52a8\\u4e2d...";
+    const text = language === "en" ? "空中之翼正在启动..." : "空中之翼正在启动...";
     document.documentElement.lang = language === "en" ? "en" : "zh-CN";
     const target = document.querySelector("[data-internagents-startup-text]");
     if (target) {
@@ -52,8 +52,8 @@ const startupSplashLanguageScript = `
 `;
 
 export const metadata = {
-  title: "InternAgentS",
-  description: "Local InternAgentS UI",
+  title: "空中之翼",
+  description: "AeroWing local aviation engineering workbench",
 };
 
 export default function RootLayout({
@@ -81,12 +81,13 @@ export default function RootLayout({
           role="status"
           aria-live="polite"
         >
+          <img src="/aerowing-logo.png?v=fit2" alt="空中之翼" className="internagents-startup-splash__logo" />
           <span className="internagents-startup-splash__spinner" />
           <span
             data-internagents-startup-text
             suppressHydrationWarning
           >
-            InternAgentS
+            空中之翼
           </span>
         </div>
         <Script

@@ -1064,7 +1064,7 @@ function WorkbenchSidebar({
           <span>{t("projectList")}</span>
         </Link>
         <div>
-          <h1>InternAgentS</h1>
+          <img src="/aerowing-logo.png?v=fit2" alt="空中之翼" className="ocs-brand-logo" />
           <span>{t("projectWorkbench")}</span>
         </div>
       </section>

@@ -19,9 +19,9 @@ let mainWindow = null;
 let splashWindow = null;
 let nextProcess = null;
 let runtimeRoot = "";
-let splashStatus = "Starting InternAgentS...";
+let splashStatus = "空中之翼正在启动...";
 
-app.setName("InternAgentS");
+app.setName("空中之翼");
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -101,7 +101,7 @@ async function createSplashWindow() {
     maximizable: false,
     minimizable: false,
     fullscreenable: false,
-    title: "InternAgentS",
+    title: "空中之翼",
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#121017" : "#f6f5f8",
     webPreferences: {
       contextIsolation: true,
@@ -277,7 +277,7 @@ function hasInitialConfig() {
 }
 
 async function defaultDesktopWorkspace() {
-  const workspacePath = path.join(app.getPath("home"), "InternAgentS-Workspace");
+  const workspacePath = path.join(app.getPath("home"), "AeroWing-Workspace");
   await fsp.mkdir(workspacePath, { recursive: true });
   return workspacePath;
 }
@@ -793,7 +793,7 @@ async function createWindow(startUrl) {
     minWidth: 1100,
     minHeight: 720,
     show: false,
-    title: "InternAgentS",
+    title: "空中之翼",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -852,7 +852,7 @@ if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
     boot().catch((error) => {
       updateSplashStatus("Startup failed.");
-      dialog.showErrorBox("InternAgentS failed to start", error.message);
+      dialog.showErrorBox("空中之翼启动失败", error.message);
       app.quit();
     });
   });
