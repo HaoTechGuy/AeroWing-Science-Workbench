@@ -1,4 +1,5 @@
-﻿import { execFile } from "child_process";
+import { execFile } from "child_process";
+import crypto from "crypto";
 import { existsSync } from "fs";
 import { promises as fs } from "fs";
 import os from "os";
@@ -14,6 +15,7 @@ import {
 export const runtime = "nodejs";
 
 const execFileAsync = promisify(execFile);
+const MESH_CACHE_VERSION = "cae-mesh-v2";
 const CAE_EXTENSIONS = new Set([
   ".bdf",
   ".dat",
@@ -67,6 +69,24 @@ function parseJsonPayload(stdout: string): unknown {
   }
 }
 
+function meshCachePath(
+  appRoot: string,
+  rawFile: { path: string; size: number; modifiedAt: string }
+): string {
+  const key = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: MESH_CACHE_VERSION,
+        path: rawFile.path,
+        size: rawFile.size,
+        modifiedAt: rawFile.modifiedAt,
+      })
+    )
+    .digest("hex");
+  return path.join(appRoot, ".internagents", "cache", "cae-mesh", `${key}.json`);
+}
+
 export async function GET(request: NextRequest) {
   const requestedPath = request.nextUrl.searchParams.get("path") || "";
   const resourceId = request.nextUrl.searchParams.get("resourceId");
@@ -89,6 +109,21 @@ export async function GET(request: NextRequest) {
       throw new Error("CAE parser script was not found in this workbench.");
     }
 
+    const cachePath = meshCachePath(appRoot, rawFile);
+    try {
+      const cached = JSON.parse(await fs.readFile(cachePath, "utf-8"));
+      return NextResponse.json({
+        path: rawFile.path,
+        name: rawFile.name,
+        size: rawFile.size,
+        modifiedAt: rawFile.modifiedAt,
+        cacheHit: true,
+        mesh: cached,
+      });
+    } catch {
+      // Cache misses and corrupt cache files fall through to regeneration.
+    }
+
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aerowing-cae-"));
     const tempFile = path.join(tempDir, `${Date.now()}-${rawFile.name}`);
     try {
@@ -104,12 +139,16 @@ export async function GET(request: NextRequest) {
         maxBuffer: 64 * 1024 * 1024,
         windowsHide: true,
       });
+      const mesh = parseJsonPayload(stdout);
+      await fs.mkdir(path.dirname(cachePath), { recursive: true });
+      await fs.writeFile(cachePath, JSON.stringify(mesh), "utf-8");
       return NextResponse.json({
         path: rawFile.path,
         name: rawFile.name,
         size: rawFile.size,
         modifiedAt: rawFile.modifiedAt,
-        mesh: parseJsonPayload(stdout),
+        cacheHit: false,
+        mesh,
       });
     } finally {
       await fs.rm(tempDir, { force: true, recursive: true }).catch(() => undefined);

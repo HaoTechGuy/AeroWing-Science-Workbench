@@ -378,6 +378,68 @@ def base_mesh_payload(path: Path, backend: str) -> dict[str, Any]:
     }
 
 
+MAX_PREVIEW_FACES = 40_000
+
+
+def finalize_mesh_payload(payload: dict[str, Any], max_faces: int = MAX_PREVIEW_FACES) -> dict[str, Any]:
+    vertices = payload.get("vertices") or []
+    faces = payload.get("faces") or []
+    lines = payload.get("lines") or []
+    metadata = payload.get("metadata") or {}
+    original_vertices = int(metadata.get("original_vertices_hint") or len(vertices))
+    original_faces = int(metadata.get("original_faces_hint") or len(faces))
+    original_lines = int(metadata.get("original_lines_hint") or len(lines))
+    downsampled = bool(metadata.get("downsampled"))
+
+    if len(faces) > max_faces:
+        step = max(1, (len(faces) + max_faces - 1) // max_faces)
+        faces = faces[::step][:max_faces]
+        # Dense remap keeps large previews compact and avoids sending unused STL vertices.
+        used: dict[int, int] = {}
+        next_vertices: list[list[float]] = []
+
+        def remap(index: int) -> int | None:
+            if index < 0 or index >= len(vertices):
+                return None
+            if index not in used:
+                used[index] = len(next_vertices)
+                next_vertices.append(vertices[index])
+            return used[index]
+
+        remapped_faces: list[list[int]] = []
+        for face in faces:
+            remapped = [remap(int(index)) for index in face]
+            if all(index is not None for index in remapped):
+                remapped_faces.append([int(index) for index in remapped if index is not None])
+
+        remapped_lines: list[list[int]] = []
+        for line in lines:
+            remapped = [remap(int(index)) for index in line]
+            if all(index is not None for index in remapped):
+                remapped_lines.append([int(index) for index in remapped if index is not None])
+
+        payload["vertices"] = next_vertices
+        payload["faces"] = remapped_faces
+        payload["lines"] = remapped_lines
+        downsampled = True
+        payload["checks"].append({
+            "severity": "low",
+            "message": f"3D preview was downsampled from {original_faces:,} to {len(remapped_faces):,} faces for interactive display.",
+        })
+
+    payload["metadata"].update({
+        "original_vertices": original_vertices,
+        "original_faces": original_faces,
+        "original_lines": original_lines,
+        "preview_vertices": len(payload.get("vertices") or []),
+        "preview_faces": len(payload.get("faces") or []),
+        "preview_lines": len(payload.get("lines") or []),
+        "downsampled": downsampled,
+        "max_preview_faces": max_faces,
+    })
+    return payload
+
+
 def parse_bdf_mesh(path: Path) -> dict[str, Any]:
     from pyNastran.bdf.bdf import BDF
 
@@ -425,20 +487,34 @@ def parse_stl_mesh(path: Path) -> dict[str, Any]:
             vertices.append([float(match.group(1)), float(match.group(2)), float(match.group(3))])
         faces = [[i, i + 1, i + 2] for i in range(0, len(vertices) - 2, 3)]
     elif len(data) >= 84:
+        import struct
+
         count = int.from_bytes(data[80:84], "little")
-        offset = 84
-        for _ in range(count):
+        step = max(1, (count + MAX_PREVIEW_FACES - 1) // MAX_PREVIEW_FACES)
+        selected_face_indices = range(0, count, step)
+        for face_index in selected_face_indices:
+            if len(faces) >= MAX_PREVIEW_FACES:
+                break
+            offset = 84 + face_index * 50
             if offset + 50 > len(data):
                 break
             base = len(vertices)
-            offset += 12
+            vertex_offset = offset + 12
             for _vertex in range(3):
-                import struct
-                x, y, z = struct.unpack_from("<fff", data, offset)
+                x, y, z = struct.unpack_from("<fff", data, vertex_offset)
                 vertices.append([float(x), float(y), float(z)])
-                offset += 12
+                vertex_offset += 12
             faces.append([base, base + 1, base + 2])
-            offset += 2
+        payload["metadata"].update({
+            "original_vertices_hint": count * 3,
+            "original_faces_hint": count,
+            "downsampled": step > 1,
+        })
+        if step > 1:
+            payload["checks"].append({
+                "severity": "low",
+                "message": f"Binary STL preview was sampled while reading from {count:,} to {len(faces):,} faces for interactive display.",
+            })
     payload["vertices"] = vertices
     payload["faces"] = faces
     payload["element_types"] = {"TRIA3": len(faces)}
@@ -488,18 +564,18 @@ def parse_mesh_file(path: Path) -> dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix in {".bdf", ".dat", ".nas"}:
         try:
-            return parse_bdf_mesh(path)
+            return finalize_mesh_payload(parse_bdf_mesh(path))
         except Exception as exc:
             payload = base_mesh_payload(path, "pyNastran-failed")
             payload["checks"].append({"severity": "medium", "message": f"BDF mesh export failed: {exc}"})
-            return payload
+            return finalize_mesh_payload(payload)
     if suffix == ".stl":
-        return parse_stl_mesh(path)
+        return finalize_mesh_payload(parse_stl_mesh(path))
     if suffix == ".vtk":
-        return parse_vtk_mesh(path)
+        return finalize_mesh_payload(parse_vtk_mesh(path))
     payload = base_mesh_payload(path, "unsupported")
     payload["checks"].append({"severity": "medium", "message": f"3D mesh preview is not implemented for '{suffix}' yet."})
-    return payload
+    return finalize_mesh_payload(payload)
 
 
 def main() -> int:

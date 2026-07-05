@@ -141,6 +141,7 @@ interface CaeMeshPayload {
 }
 
 interface CaeMeshResponse {
+  cacheHit?: boolean;
   mesh: CaeMeshPayload;
 }
 
@@ -453,6 +454,18 @@ function OfficePreview({ file }: { file: WorkspaceFileResponse }) {
   );
 }
 
+function summaryNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function meshMetadataNumber(mesh: CaeMeshPayload | null, key: string): number | null {
+  return summaryNumber(mesh?.metadata?.[key]);
+}
+
+function meshMetadataBoolean(mesh: CaeMeshPayload | null, key: string): boolean {
+  return mesh?.metadata?.[key] === true;
+}
+
 function formatSummaryValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "-";
   if (typeof value === "number") return value.toLocaleString();
@@ -533,7 +546,11 @@ function CaeMeshViewer({
       })
       .catch((err) => {
         if (!isCancelled) {
-          setError(err instanceof Error ? err.message : "Unable to generate CAE mesh.");
+          setError(
+            err instanceof Error
+              ? err.message
+              : "\u65e0\u6cd5\u751f\u6210 CAE 3D \u9884\u89c8\u3002"
+          );
         }
       })
       .finally(() => {
@@ -599,7 +616,9 @@ function CaeMeshViewer({
       const lines = mesh.lines || [];
       const facePositions: number[] = [];
       const edgePositions: number[] = [];
+      const renderEdges = !meshMetadataBoolean(mesh, "downsampled") && faces.length <= 20_000;
       const addEdge = (a: number, b: number) => {
+        if (!renderEdges) return;
         const va = vertices[a];
         const vb = vertices[b];
         if (!va || !vb) return;
@@ -707,7 +726,11 @@ function CaeMeshViewer({
     }
 
     void setup().catch((err) => {
-      setError(err instanceof Error ? err.message : "3D viewer failed.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "3D \u9884\u89c8\u6e32\u67d3\u5931\u8d25\u3002"
+      );
     });
     return () => {
       disposed = true;
@@ -754,6 +777,11 @@ function CaeMeshViewer({
     camera.position.z = Math.max(1.2, Math.min(12, camera.position.z + event.deltaY * 0.006));
   }, []);
 
+  const originalFaces = meshMetadataNumber(mesh, "original_faces");
+  const previewFaces = meshMetadataNumber(mesh, "preview_faces") ?? mesh?.faces?.length ?? 0;
+  const previewVertices = meshMetadataNumber(mesh, "preview_vertices") ?? mesh?.vertices?.length ?? 0;
+  const isDownsampled = meshMetadataBoolean(mesh, "downsampled");
+
   return (
     <div
       className={`relative h-[42vh] min-h-[260px] overflow-hidden rounded-xl border border-sky-200 bg-[radial-gradient(circle_at_15%_10%,rgba(56,189,248,0.2),transparent_30%),linear-gradient(145deg,#eff6ff,#f8fbff)] ${
@@ -769,7 +797,10 @@ function CaeMeshViewer({
       <div className="absolute left-3 top-3 rounded-md border border-sky-200 bg-white/85 px-3 py-2 text-xs text-sky-950 shadow-sm backdrop-blur">
         <span className="font-semibold">3D CAE Viewer</span>
         <span className="ml-2 text-muted-foreground">
-          {(mesh?.vertices?.length || 0).toLocaleString()} nodes / {(mesh?.faces?.length || 0).toLocaleString()} faces
+          {previewVertices.toLocaleString()} nodes / {previewFaces.toLocaleString()} faces
+          {isDownsampled && originalFaces
+            ? ` \u00b7 \u5feb\u901f\u9884\u89c8\uff0c\u539f\u59cb ${originalFaces.toLocaleString()} faces`
+            : ""}
         </span>
       </div>
       <Button
@@ -784,7 +815,7 @@ function CaeMeshViewer({
       {(isLoading || error || mesh?.checks?.length) && (
         <div className="absolute bottom-3 left-3 right-3 rounded-md border border-sky-200 bg-white/90 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
           {isLoading
-            ? "正在生成 3D 网格..."
+            ? "\u6b63\u5728\u751f\u6210 3D \u9884\u89c8\uff1b\u5927\u6a21\u578b\u9996\u6b21\u6253\u5f00\u53ef\u80fd\u9700\u8981\u51e0\u5341\u79d2\uff0c\u7b2c\u4e8c\u6b21\u4f1a\u4f7f\u7528\u7f13\u5b58\u3002"
             : error || mesh?.checks?.[0]?.message}
         </div>
       )}
@@ -817,7 +848,11 @@ function CaeSummaryPreview({
       })
       .catch((err) => {
         if (!isCancelled) {
-          setError(err instanceof Error ? err.message : "Unable to generate CAE summary.");
+          setError(
+            err instanceof Error
+              ? err.message
+              : "\u65e0\u6cd5\u751f\u6210 CAE \u6458\u8981\u3002"
+          );
         }
       })
       .finally(() => {
@@ -836,7 +871,7 @@ function CaeSummaryPreview({
     return (
       <div className="flex h-full items-center justify-center gap-2 bg-sky-50/40 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
-        正在生成 CAE 摘要...
+        {"\u6b63\u5728\u751f\u6210 CAE \u6458\u8981\uff1b\u5927\u6587\u4ef6\u53ef\u80fd\u9700\u8981\u51e0\u5341\u79d2..."}
       </div>
     );
   }
@@ -844,7 +879,7 @@ function CaeSummaryPreview({
   if (error || !summary) {
     return (
       <div className="m-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        {error || "Unable to generate CAE summary."}
+        {error || "\u65e0\u6cd5\u751f\u6210 CAE \u6458\u8981\u3002"}
       </div>
     );
   }
