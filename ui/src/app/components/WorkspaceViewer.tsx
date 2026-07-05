@@ -591,6 +591,9 @@ function CaeMeshViewer({
       rootRef.current = root;
       scene.add(root);
 
+      const modelGroup = new THREE.Group();
+      root.add(modelGroup);
+
       const vertices = mesh.vertices || [];
       const faces = mesh.faces || [];
       const lines = mesh.lines || [];
@@ -633,7 +636,7 @@ function CaeMeshViewer({
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.Float32BufferAttribute(facePositions, 3));
         geometry.computeVertexNormals();
-        root.add(
+        modelGroup.add(
           new THREE.Mesh(
             geometry,
             new THREE.MeshStandardMaterial({
@@ -650,7 +653,7 @@ function CaeMeshViewer({
       if (edgePositions.length) {
         const edgeGeometry = new THREE.BufferGeometry();
         edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
-        root.add(
+        modelGroup.add(
           new THREE.LineSegments(
             edgeGeometry,
             new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.72 })
@@ -660,15 +663,16 @@ function CaeMeshViewer({
       if (!facePositions.length && vertices.length) {
         const pointGeometry = new THREE.BufferGeometry();
         pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices.flat(), 3));
-        root.add(new THREE.Points(pointGeometry, new THREE.PointsMaterial({ color: 0x0284c7, size: 0.035 })));
+        modelGroup.add(new THREE.Points(pointGeometry, new THREE.PointsMaterial({ color: 0x0284c7, size: 0.035 })));
       }
 
-      const box = new THREE.Box3().setFromObject(root);
+      const box = new THREE.Box3().setFromObject(modelGroup);
       const size = new THREE.Vector3();
       const center = new THREE.Vector3();
       box.getSize(size);
       box.getCenter(center);
-      root.position.sub(center);
+      // Center the geometry inside a child group so root rotation stays around the model center.
+      modelGroup.position.sub(center);
       const scale = 2.4 / Math.max(size.x, size.y, size.z, 0.001);
       root.scale.setScalar(scale);
 
