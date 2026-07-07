@@ -77,3 +77,32 @@
 - TypeScript lint。
 - 调用 `/api/solvers/detect`。
 - 创建一个 `flight_condition` Job 并轮询到 `succeeded`。
+
+提交：
+
+- `087d900 feat: add AeroWing engineering skills and job foundation`
+
+## 阶段 4：专家 Agent 配置入口与最小编排基础
+
+目标：
+
+- 设置页提供专家 Agent 配置入口。
+- 用户不需要手工注册子 Agent；内置模板写入 `deepagent.config.json`。
+- 主控 Agent 通过 DeepAgents 的 `subagents` 参数获得专家模板。
+
+实现：
+
+- 新增 `GET /api/agents` 和 `PUT /api/agents`。
+- 新增设置页“专家 Agent”卡片，可启用/禁用：
+  - `geometry-audit-agent`
+  - `flight-physics-agent`
+  - `structure-review-agent`
+  - `cfd-prep-agent`
+  - `engineering-report-agent`
+- 确认 `internagents/agent_graph.py` 中 `_thread_skill_subagents()` 会读取 `config.subagents` 并传给 `create_deep_agent()`。
+
+验证计划：
+
+- TypeScript lint。
+- 访问 `/api/agents` 返回模板及启用状态。
+- 设置页切换模板并保存后，确认 `deepagent.config.json` 的 `subagents` 更新。

@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  UsersRound,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -36,6 +37,7 @@ import { LanguageToggle } from "@/app/components/LanguageToggle";
 import { useLanguage } from "@/app/hooks/useLanguage";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
 import { ComputeSettingsCard } from "@/app/config/components/ComputeSettingsCard";
+import { ExpertAgentsCard } from "@/app/config/components/ExpertAgentsCard";
 import { RemoteProjectsSettingsCard } from "@/app/config/components/RemoteProjectsSettingsCard";
 import { SolverAdaptersCard } from "@/app/config/components/SolverAdaptersCard";
 import { SkillsMarketplace } from "@/app/skills/components/SkillsMarketplace";
@@ -198,6 +200,15 @@ const SETTINGS_SECTIONS: Array<{
       en: "Local CFD/FEM solver detection",
     },
     icon: Wrench,
+  },
+  {
+    id: "settings-expert-agents",
+    title: { zh: "专家 Agent", en: "Expert agents" },
+    description: {
+      zh: "航空专家模板和自动分派入口",
+      en: "Aviation expert templates and routing",
+    },
+    icon: UsersRound,
   },
   {
     id: "settings-authorization",
@@ -1160,6 +1171,29 @@ function ConfigPageContent() {
                 </div>
 
                 <SolverAdaptersCard />
+              </section>
+
+              <section
+                id="settings-expert-agents"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
+                    <UsersRound className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">
+                      {language === "zh" ? "专家 Agent" : "Expert agents"}
+                    </h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {language === "zh"
+                        ? "启用航空专家模板，供主控 Agent 自动分派。"
+                        : "Enable aviation expert templates for automatic orchestration."}
+                    </div>
+                  </div>
+                </div>
+
+                <ExpertAgentsCard />
               </section>
 
               <section
