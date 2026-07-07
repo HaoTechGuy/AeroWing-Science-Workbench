@@ -106,3 +106,25 @@
 - TypeScript lint。
 - 访问 `/api/agents` 返回模板及启用状态。
 - 设置页切换模板并保存后，确认 `deepagent.config.json` 的 `subagents` 更新。
+
+## 阶段 5：求解器集成最小安全闭环
+
+目标：
+
+- 先做安全的仿真前处理入口，不自动执行重型或商业求解器。
+- 支持生成 SU2/OpenFOAM/CalculiX/Nastran/Abaqus/OptiStruct 的工程目录骨架。
+
+实现：
+
+- 新增 `POST /api/cases/skeleton`。
+- `create_aerowing_case_skeleton` Agent 工具和 API 使用同样的目录结构思想：
+  - `cases/<caseName>/README.md`
+  - `config.cfg` for SU2
+  - `0/constant/system` for OpenFOAM
+  - `model.inp` for CalculiX
+  - 商业求解器只生成说明文件，不内置、不分发、不自动安装。
+
+验证计划：
+
+- TypeScript lint。
+- 调用 API 生成 `cases/x59_su2/config.cfg`。
