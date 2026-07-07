@@ -110,6 +110,7 @@ const MAX_MENTION_WORKSPACE_FILE_RESULTS = 40;
 const COMPOSER_DRAFT_QUERY_KEY = "composerDraft";
 const ENABLE_SKILL_QUERY_KEY = "enableSkill";
 const CHAT_COMPOSER_HASH = "#chat-composer";
+const COMPOSER_DRAFT_EVENT = "internagents.composer-draft";
 const IME_COMPOSITION_END_GRACE_MS = 80;
 
 function normalizeReviewConfig(config: ReviewConfig): ReviewConfig {
@@ -1726,35 +1727,60 @@ export const ChatInterface = React.memo<ChatInterfaceProps>(
         return;
       }
 
+      const applyDraft = (draft: string) => {
+        setInput(draft);
+        closeMentionMenu();
+        const frame = window.requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+          textareaRef.current?.setSelectionRange(draft.length, draft.length);
+        });
+        return () => {
+          window.cancelAnimationFrame(frame);
+        };
+      };
+
+      const handleComposerDraft = (event: Event) => {
+        const detail = (event as CustomEvent<{ draft?: unknown }>).detail;
+        if (typeof detail?.draft === "string") {
+          applyDraft(detail.draft);
+        }
+      };
+
+      window.addEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft);
+
       const currentUrl = new URL(window.location.href);
       const draft = currentUrl.searchParams.get(COMPOSER_DRAFT_QUERY_KEY);
       const shouldFocusComposer =
         currentUrl.hash === CHAT_COMPOSER_HASH || draft !== null;
 
       if (!shouldFocusComposer) {
-        return;
+        return () => {
+          window.removeEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft);
+        };
       }
 
+      let cancelFrame: (() => void) | undefined;
+
       if (draft !== null) {
-        setInput(draft);
-        closeMentionMenu();
+        cancelFrame = applyDraft(draft);
         currentUrl.searchParams.delete(COMPOSER_DRAFT_QUERY_KEY);
         window.history.replaceState(
           null,
           "",
           `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`
         );
+      } else {
+        const frame = window.requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+        });
+        cancelFrame = () => {
+          window.cancelAnimationFrame(frame);
+        };
       }
 
-      const frame = window.requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        if (draft !== null) {
-          textareaRef.current?.setSelectionRange(draft.length, draft.length);
-        }
-      });
-
       return () => {
-        window.cancelAnimationFrame(frame);
+        window.removeEventListener(COMPOSER_DRAFT_EVENT, handleComposerDraft);
+        cancelFrame?.();
       };
     }, [closeMentionMenu]);
 

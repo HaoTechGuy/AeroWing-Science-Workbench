@@ -3,29 +3,38 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
 import sys
+import uuid
 from pathlib import Path
 from typing import Annotated, Any, Awaitable, Callable, NotRequired, TypedDict
 from urllib.parse import urlparse
 
 from langchain.chat_models import init_chat_model
 from langchain.agents.middleware import AgentMiddleware
-from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    ModelRequest,
+    ModelResponse,
+    ToolCallRequest,
+)
 from dotenv import load_dotenv
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
     BaseMessage,
+    SystemMessage,
+    ToolMessage,
     messages_from_dict,
     messages_to_dict,
 )
 from langchain_core.runnables import RunnableConfig
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_FILE = ROOT_DIR / "deepagent.config.json"
 DEFAULT_SKILL_CATALOG_PATHS = [
     "~/.internagents/myskills",
@@ -83,6 +92,7 @@ from deepagents import create_deep_agent
 from deepagents.backends import LocalShellBackend
 from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from deepagents.profiles.provider import apply_provider_profile
+from langgraph.config import get_config
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.pregel.remote import RemoteGraph
@@ -93,6 +103,10 @@ from internagents.dynamic_local_backend import (
     DynamicLocalShellBackendFactory,
 )
 from internagents.date_middleware import RuntimeDateContextMiddleware
+from internagents.aircraft_geometry_audit_tools import (
+    aircraft_geometry_audit_tools,
+    run_aircraft_geometry_audit,
+)
 from internagents.goal_middleware import GoalContextMiddleware, goal_system_prompt
 from internagents.goal_state import normalize_goal_state, update_goal_status
 from internagents.goal_tools import goal_tools
@@ -588,6 +602,7 @@ def _resolve_skills(config: dict[str, Any]) -> list[str] | None:
 
 def _resolve_tools(config: dict[str, Any]) -> list[Any]:
     tools = list(goal_tools())
+    tools.extend(aircraft_geometry_audit_tools())
     tools.extend(remote_compute_tools())
     tools.extend(web_search_tools(config))
     tools.extend(load_configured_mcp_tools(config, root_dir=ROOT_DIR))
@@ -741,6 +756,14 @@ def _agent_system_prompt(base_prompt: str, agent_config: dict[str, Any]) -> str:
         f"use the `{REMOTE_COMPUTE_SUBMIT_TOOL}` tool. Keep the command "
         "self-contained, create harvestable files under `out/` when useful, and "
         "explain that the user must approve the remote job card before it runs."
+    )
+    base_prompt = (
+        f"{base_prompt}\n\n"
+        "Geometry analysis: when the user asks to inspect the currently selected "
+        "aircraft mesh or geometry file for dimensions, watertightness, mesh quality, "
+        "CFD/FEM readiness, or 3D-print suitability, prefer the "
+        "`audit_aircraft_geometry` tool. If the user says 'this model' or 'this file', "
+        "the selected workspace file may already be available through run metadata."
     )
     return goal_system_prompt(base_prompt)
 
@@ -1011,6 +1034,525 @@ def _append_text_to_message(message: Any, text: str) -> Any:
         return next_message
 
     return message
+
+
+GEOMETRY_FORCE_EXTENSIONS = {".stl", ".vtk", ".vtu", ".bdf", ".inp"}
+GEOMETRY_BINARY_EXTENSIONS = {".stl", ".vtk", ".vtu", ".bdf", ".inp"}
+GEOMETRY_GENERIC_TOOL_NAMES = {
+    "ls",
+    "glob",
+    "read_file",
+    "execute",
+    "write_file",
+    "edit_file",
+}
+GEOMETRY_FALLBACK_GENERIC_TOOL_CALLS = 3
+GEOMETRY_FORCE_KEYWORDS = (
+    "geometry",
+    "mesh",
+    "watertight",
+    "triangle",
+    "triangles",
+    "surface area",
+    "volume",
+    "cfd",
+    "fem",
+    "finite element",
+    "structural",
+    "structure",
+    "risk",
+    "quality",
+    "audit",
+    "skill",
+    "plugin",
+    "几何",
+    "网格",
+    "封闭",
+    "水密",
+    "面积",
+    "体积",
+    "三角面",
+    "结构",
+    "有限元",
+    "风险",
+    "质量",
+    "适合",
+    "分析",
+    "模型",
+    "这个文件",
+    "当前文件",
+    "当前模型",
+    "审计",
+    "技能",
+    "插件",
+    "调用",
+)
+GEOMETRY_PATH_PATTERN = re.compile(
+    r"(?P<path>(?:[A-Za-z]:[\\/])?(?:[\w.-]+[\\/])*[\w.-]+"
+    r"(?:\.stl|\.vtk|\.vtu|\.bdf|\.inp))",
+    re.IGNORECASE,
+)
+
+
+def _request_runtime_context(request: ModelRequest) -> dict[str, Any]:
+    runtime = getattr(request, "runtime", None)
+    context = getattr(runtime, "context", None)
+    return context if isinstance(context, dict) else {}
+
+
+def _ambient_configurable() -> dict[str, Any]:
+    try:
+        config = dict(get_config())
+    except RuntimeError:
+        return {}
+    configurable = config.get("configurable")
+    return configurable if isinstance(configurable, dict) else {}
+
+
+def _request_selected_file_path(request: ModelRequest) -> str | None:
+    for source in (_ambient_configurable(), _request_runtime_context(request)):
+        value = source.get("internagents_selected_file_path")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _message_text_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+            elif isinstance(item, str) and item:
+                parts.append(item)
+        return "\n".join(parts)
+    if isinstance(content, dict):
+        text = content.get("text")
+        return text if isinstance(text, str) else ""
+    return ""
+
+
+def _latest_human_text(messages: list[Any]) -> str:
+    for message in reversed(messages):
+        msg_type = getattr(message, "type", None)
+        if msg_type is None and isinstance(message, dict):
+            msg_type = message.get("type")
+        if msg_type not in {"human", "user"}:
+            continue
+        content = getattr(message, "content", None)
+        if content is None and isinstance(message, dict):
+            content = message.get("content")
+        text = _message_text_content(content).strip()
+        if text:
+            return text
+    return ""
+
+
+def _all_message_text(messages: list[Any]) -> str:
+    parts: list[str] = []
+    for message in messages:
+        content = getattr(message, "content", None)
+        if content is None and isinstance(message, dict):
+            content = message.get("content")
+        text = _message_text_content(content).strip()
+        if text:
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def _message_tool_calls(message: Any) -> list[dict[str, Any]]:
+    tool_calls = getattr(message, "tool_calls", None)
+    if isinstance(tool_calls, list):
+        return [call for call in tool_calls if isinstance(call, dict)]
+    if isinstance(message, dict):
+        value = message.get("tool_calls")
+        if isinstance(value, list):
+            return [call for call in value if isinstance(call, dict)]
+        additional_kwargs = message.get("additional_kwargs")
+        if isinstance(additional_kwargs, dict):
+            raw_calls = additional_kwargs.get("tool_calls")
+            if isinstance(raw_calls, list):
+                return [call for call in raw_calls if isinstance(call, dict)]
+    return []
+
+
+def _message_tool_name(message: Any) -> str | None:
+    name = getattr(message, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    if isinstance(message, dict):
+        name = message.get("name")
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def _tool_call_name(call: dict[str, Any]) -> str | None:
+    name = call.get("name")
+    if isinstance(name, str) and name:
+        return name
+    function = call.get("function")
+    if isinstance(function, dict):
+        name = function.get("name")
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def _has_audit_call_after_latest_human(messages: list[Any]) -> bool:
+    for message in reversed(messages):
+        msg_type = getattr(message, "type", None)
+        if msg_type is None and isinstance(message, dict):
+            msg_type = message.get("type")
+        if msg_type in {"human", "user"}:
+            return False
+        if _message_tool_name(message) == "audit_aircraft_geometry":
+            return True
+        if any(
+            _tool_call_name(call) == "audit_aircraft_geometry"
+            for call in _message_tool_calls(message)
+        ):
+            return True
+    return False
+
+
+def _tool_call_count_after_latest_human(
+    messages: list[Any],
+    tool_names: set[str] | None = None,
+) -> int:
+    count = 0
+    for message in reversed(messages):
+        msg_type = getattr(message, "type", None)
+        if msg_type is None and isinstance(message, dict):
+            msg_type = message.get("type")
+        if msg_type in {"human", "user"}:
+            return count
+        for call in _message_tool_calls(message):
+            name = _tool_call_name(call)
+            if name and (tool_names is None or name in tool_names):
+                count += 1
+    return count
+
+
+def _latest_ai_tool_names(messages: list[Any]) -> list[str]:
+    for message in reversed(messages):
+        msg_type = getattr(message, "type", None)
+        if msg_type is None and isinstance(message, dict):
+            msg_type = message.get("type")
+        if msg_type not in {"ai", "assistant"}:
+            continue
+        names = [
+            name
+            for call in _message_tool_calls(message)
+            if (name := _tool_call_name(call))
+        ]
+        if names:
+            return names
+    return []
+
+
+def _tool_error_text_after_latest_human(messages: list[Any]) -> str:
+    parts: list[str] = []
+    for message in reversed(messages):
+        msg_type = getattr(message, "type", None)
+        if msg_type is None and isinstance(message, dict):
+            msg_type = message.get("type")
+        if msg_type in {"human", "user"}:
+            break
+        if msg_type != "tool":
+            continue
+        content = getattr(message, "content", None)
+        if content is None and isinstance(message, dict):
+            content = message.get("content")
+        text = _message_text_content(content)
+        if text:
+            parts.append(text)
+    return "\n".join(reversed(parts))
+
+
+def _should_fallback_geometry_audit(
+    messages: list[Any],
+    audit_path: str | None,
+) -> bool:
+    if not audit_path or _has_audit_call_after_latest_human(messages):
+        return False
+    generic_count = _tool_call_count_after_latest_human(
+        messages,
+        GEOMETRY_GENERIC_TOOL_NAMES,
+    )
+    if generic_count >= GEOMETRY_FALLBACK_GENERIC_TOOL_CALLS:
+        return True
+    latest_tool_names = set(_latest_ai_tool_names(messages))
+    if latest_tool_names & {"read_file", "execute"}:
+        error_text = _tool_error_text_after_latest_human(messages).lower()
+        if "unicodedecodeerror" in error_text or "can't decode" in error_text:
+            return True
+    return False
+
+
+def _geometry_path_from_text(text: str) -> str | None:
+    match = GEOMETRY_PATH_PATTERN.search(text)
+    if not match:
+        return None
+    return match.group("path").strip()
+
+
+def _geometry_audit_tool_message(path: str | None) -> AIMessage:
+    args: dict[str, Any] = {"save_report": True}
+    if path:
+        args["path"] = path
+    return AIMessage(
+        content=(
+            "I will run the aircraft geometry audit tool first, then summarize "
+            "the CFD/FEM readiness result."
+        ),
+        tool_calls=[
+            {
+                "name": "audit_aircraft_geometry",
+                "args": args,
+                "id": f"call_geometry_audit_{uuid.uuid4().hex[:12]}",
+            }
+        ],
+    )
+
+
+def _geometry_audit_system_instruction(path: str | None) -> str:
+    path_line = (
+        f"The geometry file path to audit is: {path!r}."
+        if path
+        else "Use the currently selected workspace file as the geometry file."
+    )
+    return (
+        "A specialized `audit_aircraft_geometry` tool is available for STL, VTK, "
+        "VTU, BDF, and INP geometry or mesh quality checks. Prefer that tool when "
+        "the user asks for dimensions, watertightness, surface/mesh quality, "
+        "non-manifold or degenerate faces, or CFD/FEM/3D-print readiness. Do not "
+        "read binary geometry files with generic text file tools. If you use the "
+        "audit tool, pass the exact provided path as `path` and set `save_report` "
+        f"to true. {path_line}"
+    )
+
+
+def _should_force_geometry_audit(
+    request: ModelRequest,
+) -> tuple[bool, str | None, str]:
+    messages = list(request.messages)
+    if _has_audit_call_after_latest_human(messages):
+        return False, None, ""
+
+    latest_text = _latest_human_text(messages)
+    explicit_path = _geometry_path_from_text(latest_text)
+    if explicit_path:
+        return True, explicit_path, latest_text
+    all_text = _all_message_text(messages)
+    explicit_path = _geometry_path_from_text(all_text)
+    if explicit_path:
+        return True, explicit_path, latest_text or all_text[-500:]
+
+    selected_file = _request_selected_file_path(request)
+    if not selected_file:
+        return False, None, ""
+    if Path(selected_file).suffix.lower() not in GEOMETRY_FORCE_EXTENSIONS:
+        return False, selected_file, ""
+    normalized = latest_text.lower()
+    if any(keyword in normalized for keyword in GEOMETRY_FORCE_KEYWORDS):
+        return True, selected_file, latest_text
+    return False, selected_file, latest_text
+
+
+def _configurable_from_runnable(config: RunnableConfig | None) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    configurable = config.get("configurable")
+    return configurable if isinstance(configurable, dict) else {}
+
+
+def _workspace_path_from_config(config: RunnableConfig | None) -> Path | None:
+    value = _configurable_from_runnable(config).get("internagents_workspace_path")
+    if isinstance(value, str) and value.strip():
+        return Path(value).expanduser().resolve()
+    return None
+
+
+def _selected_file_path_from_config(config: RunnableConfig | None) -> str | None:
+    value = _configurable_from_runnable(config).get("internagents_selected_file_path")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _should_preflight_geometry_audit(
+    state: InternAgentState,
+    config: RunnableConfig | None,
+) -> tuple[bool, str | None, str]:
+    messages = list(state.get("messages") or [])
+    if _has_audit_call_after_latest_human(messages):
+        return False, None, ""
+
+    latest_text = _latest_human_text(messages)
+    explicit_path = _geometry_path_from_text(latest_text)
+    if explicit_path:
+        return True, explicit_path, latest_text
+
+    all_text = _all_message_text(messages)
+    explicit_path = _geometry_path_from_text(all_text)
+    if explicit_path:
+        return True, explicit_path, latest_text or all_text[-500:]
+
+    selected_file = _selected_file_path_from_config(config)
+    if not selected_file:
+        return False, None, ""
+    if Path(selected_file).suffix.lower() not in GEOMETRY_FORCE_EXTENSIONS:
+        return False, selected_file, latest_text
+
+    normalized = latest_text.lower()
+    if any(keyword in normalized for keyword in GEOMETRY_FORCE_KEYWORDS):
+        return True, selected_file, latest_text
+    return False, selected_file, latest_text
+
+
+def _resolve_geometry_file_from_config(
+    path: str,
+    config: RunnableConfig | None,
+) -> tuple[Path, Path | None, bool]:
+    workspace_root = _workspace_path_from_config(config)
+    selected_file = _selected_file_path_from_config(config)
+    selected_file_used = path == selected_file
+    candidate = Path(path).expanduser()
+
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+    elif workspace_root is not None:
+        resolved = (workspace_root / candidate).resolve()
+    else:
+        resolved = candidate.resolve()
+
+    if workspace_root is not None:
+        try:
+            resolved.relative_to(workspace_root)
+        except ValueError as exc:
+            raise ValueError("The requested geometry file is outside the active workspace.") from exc
+
+    return resolved, workspace_root, selected_file_used
+
+
+def _format_geometry_audit_answer(result: dict[str, Any]) -> str:
+    audit = result.get("audit") if isinstance(result.get("audit"), dict) else {}
+    dimensions = audit.get("dimensions")
+    mesh = audit.get("mesh")
+    quality = audit.get("quality")
+    readiness = audit.get("readiness")
+    if not isinstance(dimensions, dict):
+        dimensions = {}
+    if not isinstance(mesh, dict):
+        mesh = {}
+    if not isinstance(quality, dict):
+        quality = {}
+    if not isinstance(readiness, dict):
+        readiness = {}
+
+    lines = [
+        "已调用 `aircraft-geometry-audit` Skill，并完成 CAE 几何审计。",
+        "",
+        f"- 文件：`{result.get('file')}`",
+        f"- 三角面数量：{mesh.get('triangles') or mesh.get('surface_faces')}",
+        f"- 是否封闭 / watertight：{quality.get('watertight')}",
+        f"- 非流形边：{quality.get('non_manifold_edges')}",
+        f"- 退化三角面：{quality.get('degenerate_faces')}",
+        f"- 表面积：{quality.get('surface_area')}",
+        f"- 体积：{quality.get('volume')}",
+        f"- 包络盒尺寸：length={dimensions.get('length_x')}, span={dimensions.get('span_y')}, height={dimensions.get('height_z')}",
+        f"- CFD 适用性：{readiness.get('cfd_surface_prep')}",
+        f"- FEM 适用性：{readiness.get('fem_reference_geometry')}",
+        f"- 3D 打印适用性：{readiness.get('printing_or_volume')}",
+    ]
+    report_path = result.get("reportPath")
+    if report_path:
+        lines.append(f"- Markdown 报告：`{report_path}`")
+    return "\n".join(lines)
+
+
+def _geometry_audit_preflight(
+    state: InternAgentState,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    force, audit_path, latest_text = _should_preflight_geometry_audit(state, config)
+    if not force or not audit_path:
+        return {"ui": {"geometryAuditPreflight": {"handled": False}}}
+
+    logger.warning(
+        "geometry_audit.preflight start path=%s latest_user_text=%r",
+        audit_path,
+        latest_text,
+    )
+    file_path, workspace_root, selected_file_used = _resolve_geometry_file_from_config(
+        audit_path,
+        config,
+    )
+    result = run_aircraft_geometry_audit(
+        file_path,
+        workspace_root=workspace_root,
+        requested_path=audit_path,
+        selected_file_used=selected_file_used,
+        save_report=True,
+    )
+    tool_call_id = f"call_geometry_audit_{uuid.uuid4().hex[:12]}"
+    tool_call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": "audit_aircraft_geometry",
+                "args": {"path": audit_path, "save_report": True},
+                "id": tool_call_id,
+            }
+        ],
+    )
+    tool_result = ToolMessage(
+        content=json.dumps(result, ensure_ascii=False),
+        name="audit_aircraft_geometry",
+        tool_call_id=tool_call_id,
+    )
+    answer = AIMessage(content=_format_geometry_audit_answer(result))
+    logger.warning("geometry_audit.preflight success path=%s", audit_path)
+    return {
+        "messages": [tool_call, tool_result, answer],
+        "ui": {"geometryAuditPreflight": {"handled": True, "path": audit_path}},
+    }
+
+
+def _route_after_geometry_audit_preflight(state: InternAgentState) -> str:
+    ui = state.get("ui")
+    if isinstance(ui, dict):
+        preflight = ui.get("geometryAuditPreflight")
+        if isinstance(preflight, dict) and preflight.get("handled") is True:
+            return END
+    return "agent"
+
+
+def _with_geometry_audit_preflight(agent_graph: Any):  # noqa: ANN401
+    graph = StateGraph(InternAgentState)
+    graph.add_node("geometry_audit_preflight", _geometry_audit_preflight)
+    graph.add_node("agent", agent_graph)
+    graph.add_edge(START, "geometry_audit_preflight")
+    graph.add_conditional_edges(
+        "geometry_audit_preflight",
+        _route_after_geometry_audit_preflight,
+        {"agent": "agent", END: END},
+    )
+    graph.add_edge("agent", END)
+    return graph.compile()
+
+
+def _append_system_text(system_message: BaseMessage | None, text: str) -> BaseMessage:
+    if system_message is None:
+        return SystemMessage(content=text)
+    existing = getattr(system_message, "text", "") or _message_text_content(
+        getattr(system_message, "content", "")
+    )
+    content = f"{existing}\n\n{text}" if existing else text
+    return SystemMessage(content=content)
 
 
 def _error_text_candidates(error: BaseException) -> list[str]:
@@ -1452,6 +1994,139 @@ class ImageContentCompatibilityMiddleware(AgentMiddleware):
             )
 
 
+class GeometryAuditRoutingMiddleware(AgentMiddleware):
+    @property
+    def name(self) -> str:
+        return "GeometryAuditRoutingMiddleware"
+
+    def after_model(
+        self,
+        state: dict[str, Any],
+        runtime: Any,
+    ) -> dict[str, Any] | None:
+        request = ModelRequest(
+            model=None,
+            system_message=None,
+            messages=list(state.get("messages") or []),
+            tool_choice=None,
+            tools=[],
+            response_format=None,
+            state=state,
+            runtime=runtime,
+        )
+        force, audit_path, latest_text = _should_force_geometry_audit(request)
+        messages = list(state.get("messages") or [])
+        if not force or not _should_fallback_geometry_audit(messages, audit_path):
+            return None
+        logger.warning(
+            "geometry_audit.after_model fallback_tool_call path=%s latest_user_text=%r",
+            audit_path,
+            latest_text,
+        )
+        return {"messages": [_geometry_audit_tool_message(audit_path)]}
+
+    async def aafter_model(
+        self,
+        state: dict[str, Any],
+        runtime: Any,
+    ) -> dict[str, Any] | None:
+        return self.after_model(state, runtime)
+
+    def _geometry_file_read_guard(
+        self,
+        request: ToolCallRequest,
+    ) -> ToolMessage | None:
+        tool_call = request.tool_call
+        if not isinstance(tool_call, dict):
+            return None
+        if _tool_call_name(tool_call) != "read_file":
+            return None
+        args = tool_call.get("args")
+        if not isinstance(args, dict):
+            return None
+        path_value = args.get("file_path") or args.get("path")
+        if not isinstance(path_value, str) or not path_value.strip():
+            return None
+        if Path(path_value).suffix.lower() not in GEOMETRY_BINARY_EXTENSIONS:
+            return None
+        tool_call_id = str(tool_call.get("id") or f"call_guard_{uuid.uuid4().hex[:12]}")
+        logger.info(
+            "geometry_audit.tool_guard blocked_text_read path=%s",
+            path_value,
+        )
+        return ToolMessage(
+            content=(
+                f"`{path_value}` is a binary/CAE geometry file. Do not inspect it "
+                "with `read_file`; use `audit_aircraft_geometry` with "
+                f"`path={path_value!r}` and `save_report=true` for geometry quality, "
+                "CFD/FEM readiness, watertightness, and mesh statistics."
+            ),
+            name="read_file",
+            tool_call_id=tool_call_id,
+            status="error",
+        )
+
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]],
+    ) -> ToolMessage | Command[Any]:
+        guarded = self._geometry_file_read_guard(request)
+        if guarded is not None:
+            return guarded
+        return handler(request)
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
+    ) -> ToolMessage | Command[Any]:
+        guarded = self._geometry_file_read_guard(request)
+        if guarded is not None:
+            return guarded
+        return await handler(request)
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        force, audit_path, latest_text = _should_force_geometry_audit(request)
+        if force:
+            logger.info(
+                "geometry_audit.routing guidance path=%s latest_user_text=%r",
+                audit_path,
+                latest_text,
+            )
+            request = request.override(
+                system_message=_append_system_text(
+                    request.system_message,
+                    _geometry_audit_system_instruction(audit_path),
+                )
+            )
+        return handler(request)
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        force, audit_path, latest_text = _should_force_geometry_audit(request)
+        if force:
+            logger.info(
+                "geometry_audit.routing guidance path=%s latest_user_text=%r",
+                audit_path,
+                latest_text,
+            )
+            request = request.override(
+                system_message=_append_system_text(
+                    request.system_message,
+                    _geometry_audit_system_instruction(audit_path),
+                )
+            )
+        return await handler(request)
+
+
 def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     if resource.remote_url:
         remote = RemoteGraph(
@@ -1540,11 +2215,12 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
     middleware = list(agent_config.get("middleware") or [])
     middleware.append(KbSyncMiddleware(resource=resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
+    middleware.append(GeometryAuditRoutingMiddleware())
     middleware.append(WebSearchBudgetMiddleware())
     middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
     middleware.append(_thread_skill_middleware(agent_config, backend))
-    return create_deep_agent(
+    deep_agent = create_deep_agent(
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
@@ -1557,6 +2233,7 @@ def create_agent_for_resource(resource: ResourceConfig):  # noqa: ANN201
         interrupt_on=_interrupt_on_with_remote_compute(agent_config),
         middleware=middleware,
     )
+    return deep_agent
 
 
 def create_runtime_agent():  # noqa: ANN201
@@ -1614,11 +2291,12 @@ def create_runtime_agent():  # noqa: ANN201
     if runtime_resource is not None and runtime_resource.kb_path:
         middleware.append(KbSyncMiddleware(resource=runtime_resource, backend=backend))
     middleware.append(ImageContentCompatibilityMiddleware())
+    middleware.append(GeometryAuditRoutingMiddleware())
     middleware.append(WebSearchBudgetMiddleware())
     middleware.append(RuntimeDateContextMiddleware())
     middleware.append(GoalContextMiddleware())
     middleware.append(_thread_skill_middleware(agent_config, backend))
-    return create_deep_agent(
+    deep_agent = create_deep_agent(
         model=_create_agent_model(),
         tools=_resolve_tools(agent_config),
         backend=backend,
@@ -1628,6 +2306,7 @@ def create_runtime_agent():  # noqa: ANN201
         interrupt_on=_interrupt_on_with_remote_compute(agent_config),
         middleware=middleware,
     )
+    return deep_agent
 
 
 def create_missing_resource_agent(resource_id: str):  # noqa: ANN201

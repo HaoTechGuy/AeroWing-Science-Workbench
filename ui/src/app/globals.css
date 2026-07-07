@@ -1401,11 +1401,49 @@ html[data-theme="dark"] .ocs-project-trigger[data-state="open"] {
 }
 
 .ocs-inspector-files {
+  position: relative;
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.ocs-inspector-file-context-menu {
+  position: absolute;
+  z-index: 80;
+  min-width: 190px;
+  overflow: hidden;
+  border: 1px solid var(--ocs-line);
+  border-radius: 8px;
+  padding: 4px;
+  background: hsl(var(--popover) / 0.96);
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(12px);
+}
+
+.ocs-inspector-file-context-menu button {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--ocs-ink);
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.ocs-inspector-file-context-menu button:hover,
+.ocs-inspector-file-context-menu button:focus-visible {
+  outline: 0;
+  background: var(--ocs-accent-soft);
+  color: #075985;
 }
 
 .ocs-inspector-files-toolbar {

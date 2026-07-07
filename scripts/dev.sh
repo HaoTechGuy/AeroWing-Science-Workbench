@@ -98,6 +98,7 @@ ensure_langgraph_state_dir() {
     printf '%s\n' "from pathlib import Path"
     printf '%s\n' ""
     printf '%s\n' "_root = Path(os.environ[\"INTERNAGENTS_GRAPH_ROOT\"])"
+    printf '%s\n' "sys.path.insert(0, str(_root))"
     printf '%s\n' "_spec = importlib.util.spec_from_file_location(\"_internagents_real_agent\", _root / \"agent.py\")"
     printf '%s\n' "if _spec is None or _spec.loader is None:"
     printf '%s\n' "    raise RuntimeError(\"Unable to load InternAgentS graph entrypoint.\")"

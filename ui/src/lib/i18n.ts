@@ -156,6 +156,8 @@ const COPY = {
     currentFolder: "当前位置",
     rootFolder: "根目录",
     parentFolder: "上级",
+    addFilePathToChat: "添加文件地址到对话框",
+    analyzeThisFileDraft: "请分析这个文件：{path}",
 
     artifact: "文件",
     openInspector: "打开右侧栏",
@@ -889,6 +891,8 @@ const COPY = {
     currentFolder: "Current folder",
     rootFolder: "Root",
     parentFolder: "Up",
+    addFilePathToChat: "Add file path to chat",
+    analyzeThisFileDraft: "Please analyze this file: {path}",
 
     artifact: "Artifact",
     openInspector: "Open right panel",

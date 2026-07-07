@@ -1396,6 +1396,7 @@ export function useChat({
   workspaceId,
   workspacePath,
   workspaceLabel,
+  selectedFilePath,
 }: {
   activeAssistant: Assistant | null;
   streamConfig: StreamConfig;
@@ -1408,6 +1409,7 @@ export function useChat({
   workspaceId?: string;
   workspacePath?: string;
   workspaceLabel?: string;
+  selectedFilePath?: string | null;
 }) {
   const [threadId, setThreadId] = useQueryState("threadId");
   const [optimisticThreadTitle, setOptimisticThreadTitle] = useState<
@@ -1533,8 +1535,18 @@ export function useChat({
       ...(workspaceLabel
         ? { internagents_workspace_label: workspaceLabel }
         : {}),
+      ...(selectedFilePath
+        ? { internagents_selected_file_path: selectedFilePath }
+        : {}),
     }),
-    [resourceId, resourceLabel, workspaceId, workspacePath, workspaceLabel]
+    [
+      resourceId,
+      resourceLabel,
+      selectedFilePath,
+      workspaceId,
+      workspacePath,
+      workspaceLabel,
+    ]
   );
 
   const buildRunConfig = useCallback(

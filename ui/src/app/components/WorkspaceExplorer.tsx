@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   ExternalLink,
@@ -12,6 +12,7 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  MessageSquare,
   PanelLeftClose,
   Presentation,
   RefreshCcw,
@@ -36,6 +37,8 @@ import {
   createWorkspaceFileDragPayload,
 } from "@/app/utils/workspaceDrag";
 
+const COMPOSER_DRAFT_EVENT = "internagents.composer-draft";
+
 interface WorkspaceExplorerProps {
   selectedPath?: string | null;
   resourceId?: string;
@@ -44,6 +47,12 @@ interface WorkspaceExplorerProps {
   activeWorkspace?: LocalWorkspace | null;
   onFileSelect: (entry: WorkspaceEntry) => void;
   onCollapse?: () => void;
+}
+
+interface WorkspaceContextMenu {
+  entry: WorkspaceEntry;
+  x: number;
+  y: number;
 }
 
 function formatBytes(bytes?: number): string {
@@ -121,6 +130,10 @@ export function WorkspaceExplorer({
   const normalizedFilter = filter.trim();
   const canOpenWorkspaceFolder = Boolean(activeWorkspace);
   const [openingWorkspaceFolder, setOpeningWorkspaceFolder] = useState(false);
+  const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(
+    null
+  );
+  const explorerRef = useRef<HTMLDivElement | null>(null);
 
   const openWorkspaceFolder = useCallback(async () => {
     if (!canOpenWorkspaceFolder || openingWorkspaceFolder) {
@@ -157,6 +170,92 @@ export function WorkspaceExplorer({
     workspaceId,
   ]);
 
+  const handleEntryOpen = useCallback(
+    (entry: WorkspaceEntry) => {
+      setContextMenu(null);
+      if (entry.kind === "directory") {
+        void toggleDirectory(entry.path);
+        return;
+      }
+
+      onFileSelect(entry);
+    },
+    [onFileSelect, toggleDirectory]
+  );
+
+  const handleEntryContextMenu = useCallback(
+    (event: React.MouseEvent, entry: WorkspaceEntry) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const menuWidth = 210;
+      const menuHeight = entry.kind === "file" ? 86 : 46;
+      const explorerRect = explorerRef.current?.getBoundingClientRect();
+      const explorerLeft = explorerRect?.left ?? 0;
+      const explorerTop = explorerRect?.top ?? 0;
+      const explorerWidth = explorerRect?.width ?? event.clientX + menuWidth;
+      const explorerHeight = explorerRect?.height ?? event.clientY + menuHeight;
+      const localX = event.clientX - explorerLeft;
+      const localY = event.clientY - explorerTop;
+      setContextMenu({
+        entry,
+        x: Math.max(8, Math.min(localX, explorerWidth - menuWidth - 8)),
+        y: Math.max(8, Math.min(localY, explorerHeight - menuHeight - 8)),
+      });
+    },
+    []
+  );
+
+  const handleOpenContextEntry = useCallback(() => {
+    if (!contextMenu) {
+      return;
+    }
+
+    handleEntryOpen(contextMenu.entry);
+  }, [contextMenu, handleEntryOpen]);
+
+  const handleAddContextEntryToChat = useCallback(() => {
+    if (!contextMenu || contextMenu.entry.kind === "directory") {
+      return;
+    }
+
+    const entry = contextMenu.entry;
+    const draft = t("analyzeThisFileDraft", { path: entry.path });
+    setContextMenu(null);
+    onFileSelect(entry);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: { draft } })
+    );
+  }, [contextMenu, onFileSelect, t]);
+
+  useEffect(() => {
+    if (!contextMenu || typeof window === "undefined") {
+      return;
+    }
+
+    const closeMenu = () => setContextMenu(null);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("blur", closeMenu);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeMenu);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("blur", closeMenu);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeMenu);
+    };
+  }, [contextMenu]);
+
   const renderEntry = useCallback(
     (entry: WorkspaceEntry, depth: number): React.ReactNode => {
       if (!matchesFilter(entry, normalizedFilter)) {
@@ -192,9 +291,8 @@ export function WorkspaceExplorer({
               );
               event.dataTransfer.setData("text/plain", entry.path);
             }}
-            onClick={() =>
-              isDirectory ? toggleDirectory(entry.path) : onFileSelect(entry)
-            }
+            onClick={() => handleEntryOpen(entry)}
+            onContextMenu={(event) => handleEntryContextMenu(event, entry)}
             className={cn(
               "grid h-8 w-full grid-cols-[20px_20px_minmax(0,1fr)_auto] items-center gap-1 rounded-md border border-transparent px-2 text-left text-sm transition-[background-color,border-color,color]",
               "hover:border-border hover:bg-card",
@@ -255,13 +353,13 @@ export function WorkspaceExplorer({
     [
       directories,
       expandedPaths,
+      handleEntryContextMenu,
+      handleEntryOpen,
       loadingPaths,
       normalizedFilter,
-      onFileSelect,
       resourceId,
       selectedPath,
       t,
-      toggleDirectory,
       workspaceId,
     ]
   );
@@ -272,7 +370,10 @@ export function WorkspaceExplorer({
   );
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-sidebar">
+    <div
+      ref={explorerRef}
+      className="absolute inset-0 flex flex-col bg-sidebar"
+    >
       <div className="border-b border-border bg-card/60 px-4 py-2">
         <div className="mb-2 flex min-h-7 items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center">
@@ -399,6 +500,35 @@ export function WorkspaceExplorer({
           </div>
         )}
       </ScrollArea>
+      {contextMenu && (
+        <div
+          className="absolute z-50 min-w-[190px] overflow-hidden rounded-md border border-border bg-popover/95 p-1 text-popover-foreground shadow-lg shadow-black/15 backdrop-blur"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={handleOpenContextEntry}
+            className="flex h-8 w-full items-center gap-2 rounded px-2 text-left text-xs font-semibold hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>{t("open")}</span>
+          </button>
+          {contextMenu.entry.kind === "file" && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={handleAddContextEntryToChat}
+              className="flex h-8 w-full items-center gap-2 rounded px-2 text-left text-xs font-semibold hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>{t("addFilePathToChat")}</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

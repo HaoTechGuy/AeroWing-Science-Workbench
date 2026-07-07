@@ -23,6 +23,7 @@ import {
   FolderOpen,
   LayoutGrid,
   Loader2,
+  MessageSquare,
   Plus,
   Presentation,
   Radio,
@@ -84,6 +85,21 @@ import { cn } from "@/lib/utils";
 const OPEN_WORKSPACE_VALUE = "__open_workspace__";
 const ADD_REMOTE_WORKSPACE_VALUE = "__add_remote_workspace__";
 const NEW_THREAD_MARKER = "__new_thread__";
+const COMPOSER_DRAFT_EVENT = "internagents.composer-draft";
+const LOCAL_BACKEND_READY_CACHE_TTL_MS = 60_000;
+
+const localBackendReadyCache = new Map<string, number>();
+
+function isCachedLocalBackendReady(deploymentUrl: string): boolean {
+  const readyAt = localBackendReadyCache.get(deploymentUrl);
+  return Boolean(
+    readyAt && Date.now() - readyAt < LOCAL_BACKEND_READY_CACHE_TTL_MS
+  );
+}
+
+function markLocalBackendReady(deploymentUrl: string): void {
+  localBackendReadyCache.set(deploymentUrl, Date.now());
+}
 
 function formatConversationTabTime(date: Date, language: string): string {
   try {
@@ -135,7 +151,11 @@ async function isLocalBackendReady(deploymentUrl: string): Promise<boolean> {
     const payload = (await response.json().catch(() => null)) as {
       ready?: boolean;
     } | null;
-    return response.ok && payload?.ready === true;
+    const ready = response.ok && payload?.ready === true;
+    if (ready) {
+      markLocalBackendReady(deploymentUrl);
+    }
+    return ready;
   } catch {
     return false;
   }
@@ -864,6 +884,7 @@ function HomePageInner({
               workspaceLabel={
                 isActiveLocalResource ? activeWorkspace?.label : undefined
               }
+              selectedFilePath={selectedFilePath}
             >
               <ChatInterface
                 assistant={assistant}
@@ -1245,6 +1266,12 @@ function WorkbenchSidebar({
 type WorkbenchInspectorMode = "files" | "preview";
 type InspectorFilesViewMode = "grid" | "list";
 
+interface InspectorFileContextMenu {
+  entry: WorkspaceEntry;
+  x: number;
+  y: number;
+}
+
 interface WorkbenchInspectorProps {
   activeResource: ResourceConfig;
   activeWorkspace: LocalWorkspace | null;
@@ -1343,6 +1370,9 @@ function InspectorFilesView({
   const [filter, setFilter] = useState("");
   const [viewMode, setViewMode] = useState<InspectorFilesViewMode>("list");
   const [currentDirectoryPath, setCurrentDirectoryPath] = useState("");
+  const [contextMenu, setContextMenu] =
+    useState<InspectorFileContextMenu | null>(null);
+  const filePanelRef = useRef<HTMLElement | null>(null);
 
   const normalizedFilter = filter.trim().toLowerCase();
   const rootEntries = useMemo(() => directories[""] ?? [], [directories]);
@@ -1440,6 +1470,7 @@ function InspectorFilesView({
 
   const handleEntryClick = useCallback(
     async (entry: WorkspaceEntry) => {
+      setContextMenu(null);
       if (entry.kind === "directory") {
         if (viewMode === "grid") {
           await navigateToDirectory(entry.path);
@@ -1455,8 +1486,86 @@ function InspectorFilesView({
     [navigateToDirectory, onFileSelect, toggleDirectory, viewMode]
   );
 
+  const handleEntryContextMenu = useCallback(
+    (event: React.MouseEvent, entry: WorkspaceEntry) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const menuWidth = 210;
+      const menuHeight = entry.kind === "file" ? 86 : 46;
+      const panelRect = filePanelRef.current?.getBoundingClientRect();
+      const panelLeft = panelRect?.left ?? 0;
+      const panelTop = panelRect?.top ?? 0;
+      const panelWidth = panelRect?.width ?? event.clientX + menuWidth;
+      const panelHeight = panelRect?.height ?? event.clientY + menuHeight;
+      const localX = event.clientX - panelLeft;
+      const localY = event.clientY - panelTop;
+      setContextMenu({
+        entry,
+        x: Math.max(8, Math.min(localX, panelWidth - menuWidth - 8)),
+        y: Math.max(8, Math.min(localY, panelHeight - menuHeight - 8)),
+      });
+    },
+    []
+  );
+
+  const handleOpenContextEntry = useCallback(async () => {
+    if (!contextMenu) {
+      return;
+    }
+
+    const entry = contextMenu.entry;
+    setContextMenu(null);
+    await handleEntryClick(entry);
+  }, [contextMenu, handleEntryClick]);
+
+  const handleAddContextEntryToChat = useCallback(async () => {
+    if (!contextMenu || contextMenu.entry.kind === "directory") {
+      return;
+    }
+
+    const entry = contextMenu.entry;
+    const draft = t("analyzeThisFileDraft", { path: entry.path });
+    setContextMenu(null);
+    await onFileSelect(entry);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: { draft } })
+    );
+  }, [contextMenu, onFileSelect, t]);
+
+  useEffect(() => {
+    if (!contextMenu || typeof window === "undefined") {
+      return;
+    }
+
+    const closeMenu = () => setContextMenu(null);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("blur", closeMenu);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeMenu);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("blur", closeMenu);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeMenu);
+    };
+  }, [contextMenu]);
+
   return (
-    <section className="ocs-inspector-files">
+    <section
+      ref={filePanelRef}
+      className="ocs-inspector-files"
+    >
       <div className="ocs-inspector-files-toolbar">
         <div className="ocs-inspector-search">
           <Search className="h-3.5 w-3.5" />
@@ -1580,6 +1689,7 @@ function InspectorFilesView({
                   isSelected && "active"
                 )}
                 onClick={() => void handleEntryClick(entry)}
+                onContextMenu={(event) => handleEntryContextMenu(event, entry)}
                 title={entry.path}
               >
                 <span className="ocs-inspector-file-icon">
@@ -1619,6 +1729,7 @@ function InspectorFilesView({
                 className={cn("ocs-inspector-file-row", isSelected && "active")}
                 style={{ paddingLeft: `${10 + depth * 16}px` }}
                 onClick={() => void handleEntryClick(entry)}
+                onContextMenu={(event) => handleEntryContextMenu(event, entry)}
                 title={entry.path}
               >
                 <span className="ocs-inspector-file-expander">
@@ -1644,6 +1755,33 @@ function InspectorFilesView({
               </button>
             );
           })}
+        </div>
+      )}
+      {contextMenu && (
+        <div
+          className="ocs-inspector-file-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => void handleOpenContextEntry()}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>{t("open")}</span>
+          </button>
+          {contextMenu.entry.kind === "file" && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void handleAddContextEntryToChat()}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>{t("addFilePathToChat")}</span>
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -1997,8 +2135,9 @@ function HomePageContent() {
 
     let cancelled = false;
     let timeoutId = 0;
+    const hasRecentReady = isCachedLocalBackendReady(deploymentUrl);
 
-    setLocalBackendReady(false);
+    setLocalBackendReady(hasRecentReady);
 
     const poll = async () => {
       if (await isLocalBackendReady(deploymentUrl)) {
@@ -2009,6 +2148,9 @@ function HomePageContent() {
       }
 
       if (!cancelled) {
+        if (!isCachedLocalBackendReady(deploymentUrl)) {
+          setLocalBackendReady(false);
+        }
         timeoutId = window.setTimeout(poll, 800);
       }
     };

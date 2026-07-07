@@ -19,6 +19,7 @@ interface ChatProviderProps {
   workspaceId?: string;
   workspacePath?: string;
   workspaceLabel?: string;
+  selectedFilePath?: string | null;
 }
 
 export function ChatProvider({
@@ -34,6 +35,7 @@ export function ChatProvider({
   workspaceId,
   workspacePath,
   workspaceLabel,
+  selectedFilePath,
 }: ChatProviderProps) {
   const chat = useChat({
     activeAssistant,
@@ -47,6 +49,7 @@ export function ChatProvider({
     workspaceId,
     workspacePath,
     workspaceLabel,
+    selectedFilePath,
   });
   return <ChatContext.Provider value={chat}>{children}</ChatContext.Provider>;
 }

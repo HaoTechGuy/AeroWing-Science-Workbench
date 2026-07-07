@@ -154,6 +154,7 @@ function agentEntrypointShim(): string {
     "from pathlib import Path",
     "",
     '_root = Path(os.environ["INTERNAGENTS_GRAPH_ROOT"])',
+    "sys.path.insert(0, str(_root))",
     '_spec = importlib.util.spec_from_file_location("_internagents_real_agent", _root / "agent.py")',
     "if _spec is None or _spec.loader is None:",
     '    raise RuntimeError("Unable to load InternAgentS graph entrypoint.")',
