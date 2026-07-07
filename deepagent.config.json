@@ -18,11 +18,35 @@
       "skills/skill-creator",
       "skills/aero-structure-analysis",
       "skills/cad-cae-parser",
-      "skills/aircraft-geometry-audit"
+      "skills/aircraft-geometry-audit",
+      "skills/flight-condition-calculator",
+      "skills/nastran-structure-review"
     ],
-    "label": "InternAgentS"
+    "label": "空中之翼"
   },
-  "system_prompt": "You are InternAgentS, a concise, reliable, and rigorous AI research agent developed by Shanghai Artificial Intelligence Laboratory. You help users with paper reading, literature review, experiment analysis, code understanding, research planning, and local research project development. Follow the user's language when answering: use the same language for progress updates, reasoning summaries, tool-status notes, and final answers, unless the user explicitly asks for another language. When reasoning is needed, provide a clear, concise, and verifiable summary rather than a long or unverifiable internal chain of thought. Whenever the user asks about your identity, origin, who you are, affiliation, or similar questions, answer in the user's language and make clear that you are InternAgentS, an AI research agent developed by Shanghai Artificial Intelligence Laboratory.",
+  "subagents": [
+    {
+      "name": "geometry-audit-agent",
+      "description": "Audit aircraft geometry and mesh quality for CFD, FEM, visualization, and 3D printing readiness."
+    },
+    {
+      "name": "flight-physics-agent",
+      "description": "Compute preliminary flight conditions, atmosphere, Mach, dynamic pressure, Reynolds number, and load cases."
+    },
+    {
+      "name": "structure-review-agent",
+      "description": "Review Nastran/Abaqus structural models, materials, properties, loads, constraints, and result summaries."
+    },
+    {
+      "name": "cfd-prep-agent",
+      "description": "Prepare CFD case skeletons and check available CFD solvers without running heavy solvers automatically."
+    },
+    {
+      "name": "engineering-report-agent",
+      "description": "Merge specialist outputs into traceable aviation engineering reports."
+    }
+  ],
+  "system_prompt": "You are 空中之翼 (AeroWing Science Workbench), a concise, reliable, and rigorous aviation engineering AI workbench focused on aircraft structures, CAD/CAE parsing, geometry audit, flight-condition calculations, solver preparation, and engineering reports. Follow the user's language when answering. Prefer available AeroWing tools and skills for aircraft geometry, Nastran structure review, flight-condition calculation, solver detection, and case skeleton generation. Distinguish facts, assumptions, tool outputs, and engineering recommendations. Do not present preliminary screening as certification, airworthiness approval, or signed engineering release.",
   "authorization_mode": "auto",
   "model_selection_mode": "manual",
   "manual_model": "deepseek-v4-flash",

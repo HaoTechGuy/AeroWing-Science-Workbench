@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -36,6 +37,7 @@ import { useLanguage } from "@/app/hooks/useLanguage";
 import { ArchivedThreadsCard } from "@/app/config/components/ArchivedThreadsCard";
 import { ComputeSettingsCard } from "@/app/config/components/ComputeSettingsCard";
 import { RemoteProjectsSettingsCard } from "@/app/config/components/RemoteProjectsSettingsCard";
+import { SolverAdaptersCard } from "@/app/config/components/SolverAdaptersCard";
 import { SkillsMarketplace } from "@/app/skills/components/SkillsMarketplace";
 import {
   appReturnHrefFromSearchParams,
@@ -154,8 +156,8 @@ const THEME_OPTIONS: Array<{
 
 const SETTINGS_SECTIONS: Array<{
   id: string;
-  title: CopyKey;
-  description: CopyKey;
+  title: CopyKey | { zh: string; en: string };
+  description: CopyKey | { zh: string; en: string };
   icon: LucideIcon;
 }> = [
   {
@@ -187,6 +189,15 @@ const SETTINGS_SECTIONS: Array<{
     title: "compute",
     description: "computeDescription",
     icon: ServerCog,
+  },
+  {
+    id: "settings-solvers",
+    title: { zh: "求解器适配", en: "Solver adapters" },
+    description: {
+      zh: "本机 CFD/FEM 求解器检测",
+      en: "Local CFD/FEM solver detection",
+    },
+    icon: Wrench,
   },
   {
     id: "settings-authorization",
@@ -325,6 +336,10 @@ function ConfigPageContent() {
   const returnLabel = returnHref.startsWith("/projects")
     ? t("backToProject")
     : t("backToWorkbench");
+
+  function sectionText(value: CopyKey | { zh: string; en: string }) {
+    return typeof value === "string" ? t(value) : value[language];
+  }
 
   function updateLanguage(nextLanguage: UiLanguage) {
     setLanguage(nextLanguage);
@@ -841,10 +856,10 @@ function ConfigPageContent() {
                       <SectionIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="min-w-0">
                         <span className="block font-medium">
-                          {t(section.title)}
+                            {sectionText(section.title)}
                         </span>
                         <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                          {t(section.description)}
+                          {sectionText(section.description)}
                         </span>
                       </span>
                     </a>
@@ -1122,6 +1137,29 @@ function ConfigPageContent() {
                 </div>
 
                 <ComputeSettingsCard />
+              </section>
+
+              <section
+                id="settings-solvers"
+                className="scroll-mt-24 rounded-lg border border-border bg-card p-5 shadow-sm lg:col-start-2"
+              >
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
+                    <Wrench className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold">
+                      {language === "zh" ? "求解器适配" : "Solver adapters"}
+                    </h2>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {language === "zh"
+                        ? "检测本机 CFD/FEM 求解器，不自动运行重型仿真。"
+                        : "Detect local CFD/FEM solvers without automatically running heavy simulations."}
+                    </div>
+                  </div>
+                </div>
+
+                <SolverAdaptersCard />
               </section>
 
               <section

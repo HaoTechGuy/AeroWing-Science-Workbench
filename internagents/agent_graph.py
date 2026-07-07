@@ -107,6 +107,7 @@ from internagents.aircraft_geometry_audit_tools import (
     aircraft_geometry_audit_tools,
     run_aircraft_geometry_audit,
 )
+from internagents.aerowing_engineering_tools import aerowing_engineering_tools
 from internagents.goal_middleware import GoalContextMiddleware, goal_system_prompt
 from internagents.goal_state import normalize_goal_state, update_goal_status
 from internagents.goal_tools import goal_tools
@@ -603,6 +604,7 @@ def _resolve_skills(config: dict[str, Any]) -> list[str] | None:
 def _resolve_tools(config: dict[str, Any]) -> list[Any]:
     tools = list(goal_tools())
     tools.extend(aircraft_geometry_audit_tools())
+    tools.extend(aerowing_engineering_tools())
     tools.extend(remote_compute_tools())
     tools.extend(web_search_tools(config))
     tools.extend(load_configured_mcp_tools(config, root_dir=ROOT_DIR))
