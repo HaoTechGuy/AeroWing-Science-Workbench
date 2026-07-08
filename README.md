@@ -1,6 +1,6 @@
 <div align="center">
   <p>
-    <img src="./docs/assets/readme/internagents-banner.png" alt="InternAgentS banner" width="100%">
+    <img src="./docs/assets/readme/aerowing-banner.png" alt="AeroWing Workbench banner" width="100%">
   </p>
 
   <h1 align="center">AeroWing Science Workbench: Aviation Structure AI Engineering Workbench.</h1>

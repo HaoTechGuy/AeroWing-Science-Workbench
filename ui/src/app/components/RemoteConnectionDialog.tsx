@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, ShieldCheck, Terminal } from "lucide-react";
@@ -519,8 +519,8 @@ export function RemoteConnectionDialog({
         )}
 
         {setupLog.length > 0 && (
-          <div className="overflow-hidden rounded-md border border-[#332941] bg-[#0d0b12] text-xs shadow-inner">
-            <div className="flex items-center gap-2 border-b border-[#332941] bg-[#17121f] px-3 py-2 font-medium text-[#f7f3fb]">
+          <div className="overflow-hidden rounded-md border border-[#164e63] bg-[#0d0b12] text-xs shadow-inner">
+            <div className="flex items-center gap-2 border-b border-[#164e63] bg-[#0f172a] px-3 py-2 font-medium text-[#eff6ff]">
               <Terminal className="h-4 w-4" />
               {t("setupLog")}
             </div>

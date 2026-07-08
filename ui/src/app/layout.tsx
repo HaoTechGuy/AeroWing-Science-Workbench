@@ -54,6 +54,11 @@ const startupSplashLanguageScript = `
 export const metadata = {
   title: "空中之翼",
   description: "AeroWing Science Workbench: aviation structure engineering AI workbench",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/aerowing-app-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -81,7 +86,7 @@ export default function RootLayout({
           role="status"
           aria-live="polite"
         >
-          <img src="/aerowing-logo.png?v=fit2" alt="空中之翼" className="internagents-startup-splash__logo" />
+          <img src="/aerowing-logo.png?v=brand3" alt="空中之翼" className="internagents-startup-splash__logo" />
           <span className="internagents-startup-splash__spinner" />
           <span
             data-internagents-startup-text

@@ -1,6 +1,6 @@
 <div align="center">
   <p>
-    <img src="./docs/assets/readme/internagents-banner.png" alt="InternAgentS banner" width="100%">
+    <img src="./docs/assets/readme-cn/aerowing-banner.png" alt="AeroWing Workbench banner" width="100%">
   </p>
 
   <h1 align="center">InternAgentS：面向开源社区的 Claude Science 式研究工作台。</h1>

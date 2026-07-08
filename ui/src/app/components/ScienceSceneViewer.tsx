@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, {
   useCallback,
@@ -72,10 +72,10 @@ const SCENE_LABELS: Record<ScienceSceneType, string> = {
 const ATOM_STYLES: Record<string, { color: string; radius: number }> = {
   C: { color: "#64748b", radius: 0.16 },
   H: { color: "#e2e8f0", radius: 0.1 },
-  N: { color: "#c084fc", radius: 0.16 },
-  O: { color: "#fb7185", radius: 0.16 },
+  N: { color: "#38bdf8", radius: 0.16 },
+  O: { color: "#38bdf8", radius: 0.16 },
   Pb: { color: "#cbd5e1", radius: 0.32 },
-  Ti: { color: "#a78bfa", radius: 0.22 },
+  Ti: { color: "#38bdf8", radius: 0.22 },
 };
 
 function getScienceExtension(file: WorkspaceFileResponse) {
@@ -305,7 +305,7 @@ function parseJcampScene(content: string): ScienceSceneData {
     return {
       color:
         assignment?.color ||
-        ["#a855f7", "#c02678", "#a78bfa", "#f59e0b", "#fb7185"][index % 5],
+        ["#0ea5e9", "#0e7490", "#38bdf8", "#f59e0b", "#38bdf8"][index % 5],
       fragment: assignment?.fragment || `${pair.x} ${xUnits}`,
       height,
       label: assignment?.label || `${Math.round(pair.x)}`,
@@ -343,8 +343,8 @@ function parseVtkFlowScene(content: string): ScienceSceneData {
       metric("vectors", vectorName),
     ],
     particleCount: Math.max(560, Math.min(1400, pointCount * 24 || 900)),
-    colorA: "#a855f7",
-    colorB: "#fb7185",
+    colorA: "#0ea5e9",
+    colorB: "#38bdf8",
   };
 }
 
@@ -477,7 +477,7 @@ function buildCrystalScene(
         { element: "A", color: "#6d5dfc", radius: 0.2, position: [0, 0, 0] },
         {
           element: "B",
-          color: "#c02678",
+          color: "#0e7490",
           radius: 0.18,
           position: [0.5, 0.5, 0.5],
         },
@@ -756,7 +756,7 @@ function buildFlowScene(
   const count = Number(data.particleCount) || 900;
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
-  const colorA = new THREE.Color((data.colorA as string) || "#a855f7");
+  const colorA = new THREE.Color((data.colorA as string) || "#0ea5e9");
   const colorB = new THREE.Color((data.colorB as string) || "#ff5ca8");
   const colorC = new THREE.Color("#facc15");
 
@@ -817,7 +817,7 @@ function buildFlowScene(
     new THREE.MeshPhysicalMaterial({
       blending: THREE.AdditiveBlending,
       color: "#ffffff",
-      emissive: "#a855f7",
+      emissive: "#0ea5e9",
       emissiveIntensity: 1.1,
       opacity: 0.32,
       roughness: 0.1,
@@ -934,9 +934,9 @@ function createMicroscopyTexture(
     size * 0.5,
     size * 0.55
   );
-  gradient.addColorStop(0, `rgba(168, 85, 247, ${0.24 + centerPulse * 0.34})`);
-  gradient.addColorStop(0.34, "rgba(192, 132, 252, 0.2)");
-  gradient.addColorStop(0.66, "rgba(168, 85, 247, 0.13)");
+  gradient.addColorStop(0, `rgba(14, 165, 233, ${0.24 + centerPulse * 0.34})`);
+  gradient.addColorStop(0.34, "rgba(56, 189, 248, 0.2)");
+  gradient.addColorStop(0.66, "rgba(14, 165, 233, 0.13)");
   gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, size, size);
@@ -947,7 +947,7 @@ function createMicroscopyTexture(
     context.beginPath();
     context.strokeStyle =
       ring % 2 === 0
-        ? `rgba(192, 132, 252, ${0.16 + centerPulse * 0.12})`
+        ? `rgba(56, 189, 248, ${0.16 + centerPulse * 0.12})`
         : `rgba(244, 114, 182, ${0.13 + centerPulse * 0.1})`;
     context.lineWidth = 2.2;
     context.ellipse(
@@ -980,14 +980,14 @@ function createMicroscopyTexture(
       blob.addColorStop(0, `rgba(251, 191, 36, ${alpha + 0.2})`);
       blob.addColorStop(1, "rgba(251, 191, 36, 0)");
     } else if (palette === 1) {
-      blob.addColorStop(0, `rgba(168, 85, 247, ${alpha + 0.18})`);
-      blob.addColorStop(1, "rgba(168, 85, 247, 0)");
+      blob.addColorStop(0, `rgba(14, 165, 233, ${alpha + 0.18})`);
+      blob.addColorStop(1, "rgba(14, 165, 233, 0)");
     } else if (palette === 2) {
       blob.addColorStop(0, `rgba(244, 114, 182, ${alpha + 0.16})`);
       blob.addColorStop(1, "rgba(244, 114, 182, 0)");
     } else {
-      blob.addColorStop(0, `rgba(192, 132, 252, ${alpha + 0.12})`);
-      blob.addColorStop(1, "rgba(192, 132, 252, 0)");
+      blob.addColorStop(0, `rgba(56, 189, 248, ${alpha + 0.12})`);
+      blob.addColorStop(1, "rgba(56, 189, 248, 0)");
     }
     context.fillStyle = blob;
     context.beginPath();
@@ -1047,7 +1047,7 @@ function buildMicroscopyScene(
   const pointCount = Number(data.hotspots) || 420;
   const pointPositions = new Float32Array(pointCount * 3);
   const pointColors = new Float32Array(pointCount * 3);
-  const colorA = new THREE.Color("#a855f7");
+  const colorA = new THREE.Color("#0ea5e9");
   const colorB = new THREE.Color("#f472b6");
   const colorC = new THREE.Color("#facc15");
   for (let i = 0; i < pointCount; i += 1) {
@@ -1096,7 +1096,7 @@ function buildMicroscopyScene(
     new THREE.SphereGeometry(1.48, 72, 40),
     new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
-      color: "#a78bfa",
+      color: "#38bdf8",
       depthWrite: false,
       opacity: 0.1,
       transparent: true,
@@ -1111,7 +1111,7 @@ function buildMicroscopyScene(
     new THREE.PlaneGeometry(4.1, 4.1),
     new THREE.MeshBasicMaterial({
       blending: THREE.AdditiveBlending,
-      color: "#a855f7",
+      color: "#0ea5e9",
       depthWrite: false,
       opacity: 0.065,
       side: THREE.DoubleSide,
@@ -1137,7 +1137,7 @@ function buildMicroscopyScene(
   const frame = new THREE.Mesh(
     new THREE.BoxGeometry(3.95, 3.95, slices * sliceSpacing),
     new THREE.MeshBasicMaterial({
-      color: "#c084fc",
+      color: "#38bdf8",
       opacity: 0.08,
       transparent: true,
       wireframe: true,
@@ -1295,7 +1295,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
       const sample = index / 83;
       const value = signalAt(sample);
       const palette =
-        sample < 0.35 ? "#a855f7" : sample < 0.66 ? "#a78bfa" : "#fb7185";
+        sample < 0.35 ? "#0ea5e9" : sample < 0.66 ? "#38bdf8" : "#38bdf8";
       return {
         color: palette,
         height: Math.max(12, value * SPECTRUM_PLOT.height),
@@ -1354,15 +1354,15 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
             >
               <stop
                 offset="0%"
-                stopColor="#a855f7"
+                stopColor="#0ea5e9"
               />
               <stop
                 offset="55%"
-                stopColor="#a78bfa"
+                stopColor="#38bdf8"
               />
               <stop
                 offset="100%"
-                stopColor="#fb7185"
+                stopColor="#38bdf8"
               />
             </linearGradient>
             <linearGradient
@@ -1374,12 +1374,12 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
             >
               <stop
                 offset="0%"
-                stopColor="#a855f7"
+                stopColor="#0ea5e9"
                 stopOpacity="0.34"
               />
               <stop
                 offset="45%"
-                stopColor="#a78bfa"
+                stopColor="#38bdf8"
                 stopOpacity="0.12"
               />
               <stop
@@ -1397,7 +1397,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
             >
               <stop
                 offset="0%"
-                stopColor="#a855f7"
+                stopColor="#0ea5e9"
                 stopOpacity="0"
               />
               <stop
@@ -1407,7 +1407,7 @@ function SpectrumScene({ data }: { data: ScienceSceneData }) {
               />
               <stop
                 offset="100%"
-                stopColor="#fb7185"
+                stopColor="#38bdf8"
                 stopOpacity="0"
               />
             </linearGradient>
@@ -1805,7 +1805,7 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
       const key = new THREE.DirectionalLight(0x7dd3fc, 1.8);
       key.position.set(3, 5, 4);
       scene.add(key);
-      const fill = new THREE.PointLight(0xfb7185, 1.2);
+      const fill = new THREE.PointLight(0x38bdf8, 1.2);
       fill.position.set(-3, -2, 3);
       scene.add(fill);
 
@@ -1880,7 +1880,7 @@ function ScienceThreeScene({ data }: { data: ScienceSceneData }) {
   return (
     <div
       className={cn(
-        "relative h-full min-h-0 w-full touch-none select-none overflow-hidden bg-[radial-gradient(circle_at_20%_10%,rgba(168,85,247,0.2),transparent_28%),radial-gradient(circle_at_80%_25%,rgba(251,113,133,0.16),transparent_26%),linear-gradient(145deg,#120b17,#17121f_55%,#110d16)]",
+        "relative h-full min-h-0 w-full touch-none select-none overflow-hidden bg-[radial-gradient(circle_at_20%_10%,rgba(14,165,233,0.18),transparent_28%),radial-gradient(circle_at_80%_25%,rgba(56,189,248,0.14),transparent_26%),linear-gradient(145deg,#04111f,#0f172a_55%,#020617)]",
         isDragging ? "cursor-grabbing" : "cursor-grab"
       )}
       data-science-viewer="true"

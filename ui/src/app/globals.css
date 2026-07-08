@@ -1,4 +1,4 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -30,9 +30,9 @@
     --color-surface: #ffffff;
     --color-border: #bfdbfe;
     --color-border-light: #dbeafe;
-    --color-text-primary: #24212a;
-    --color-text-secondary: #706b78;
-    --color-text-tertiary: #a39cac;
+    --color-text-primary: #0f172a;
+    --color-text-secondary: #334155;
+    --color-text-tertiary: #64748b;
     --color-file-button: #ffffff;
     --color-file-button-hover: #e0f2fe;
 
@@ -43,7 +43,7 @@
     --color-secondary-dark: #bae6fd;
     --color-success-dark: #7dd3fc;
     --color-warning-dark: #f5b85b;
-    --color-error-dark: #fb7185;
+    --color-error-dark: #ef4444;
     --color-background-dark: #04111f;
     --color-subagent-hover-dark: #0b3551;
     --color-surface-dark: #061826;
@@ -110,30 +110,30 @@
 
     /* Tailwind/Radix UI component variables */
     --radius: 0.5rem;
-    --background: 260 18% 97%;
-    --foreground: 263 12% 15%;
+    --background: 204 100% 98%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 263 12% 15%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 263 12% 15%;
+    --popover-foreground: 222 47% 11%;
     --primary: 201 96% 32%;
     --primary-foreground: 0 0% 100%;
     --secondary: 204 94% 94%;
-    --secondary-foreground: 263 12% 15%;
-    --muted: 260 18% 94%;
-    --muted-foreground: 270 6% 45%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 204 94% 94%;
+    --muted-foreground: 215 19% 35%;
     --accent: 204 94% 94%;
     --accent-foreground: 201 96% 32%;
     --destructive: 347 77% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 213 80% 88%;
-    --input: 270 19% 86%;
+    --input: 213 80% 88%;
     --ring: 201 96% 32%;
-    --sidebar: 260 18% 97%;
+    --sidebar: 204 100% 98%;
     --chart-1: 199 89% 48%;
     --chart-2: 347 77% 50%;
     --chart-3: 32 95% 44%;
-    --chart-4: 262 83% 58%;
+    --chart-4: 188 86% 53%;
     --chart-5: 45 93% 42%;
   }
 
@@ -147,7 +147,7 @@
       --color-secondary: #bae6fd;
       --color-success: #7dd3fc;
       --color-warning: #f5b85b;
-      --color-error: #fb7185;
+      --color-error: #ef4444;
       --color-background: #04111f;
       --color-subagent-hover: #0b3551;
       --color-surface: #061826;
@@ -161,12 +161,12 @@
 
       /* Tailwind/Radix UI component variables for dark mode */
       --radius: 0.5rem;
-      --background: 260 18% 8%;
-      --foreground: 270 33% 96%;
-      --card: 260 20% 11%;
-      --card-foreground: 270 33% 96%;
-      --popover: 260 20% 11%;
-      --popover-foreground: 270 33% 96%;
+      --background: 222 47% 6%;
+      --foreground: 204 100% 97%;
+      --card: 222 47% 9%;
+      --card-foreground: 204 100% 97%;
+      --popover: 222 47% 9%;
+      --popover-foreground: 204 100% 97%;
       --primary: 199 89% 48%;
       --primary-foreground: 204 100% 97%;
       --secondary: 203 74% 15%;
@@ -176,15 +176,15 @@
       --accent: 201 72% 18%;
       --accent-foreground: 204 100% 97%;
       --destructive: 349 89% 72%;
-      --destructive-foreground: 262 45% 10%;
+      --destructive-foreground: 222 47% 8%;
       --border: 200 50% 24%;
-      --input: 264 18% 17%;
+      --input: 200 50% 24%;
       --ring: 199 89% 48%;
-      --sidebar: 260 20% 7%;
+      --sidebar: 222 47% 6%;
       --chart-1: 199 89% 48%;
       --chart-2: 349 89% 72%;
       --chart-3: 38 88% 66%;
-      --chart-4: 280 88% 78%;
+      --chart-4: 188 86% 53%;
       --chart-5: 45 93% 58%;
     }
   }
@@ -203,31 +203,31 @@
     --color-surface: #ffffff;
     --color-border: #bfdbfe;
     --color-border-light: #dbeafe;
-    --color-text-primary: #24212a;
-    --color-text-secondary: #706b78;
-    --color-text-tertiary: #a39cac;
+    --color-text-primary: #0f172a;
+    --color-text-secondary: #334155;
+    --color-text-tertiary: #64748b;
     --color-file-button: #ffffff;
     --color-file-button-hover: #e0f2fe;
-    --background: 260 18% 97%;
-    --foreground: 263 12% 15%;
+    --background: 204 100% 98%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 263 12% 15%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 263 12% 15%;
+    --popover-foreground: 222 47% 11%;
     --primary: 201 96% 32%;
     --primary-foreground: 0 0% 100%;
     --secondary: 204 94% 94%;
-    --secondary-foreground: 263 12% 15%;
-    --muted: 260 18% 94%;
-    --muted-foreground: 270 6% 45%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 204 94% 94%;
+    --muted-foreground: 215 19% 35%;
     --accent: 204 94% 94%;
     --accent-foreground: 201 96% 32%;
     --destructive: 347 77% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 213 80% 88%;
-    --input: 270 19% 86%;
+    --input: 213 80% 88%;
     --ring: 201 96% 32%;
-    --sidebar: 260 18% 97%;
+    --sidebar: 204 100% 98%;
   }
 
   html[data-theme="dark"] {
@@ -238,7 +238,7 @@
     --color-secondary: #bae6fd;
     --color-success: #7dd3fc;
     --color-warning: #f5b85b;
-    --color-error: #fb7185;
+    --color-error: #ef4444;
     --color-background: #04111f;
     --color-subagent-hover: #0b3551;
     --color-surface: #061826;
@@ -249,12 +249,12 @@
     --color-text-tertiary: #7dd3fc;
     --color-file-button: #082f49;
     --color-file-button-hover: #0b3551;
-    --background: 260 18% 8%;
-    --foreground: 270 33% 96%;
-    --card: 260 20% 11%;
-    --card-foreground: 270 33% 96%;
-    --popover: 260 20% 11%;
-    --popover-foreground: 270 33% 96%;
+    --background: 222 47% 6%;
+    --foreground: 204 100% 97%;
+    --card: 222 47% 9%;
+    --card-foreground: 204 100% 97%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 204 100% 97%;
     --primary: 199 89% 48%;
     --primary-foreground: 204 100% 97%;
     --secondary: 203 74% 15%;
@@ -264,11 +264,11 @@
     --accent: 201 72% 18%;
     --accent-foreground: 204 100% 97%;
     --destructive: 349 89% 72%;
-    --destructive-foreground: 262 45% 10%;
+    --destructive-foreground: 222 47% 8%;
     --border: 200 50% 24%;
-    --input: 264 18% 17%;
+    --input: 200 50% 24%;
     --ring: 199 89% 48%;
-    --sidebar: 260 20% 7%;
+    --sidebar: 222 47% 6%;
   }
 }
 
@@ -300,7 +300,7 @@ body {
     background-image:
       linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
       linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px),
-      linear-gradient(145deg, #04111f 0%, #17121f 100%);
+      linear-gradient(145deg, #04111f 0%, #0f172a 100%);
     background-size:
       42px 42px,
       42px 42px,
@@ -312,7 +312,7 @@ html[data-theme="dark"] body {
   background-image:
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px),
-    linear-gradient(145deg, #04111f 0%, #17121f 100%);
+    linear-gradient(145deg, #04111f 0%, #0f172a 100%);
   background-size:
     42px 42px,
     42px 42px,
@@ -507,11 +507,11 @@ button {
   --ocs-surface-soft: rgba(255, 255, 255, 0.58);
   --ocs-surface-strong: rgba(255, 255, 255, 0.9);
   --ocs-line: rgba(14, 165, 233, 0.13);
-  --ocs-ink: #24212a;
-  --ocs-muted: #706b78;
+  --ocs-ink: #0f172a;
+  --ocs-muted: #334155;
   --ocs-accent: #075985;
   --ocs-accent-soft: rgba(14, 165, 233, 0.14);
-  --ocs-magenta: #c02678;
+  --ocs-magenta: #0ea5e9;
   --ocs-danger: #b42318;
   --ocs-shadow: 0 18px 80px rgba(14, 165, 233, 0.1);
   height: calc(100vh - var(--app-footer-height));
@@ -524,7 +524,7 @@ button {
   background:
     linear-gradient(rgba(14, 165, 233, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(14, 165, 233, 0.028) 1px, transparent 1px),
-    linear-gradient(135deg, #fbfaff 0%, #f1eef7 100%);
+    linear-gradient(135deg, #f8fbff 0%, #e0f2fe 100%);
   background-size:
     36px 36px,
     36px 36px,
@@ -605,7 +605,7 @@ button {
   overflow: hidden;
   padding: 6px 8px 0;
   border-bottom: 1px solid var(--ocs-line);
-  background: rgba(246, 243, 251, 0.82);
+  background: rgba(240, 249, 255, 0.82);
 }
 
 .ocs-conversation-tab-scroll {
@@ -691,7 +691,7 @@ button {
 
 .ocs-conversation-tab[data-status="busy"] .ocs-conversation-tab-dot {
   background: #0ea5e9;
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.14);
 }
 
 .ocs-conversation-tab[data-status="interrupted"] .ocs-conversation-tab-dot {
@@ -1163,8 +1163,8 @@ html[data-theme="dark"] .ocs-project-trigger[data-state="open"] {
   min-height: 50px;
   background: linear-gradient(
     180deg,
-    rgba(252, 250, 255, 0.36) 0%,
-    rgba(246, 243, 250, 0.68) 100%
+    rgba(240, 249, 255, 0.36) 0%,
+    rgba(224, 242, 254, 0.68) 100%
   );
 }
 
@@ -1194,7 +1194,7 @@ html[data-theme="dark"] .ocs-project-trigger[data-state="open"] {
   overflow: hidden;
   padding: 6px 8px 0;
   border-bottom: 1px solid var(--ocs-line);
-  background: rgba(246, 243, 251, 0.82);
+  background: rgba(240, 249, 255, 0.82);
 }
 
 .ocs-inspector-root-tab,
@@ -1852,7 +1852,7 @@ body[data-internagents-startup="ready"] .internagents-startup-splash {
 .internagents-startup-splash {
   background:
     radial-gradient(circle at 22% 18%, rgba(14, 165, 233, 0.20), transparent 32%),
-    linear-gradient(135deg, #eff6ff 0%, #f8fbff 52%, #dbeafe 100%);
+    linear-gradient(135deg, #f8fbff 0%, #eff6ff 52%, #e0f2fe 100%);
   color: #075985;
 }
 
@@ -1863,7 +1863,7 @@ body[data-internagents-startup="ready"] .internagents-startup-splash {
   margin-bottom: 18px;
   filter: none;
 }
-/* AeroWing blue override: remove remaining violet accents in the workbench. */
+/* AeroWing blue override: keep the workbench on the engineering-blue palette. */
 :root,
 :root[data-theme="light"] {
   --ocs-accent: #075985;
@@ -1929,4 +1929,9 @@ body[data-internagents-startup="ready"] .internagents-startup-splash {
 .internagents-startup-splash__logo {
   filter: none !important;
   background: transparent !important;
+}
+
+html[data-theme="dark"] .ocs-brand-logo,
+html[data-theme="dark"] .internagents-startup-splash__logo {
+  content: url("/aerowing-logo-dark.png?v=brand3");
 }

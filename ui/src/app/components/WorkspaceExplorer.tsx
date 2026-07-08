@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -94,7 +94,7 @@ function FileIcon({ entry }: { entry: WorkspaceEntry }) {
   if (
     [".js", ".jsx", ".py", ".ts", ".tsx", ".sh"].includes(entry.extension || "")
   ) {
-    return <FileCode2 className="h-4 w-4 text-[#6D28D9]" />;
+    return <FileCode2 className="h-4 w-4 text-[#0284c7]" />;
   }
 
   return <File className="h-4 w-4 text-muted-foreground" />;

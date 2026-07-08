@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { type CSSProperties, useState } from "react";
 import {
@@ -28,7 +28,7 @@ const demoLoops = [
     path: "/showcase/caffeine-analysis.gif",
     title: "咖啡因计算化学研究",
     copy: "生成结构、计算轨道与红外光谱，并把图片和报告留在项目里。",
-    tone: "violet",
+    tone: "cyan",
   },
   {
     path: "/showcase/y-mixer-model.gif",
@@ -125,12 +125,12 @@ function MediaSlot({
       ? "rgba(245,184,91,0.5)"
       : tone === "cyan"
         ? "rgba(45,212,191,0.42)"
-        : "rgba(168,85,247,0.5)";
+        : "rgba(14,165,233,0.5)";
 
   return (
     <article
       className={[
-        "ocs-media group relative overflow-hidden rounded-lg border border-white/15 bg-[#160926] text-white shadow-2xl shadow-[#160926]/30",
+        "ocs-media group relative overflow-hidden rounded-lg border border-white/15 bg-[#0f172a] text-white shadow-2xl shadow-[#0f172a]/30",
         featured ? "lg:col-span-2" : "",
       ].join(" ")}
       style={{ "--slot-glow": glow, aspectRatio: "2560 / 1276" } as CSSProperties}
@@ -142,7 +142,7 @@ function MediaSlot({
       />
       <div className="relative flex h-full flex-col justify-between p-5">
         <div className="flex items-center justify-end gap-4">
-          <span className="hidden h-2 w-24 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7,#2dd4bf)] opacity-80 sm:block" />
+          <span className="hidden h-2 w-24 rounded-full bg-[linear-gradient(90deg,#0ea5e9,#0ea5e9,#2dd4bf)] opacity-80 sm:block" />
         </div>
         <div className="w-fit max-w-2xl rounded-lg border border-white/16 bg-black/50 p-4 backdrop-blur-md">
           <h3 className="max-w-xl text-2xl font-semibold tracking-normal !text-white sm:text-3xl">
@@ -180,7 +180,7 @@ function CapabilityVisual({
   kind?: "image" | "video";
 }) {
   return (
-    <div className="relative aspect-[16/10] overflow-hidden rounded-lg border border-[#ded8e8] bg-white">
+    <div className="relative aspect-[16/10] overflow-hidden rounded-lg border border-[#bfdbfe] bg-white">
       {kind === "video" ? (
         <video
           src={path}
@@ -208,28 +208,28 @@ function CapabilityStack() {
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <article className="overflow-hidden rounded-lg border border-[#ded8e8] bg-white shadow-2xl shadow-[#6d28d9]/12">
+      <article className="overflow-hidden rounded-lg border border-[#bfdbfe] bg-white shadow-2xl shadow-[#0284c7]/12">
         <CapabilityVisual
           path={active.path}
           title={active.title}
           kind={active.kind}
         />
         <div className="p-6">
-          <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+          <p className="text-sm font-black uppercase tracking-normal text-[#0284c7]">
             {active.kind === "video" ? "科学数据预览" : "功能实景"}
           </p>
-          <h3 className="mt-3 text-3xl font-black leading-tight tracking-normal text-[#1e1233]">
+          <h3 className="mt-3 text-3xl font-black leading-tight tracking-normal text-[#0f172a]">
             {active.title}
           </h3>
-          <p className="mt-4 max-w-3xl text-base leading-7 text-[#706b78]">
+          <p className="mt-4 max-w-3xl text-base leading-7 text-[#334155]">
             {active.copy}
           </p>
           {active.kind === "video" ? (
-            <div className="mt-6 grid gap-3 text-sm font-semibold text-[#1e1233] sm:grid-cols-4">
+            <div className="mt-6 grid gap-3 text-sm font-semibold text-[#0f172a] sm:grid-cols-4">
               {["分子结构", "谱图图片", "表格数据", "分析报告"].map((item) => (
                 <span
                   key={item}
-                  className="rounded-md border border-[#ded8e8] bg-[#f6f3fb] px-3 py-2"
+                  className="rounded-md border border-[#bfdbfe] bg-[#f8fbff] px-3 py-2"
                 >
                   {item}
                 </span>
@@ -251,30 +251,30 @@ function CapabilityStack() {
                 "relative w-full rounded-lg border bg-white p-4 text-left shadow-sm transition duration-200",
                 index > 0 ? "-mt-2" : "",
                 isActive
-                  ? "z-20 border-[#6d28d9] shadow-xl shadow-[#6d28d9]/18"
-                  : "z-10 border-[#ded8e8] hover:z-30 hover:-translate-x-1 hover:border-[#c084fc] hover:shadow-lg",
+                  ? "z-20 border-[#0284c7] shadow-xl shadow-[#0284c7]/18"
+                  : "z-10 border-[#bfdbfe] hover:z-30 hover:-translate-x-1 hover:border-[#38bdf8] hover:shadow-lg",
               ].join(" ")}
               aria-pressed={isActive}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-normal text-[#6d28d9]">
+                  <p className="text-xs font-black uppercase tracking-normal text-[#0284c7]">
                     {String(index + 1).padStart(2, "0")}
                   </p>
-                  <h4 className="mt-2 text-lg font-black tracking-normal text-[#1e1233]">
+                  <h4 className="mt-2 text-lg font-black tracking-normal text-[#0f172a]">
                     {item.title}
                   </h4>
                 </div>
                 <span
                   className={[
                     "mt-1 h-2.5 w-2.5 shrink-0 rounded-full",
-                    isActive ? "bg-[#6d28d9]" : "bg-[#ded8e8]",
+                    isActive ? "bg-[#0284c7]" : "bg-[#bfdbfe]",
                   ].join(" ")}
                 />
               </div>
               <p
                 className={[
-                  "overflow-hidden text-sm leading-6 text-[#706b78] transition-all duration-200",
+                  "overflow-hidden text-sm leading-6 text-[#334155] transition-all duration-200",
                   isActive ? "mt-3 max-h-24 opacity-100" : "mt-0 max-h-0 opacity-0",
                 ].join(" ")}
               >
@@ -294,7 +294,7 @@ function HeroScene() {
       aria-hidden="true"
       className="absolute inset-0 overflow-hidden"
     >
-      <div className="absolute inset-0 bg-[#160926]" />
+      <div className="absolute inset-0 bg-[#0f172a]" />
       <div
         className="absolute inset-0 opacity-28"
         style={{
@@ -303,9 +303,9 @@ function HeroScene() {
           backgroundSize: "48px 48px",
         }}
       />
-      <div className="absolute inset-0 bg-[linear-gradient(110deg,#160926_0%,#241040_34%,rgba(76,29,149,0.78)_62%,rgba(15,8,28,0.94)_100%)]" />
-      <div className="ocs-energy absolute left-[-18%] top-[18%] h-28 w-[82%] rotate-[-10deg] bg-[linear-gradient(90deg,transparent,rgba(245,184,91,0.18),rgba(168,85,247,0.42),transparent)] blur-[1px]" />
-      <div className="ocs-energy ocs-energy-delay absolute bottom-[17%] right-[-12%] h-24 w-[74%] rotate-[-10deg] bg-[linear-gradient(90deg,transparent,rgba(45,212,191,0.16),rgba(168,85,247,0.32),transparent)] blur-[1px]" />
+      <div className="absolute inset-0 bg-[linear-gradient(110deg,#0f172a_0%,#082f49_34%,rgba(7,89,133,0.78)_62%,rgba(2,6,23,0.94)_100%)]" />
+      <div className="ocs-energy absolute left-[-18%] top-[18%] h-28 w-[82%] rotate-[-10deg] bg-[linear-gradient(90deg,transparent,rgba(56,189,248,0.14),rgba(14,165,233,0.36),transparent)] blur-[1px]" />
+      <div className="ocs-energy ocs-energy-delay absolute bottom-[17%] right-[-12%] h-24 w-[74%] rotate-[-10deg] bg-[linear-gradient(90deg,transparent,rgba(56,189,248,0.14),rgba(14,165,233,0.28),transparent)] blur-[1px]" />
       <div
         className="absolute -right-10 top-16 hidden text-[6rem] font-black uppercase leading-none text-transparent opacity-[0.1] md:block lg:text-[8.8rem]"
         style={{ WebkitTextStroke: "1px rgba(255,255,255,0.72)" }}
@@ -321,8 +321,8 @@ function HeroScene() {
           <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.1),transparent_42%,rgba(245,184,91,0.14))]" />
           <div className="relative flex h-12 items-center justify-between border-b border-white/12 px-4">
             <div className="flex gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-[#f5b85b]" />
-              <span className="h-2.5 w-2.5 rounded-full bg-[#a855f7]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#0ea5e9]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#0ea5e9]" />
               <span className="h-2.5 w-2.5 rounded-full bg-[#2dd4bf]" />
             </div>
             <div className="rounded-md border border-white/14 bg-black/20 px-3 py-1 font-mono text-xs text-white/62">
@@ -340,7 +340,7 @@ function HeroScene() {
                       className={[
                         "rounded-md border px-3 py-2 text-xs",
                         index === 1
-                          ? "border-[#f5b85b]/55 bg-[#f5b85b]/16 text-[#ffe2ad]"
+                          ? "border-[#0ea5e9]/55 bg-[#0ea5e9]/16 text-[#e0f2fe]"
                           : "border-white/10 bg-white/[0.05] text-white/50",
                       ].join(" ")}
                     >
@@ -350,7 +350,7 @@ function HeroScene() {
                 )}
               </div>
               <div className="mt-8 space-y-2">
-                <div className="ocs-flow-line h-1.5 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7,#2dd4bf,#a855f7,#f5b85b)] bg-[length:220%_100%]" />
+                <div className="ocs-flow-line h-1.5 rounded-full bg-[linear-gradient(90deg,#0ea5e9,#0ea5e9,#2dd4bf,#0ea5e9,#0ea5e9)] bg-[length:220%_100%]" />
                 <div className="h-1.5 w-2/3 rounded-full bg-white/18" />
                 <div className="h-1.5 w-4/5 rounded-full bg-white/14" />
               </div>
@@ -362,7 +362,7 @@ function HeroScene() {
                   <div className="mb-2 h-3 w-48 rounded bg-white/34" />
                   <div className="h-2 w-28 rounded bg-white/18" />
                 </div>
-                <div className="rounded-md border border-[#f5b85b]/45 bg-[#f5b85b]/16 px-3 py-1.5 text-xs font-semibold uppercase tracking-normal text-[#ffe2ad]">
+                <div className="rounded-md border border-[#0ea5e9]/45 bg-[#0ea5e9]/16 px-3 py-1.5 text-xs font-semibold uppercase tracking-normal text-[#e0f2fe]">
                   运行中
                 </div>
               </div>
@@ -370,7 +370,7 @@ function HeroScene() {
               <div className="space-y-4">
                 <div className="ocs-pulse-panel max-w-md rounded-lg border border-white/14 bg-white/[0.07] p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white/78">
-                    <Sparkles className="h-4 w-4 text-[#f5b85b]" />
+                    <Sparkles className="h-4 w-4 text-[#0ea5e9]" />
                     已生成计划
                   </div>
                   <div className="space-y-2">
@@ -380,29 +380,29 @@ function HeroScene() {
                   </div>
                 </div>
 
-                <div className="ml-auto max-w-xs rounded-lg bg-[#f6f3fb] p-4 text-[#1e1233] shadow-xl shadow-black/25">
+                <div className="ml-auto max-w-xs rounded-lg bg-[#f8fbff] p-4 text-[#0f172a] shadow-xl shadow-black/25">
                   <div className="mb-3 flex items-center gap-2">
-                    <Rocket className="h-4 w-4 text-[#6d28d9]" />
+                    <Rocket className="h-4 w-4 text-[#0284c7]" />
                     <span className="text-sm font-semibold">产物就绪</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="aspect-square rounded-md bg-[#d8b4fe]" />
-                    <div className="aspect-square rounded-md bg-[#f5b85b]" />
+                    <div className="aspect-square rounded-md bg-[#0ea5e9]" />
                     <div className="aspect-square rounded-md bg-[#2dd4bf]" />
                   </div>
                 </div>
 
-                <div className="max-w-md rounded-lg border border-[#a855f7]/38 bg-[#a855f7]/14 p-4">
+                <div className="max-w-md rounded-lg border border-[#0ea5e9]/38 bg-[#0ea5e9]/14 p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#d8b4fe]">
                     <ShieldCheck className="h-4 w-4" />
                     工具审批
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="h-9 w-28 rounded-md bg-[#f5b85b] text-center text-sm font-bold leading-9 text-[#1e1233]">
+                    <div className="h-9 w-28 rounded-md bg-[#0ea5e9] text-center text-sm font-bold leading-9 text-[#0f172a]">
                       批准
                     </div>
                     <div className="h-2 flex-1 rounded-full bg-white/18">
-                      <div className="h-full w-2/3 rounded-full bg-[linear-gradient(90deg,#f5b85b,#a855f7)]" />
+                      <div className="h-full w-2/3 rounded-full bg-[linear-gradient(90deg,#0ea5e9,#0ea5e9)]" />
                     </div>
                   </div>
                 </div>
@@ -414,10 +414,10 @@ function HeroScene() {
                 <FileStack className="h-4 w-4" />
                 预览
               </div>
-              <div className="relative aspect-square overflow-hidden rounded-lg border border-white/14 bg-[linear-gradient(135deg,rgba(168,85,247,0.34),rgba(45,212,191,0.14),rgba(245,184,91,0.12))]">
+              <div className="relative aspect-square overflow-hidden rounded-lg border border-white/14 bg-[linear-gradient(135deg,rgba(14,165,233,0.24),rgba(45,212,191,0.14),rgba(14,165,233,0.10))]">
                 <div className="absolute inset-6 border border-white/20" />
                 <div className="absolute left-8 top-8 h-16 w-16 rounded-md border border-white/25 bg-white/12" />
-                <div className="absolute bottom-7 right-7 h-20 w-20 rounded-md border border-[#f5b85b]/40 bg-[#f5b85b]/18" />
+                <div className="absolute bottom-7 right-7 h-20 w-20 rounded-md border border-[#0ea5e9]/40 bg-[#0ea5e9]/18" />
               </div>
               <div className="mt-4 space-y-2">
                 <div className="h-2 rounded bg-white/24" />
@@ -433,7 +433,7 @@ function HeroScene() {
 
 export default function ShowcasePage() {
   return (
-    <main className="min-h-screen bg-[#f6f3fb] text-[#1e1233]">
+    <main className="min-h-screen bg-[#f8fbff] text-[#0f172a]">
       <style>{`
         @keyframes ocsSweep {
           0% { transform: translateX(-34%) rotate(-10deg); opacity: 0.18; }
@@ -478,12 +478,12 @@ export default function ShowcasePage() {
         }
       `}</style>
 
-      <section className="relative min-h-[760px] overflow-hidden bg-[#160926] text-white lg:min-h-[88vh]">
+      <section className="relative min-h-[760px] overflow-hidden bg-[#0f172a] text-white lg:min-h-[88vh]">
         <HeroScene />
         <div className="relative mx-auto min-h-[760px] max-w-7xl px-6 py-6 sm:px-8 lg:min-h-[88vh] lg:px-10">
           <div className="max-w-5xl pb-16 pt-24 sm:pt-28 lg:pt-32">
-            <div className="mb-6 inline-flex items-center gap-2 text-base font-black tracking-normal text-[#f5b85b] sm:text-lg">
-              <Sparkles className="h-5 w-5 text-[#f5b85b]" />
+            <div className="mb-6 inline-flex items-center gap-2 text-base font-black tracking-normal text-[#0ea5e9] sm:text-lg">
+              <Sparkles className="h-5 w-5 text-[#0ea5e9]" />
               上海人工智能实验室智能体系统中心研发
             </div>
             <h1 className="max-w-full text-5xl font-black leading-none tracking-normal !text-white sm:text-7xl lg:text-[7rem] xl:text-[8rem]">
@@ -498,14 +498,14 @@ export default function ShowcasePage() {
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <a
                 href={githubUrl}
-                className="inline-flex h-14 items-center gap-2 rounded-md bg-[#f5b85b] px-6 text-base font-black text-[#160926] shadow-2xl shadow-[#f5b85b]/30 transition hover:-translate-y-0.5 hover:bg-[#ffd48a]"
+                className="inline-flex h-14 items-center gap-2 rounded-md bg-[#0ea5e9] px-6 text-base font-black text-[#0f172a] shadow-2xl shadow-[#0ea5e9]/30 transition hover:-translate-y-0.5 hover:bg-[#38bdf8]"
               >
                 <Star className="h-5 w-5" />
                 在 GitHub 上 Star
               </a>
               <a
                 href={macDownloadUrl}
-                className="inline-flex h-14 items-center gap-2 rounded-md border border-white/22 bg-white px-6 text-base font-black text-[#160926] shadow-2xl shadow-white/12 transition hover:-translate-y-0.5 hover:bg-[#f6f3fb]"
+                className="inline-flex h-14 items-center gap-2 rounded-md border border-white/22 bg-white px-6 text-base font-black text-[#0f172a] shadow-2xl shadow-white/12 transition hover:-translate-y-0.5 hover:bg-[#f8fbff]"
               >
                 <Download className="h-5 w-5" />
                 下载 Mac 安装包
@@ -515,17 +515,17 @@ export default function ShowcasePage() {
         </div>
       </section>
 
-      <section className="bg-[#f6f3fb] px-6 py-14 sm:px-8 lg:px-10">
+      <section className="bg-[#f8fbff] px-6 py-14 sm:px-8 lg:px-10">
         <div className="mx-auto max-w-7xl">
           <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+              <p className="text-sm font-black uppercase tracking-normal text-[#0284c7]">
                 功能概览
               </p>
               <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal">
                 不止是聊天入口，而是科研项目工作台。
               </h2>
-              <p className="mt-4 max-w-3xl text-sm leading-6 text-[#706b78]">
+              <p className="mt-4 max-w-3xl text-sm leading-6 text-[#334155]">
                 空中之翼 基于 DeepAgents 和 LangGraph，围绕科研项目重组
                 runtime、workspace、skills、tools 和授权流程。
               </p>
@@ -537,14 +537,14 @@ export default function ShowcasePage() {
               return (
                 <article
                   key={highlight.title}
-                  className="group relative overflow-hidden rounded-lg border border-[#ded8e8] bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-[#c084fc] hover:shadow-xl hover:shadow-[#6d28d9]/12"
+                  className="group relative overflow-hidden rounded-lg border border-[#bfdbfe] bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-[#38bdf8] hover:shadow-xl hover:shadow-[#0284c7]/12"
                 >
-                  <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#f5b85b,#a855f7,#2dd4bf)] opacity-0 transition group-hover:opacity-100" />
-                  <Icon className="h-6 w-6 text-[#6d28d9]" />
+                  <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#0ea5e9,#0ea5e9,#2dd4bf)] opacity-0 transition group-hover:opacity-100" />
+                  <Icon className="h-6 w-6 text-[#0284c7]" />
                   <h3 className="mt-5 text-xl font-black tracking-normal">
                     {highlight.title}
                   </h3>
-                  <p className="mt-2 text-sm leading-6 text-[#706b78]">
+                  <p className="mt-2 text-sm leading-6 text-[#334155]">
                     {highlight.copy}
                   </p>
                 </article>
@@ -554,22 +554,22 @@ export default function ShowcasePage() {
         </div>
       </section>
 
-      <section className="border-y border-[#ded8e8] bg-[#ece7f8] px-6 py-16 sm:px-8 lg:px-10">
+      <section className="border-y border-[#bfdbfe] bg-[#ece7f8] px-6 py-16 sm:px-8 lg:px-10">
         <div className="mx-auto max-w-7xl">
           <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+              <p className="text-sm font-black uppercase tracking-normal text-[#0284c7]">
                 工作台界面
               </p>
               <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal lg:whitespace-nowrap">
                 三栏工作台，把对话、文件和运行状态放在一起。
               </h2>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#706b78]">
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#334155]">
                 右侧面板保持项目文件和产物可见，中间区域专注当前任务，左侧管理项目、会话、设置和技能。
               </p>
             </div>
           </div>
-          <div className="overflow-hidden rounded-lg border border-[#ded8e8] bg-white shadow-2xl shadow-[#6d28d9]/12">
+          <div className="overflow-hidden rounded-lg border border-[#bfdbfe] bg-white shadow-2xl shadow-[#0284c7]/12">
             <div
               className="aspect-[16/8] bg-cover bg-left-top"
               style={{
@@ -588,7 +588,7 @@ export default function ShowcasePage() {
         <div className="mx-auto max-w-7xl">
           <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <p className="text-sm font-black uppercase tracking-normal text-[#f5b85b]">
+              <p className="text-sm font-black uppercase tracking-normal text-[#0ea5e9]">
                 例子演示
               </p>
               <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal !text-white">
@@ -603,17 +603,17 @@ export default function ShowcasePage() {
         </div>
       </section>
 
-      <section className="bg-[#f6f3fb] px-6 py-16 sm:px-8 lg:px-10">
+      <section className="bg-[#f8fbff] px-6 py-16 sm:px-8 lg:px-10">
         <div className="mx-auto max-w-7xl">
           <div className="mb-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>
-              <p className="text-sm font-black uppercase tracking-normal text-[#6d28d9]">
+              <p className="text-sm font-black uppercase tracking-normal text-[#0284c7]">
                 功能实景
               </p>
               <h2 className="mt-3 text-[36px] font-black leading-tight tracking-normal">
                 科研需要的工具，都在 空中之翼 里。
               </h2>
-              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#706b78]">
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-[#334155]">
                 看数据、连工具、调计算、管权限、复用技能，都放在同一个工作台里。
               </p>
             </div>
@@ -622,9 +622,9 @@ export default function ShowcasePage() {
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-[#160926] px-6 py-16 text-white sm:px-8 lg:px-10">
-        <div className="absolute inset-0 bg-[linear-gradient(115deg,#160926,#241040_55%,#4c1d95)]" />
-        <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,#f5b85b,#a855f7,transparent)]" />
+      <section className="relative overflow-hidden bg-[#0f172a] px-6 py-16 text-white sm:px-8 lg:px-10">
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,#0f172a,#082f49_55%,#075985)]" />
+        <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,#0ea5e9,#0ea5e9,transparent)]" />
         <div
           aria-hidden="true"
           className="absolute -right-20 top-8 hidden h-36 w-[520px] bg-contain bg-right bg-no-repeat opacity-20 lg:block"
@@ -632,7 +632,7 @@ export default function ShowcasePage() {
         />
         <div className="relative mx-auto flex max-w-7xl flex-col justify-between gap-8 lg:flex-row lg:items-center">
           <div>
-            <p className="text-sm font-black uppercase tracking-normal text-[#f5b85b]">
+            <p className="text-sm font-black uppercase tracking-normal text-[#0ea5e9]">
               上海人工智能实验室智能体系统中心研发
             </p>
             <h2 className="mt-3 max-w-3xl text-4xl font-black leading-tight tracking-normal !text-white sm:text-5xl">
@@ -641,7 +641,7 @@ export default function ShowcasePage() {
           </div>
           <a
             href={githubUrl}
-            className="inline-flex h-16 w-fit items-center gap-3 rounded-md bg-[#f5b85b] px-7 text-lg font-black text-[#160926] shadow-2xl shadow-[#f5b85b]/30 transition hover:-translate-y-0.5 hover:bg-[#ffd48a]"
+            className="inline-flex h-16 w-fit items-center gap-3 rounded-md bg-[#0ea5e9] px-7 text-lg font-black text-[#0f172a] shadow-2xl shadow-[#0ea5e9]/30 transition hover:-translate-y-0.5 hover:bg-[#38bdf8]"
           >
             <Github className="h-5 w-5" />
             在 GitHub 上 Star
